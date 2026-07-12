@@ -320,4 +320,198 @@ describe("room lifecycle", () => {
     host.close();
     p1.close();
   });
+
+  it("starts a racing room through countdown to in-progress", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(getRoom(created.roomId)?.physicsInterval).toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    const room = getRoom(created.roomId);
+    expect(room?.status).toBe("in-progress");
+    expect(room?.gameState?.gameType).toBe("racing");
+    expect(room?.physicsInterval).not.toBeNull();
+
+    host.close();
+    p1.close();
+  }, 8000);
+
+  it("resets racing input when a controller disconnects", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 0.7, throttle: 1, brake: 0.2, sequence: 1, roundId });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    p1.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const room = getRoom(created.roomId);
+    if (room?.gameState?.gameType !== "racing") throw new Error("expected racing game state");
+    const car = room.gameState.cars.get(1)!;
+    expect(car.steering).toBe(0);
+    expect(car.throttle).toBe(0);
+    expect(car.brake).toBe(0);
+
+    host.close();
+  });
+
+  it("stops racing physics and clears all racing inputs when the host disconnects", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 1, throttle: 1, brake: 0, sequence: 1, roundId });
+
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    expect(getRoom(created.roomId)?.physicsInterval).not.toBeNull();
+    host.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const room = getRoom(created.roomId);
+    expect(room?.status).toBe("host-disconnected");
+    expect(room?.physicsInterval).toBeNull();
+    if (room?.gameState?.gameType !== "racing") throw new Error("expected racing game state");
+    const car = room.gameState.cars.get(1)!;
+    expect(car.steering).toBe(0);
+    expect(car.throttle).toBe(0);
+    expect(car.brake).toBe(0);
+
+    p1.close();
+  }, 9000);
+
+  it("game:end stops racing from results and returns the room to lobby without destroying it", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    const activeRoom = getRoom(created.roomId);
+    if (!activeRoom) throw new Error("expected active room");
+    activeRoom.status = "results";
+
+    const ended = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_END, {});
+    expect(ended.ok).toBe(true);
+
+    const room = getRoom(created.roomId);
+    expect(room).toBeDefined();
+    expect(room?.status).toBe("lobby");
+    expect(room?.roundId).toBeNull();
+    expect(room?.gameState).toBeNull();
+    expect(room?.physicsInterval).toBeNull();
+    expect(room?.players[0]!.ready).toBe(true);
+
+    host.close();
+    p1.close();
+  });
+
+  it("game:end still cleans up Controller Test rounds", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "controller-test",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(getRoom(created.roomId)?.gameState?.gameType).toBe("controller-test");
+
+    const ended = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_END, {});
+    expect(ended.ok).toBe(true);
+    const room = getRoom(created.roomId);
+    expect(room?.status).toBe("lobby");
+    expect(room?.gameState).toBeNull();
+    expect(room?.physicsInterval).toBeNull();
+
+    host.close();
+    p1.close();
+  });
 });

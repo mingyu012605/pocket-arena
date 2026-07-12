@@ -42,7 +42,13 @@ import {
   startPhysicsLoop,
   stopPhysicsLoop
 } from "./games/controllerTest";
-import { createRacingGameState } from "./games/racing";
+import {
+  createRacingGameState,
+  resetAllRacingInputs,
+  resetCarInput,
+  startRacingPhysicsLoop,
+  stopRacingPhysicsLoop
+} from "./games/racing";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
   return { ok: false, error: { code, message } };
@@ -62,7 +68,8 @@ function connectedSocketIds(room: InternalRoom): string[] {
 function endRound(room: InternalRoom): void {
   if (room.countdownTimer) clearTimeout(room.countdownTimer);
   room.countdownTimer = null;
-  stopPhysicsLoop(room);
+  if (room.gameType === "racing") stopRacingPhysicsLoop(room);
+  else stopPhysicsLoop(room);
   room.status = "lobby";
   room.roundId = null;
   room.countdownEndsAt = null;
@@ -84,7 +91,8 @@ function runCountdown(io: Server, room: InternalRoom): void {
       room.countdownEndsAt = null;
       room.countdownTimer = null;
       broadcastRoomState(io, room);
-      startPhysicsLoop(io, room);
+      if (room.gameType === "racing") startRacingPhysicsLoop(io, room);
+      else startPhysicsLoop(io, room);
       return;
     }
     room.countdownTimer = setTimeout(emitNext, 1000);
@@ -212,7 +220,8 @@ export function registerSocketHandlers(io: Server, port: number): void {
         player.connected = false;
         player.ready = false;
         player.socketId = null;
-        resetPlayerDirection(room, player.playerNumber);
+        if (room.gameType === "racing") resetCarInput(room, player.playerNumber);
+        else resetPlayerDirection(room, player.playerNumber);
       }
       socket.leave(roomChannel(room.id));
       socket.data.session = undefined;
@@ -334,9 +343,14 @@ export function registerSocketHandlers(io: Server, port: number): void {
           clearTimeout(room.countdownTimer);
           room.countdownTimer = null;
         }
-        stopPhysicsLoop(room);
+        if (room.gameType === "racing") {
+          stopRacingPhysicsLoop(room);
+          resetAllRacingInputs(room);
+        } else {
+          stopPhysicsLoop(room);
+          resetAllDirections(room);
+        }
         room.status = "host-disconnected";
-        resetAllDirections(room);
         broadcastRoomState(io, room);
         room.hostGraceTimer = setTimeout(() => {
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.ROOM_CLOSED, {
@@ -349,7 +363,8 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (player && player.socketId === socket.id) {
           player.connected = false;
           player.socketId = null;
-          resetPlayerDirection(room, player.playerNumber);
+          if (room.gameType === "racing") resetCarInput(room, player.playerNumber);
+          else resetPlayerDirection(room, player.playerNumber);
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.PLAYER_DISCONNECTED, { playerNumber: player.playerNumber });
           broadcastRoomState(io, room);
         }

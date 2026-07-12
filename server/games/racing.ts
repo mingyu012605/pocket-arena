@@ -3,7 +3,7 @@ import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../shared/protocol";
 import { TEST_OVAL_TRACK } from "../../shared/racingTrack";
 import type { TrackDefinition } from "../../shared/racingTrack";
-import { roomChannel } from "../rooms";
+import { roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";
 
 export const DEFAULT_TRACK_ID = "test-oval";
@@ -45,6 +45,7 @@ const MAX_STEPS_PER_CALLBACK = 5;
 const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
 const MAX_HEADING_ERROR = Math.PI * (80 / 180);
+const RACE_SAFETY_TIMEOUT_MS = 180_000;
 
 export const RACING = {
   trackHalfWidth: 6,
@@ -109,12 +110,48 @@ export function stepPhysics(room: InternalRoom, dt: number): void {
   if (room.gameState?.gameType !== "racing") return;
   const track = trackFor(room);
   const now = Date.now();
+  const startedAt = room.gameState.startedAt ?? now;
   for (const car of room.gameState.cars.values()) {
     if (car.finished) continue;
     applyInputTimeout(car, now);
     stepCar(track, car, dt);
+    if (car.finished) car.finishTime = now - startedAt;
   }
   updateRanks(room.gameState);
+}
+
+function compareFinishOrder(a: [number, RacingCarState], b: [number, RacingCarState]): number {
+  const [, carA] = a;
+  const [, carB] = b;
+  if (carA.finishTime !== null && carB.finishTime !== null) return carA.finishTime - carB.finishTime;
+  if (carA.finishTime !== null) return -1;
+  if (carB.finishTime !== null) return 1;
+  return carB.progress - carA.progress;
+}
+
+export function checkRaceCompletion(io: Server, room: InternalRoom, now: number): boolean {
+  if (room.status === "results" || room.gameState?.gameType !== "racing") return false;
+  const gameState = room.gameState;
+  const startedAt = gameState.startedAt ?? now;
+  const allFinished = room.players.length > 0 && [...gameState.cars.values()].every((c) => c.finished);
+  const timedOut = now - startedAt > RACE_SAFETY_TIMEOUT_MS;
+  if (!allFinished && !timedOut) return false;
+
+  if (timedOut) {
+    for (const car of gameState.cars.values()) {
+      if (!car.finished) {
+        car.finished = true;
+        car.finishTime = null;
+      }
+    }
+  }
+  gameState.finishOrder = [...gameState.cars.entries()].sort(compareFinishOrder).map(([playerNumber]) => playerNumber);
+  gameState.endedAt = now;
+  stopRacingPhysicsLoop(room);
+  room.status = "results";
+  io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toGameStatePayload(room));
+  io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.ROOM_STATE, toPublicRoomState(room));
+  return true;
 }
 
 export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
@@ -162,6 +199,7 @@ export function startRacingPhysicsLoop(io: Server, room: InternalRoom): void {
     if (steps > 0 && stepCount % BROADCAST_EVERY_N_STEPS === 0) {
       io.to(roomChannel(room.id)).volatile.emit(SOCKET_EVENTS.GAME_STATE, toGameStatePayload(room));
     }
+    checkRaceCompletion(io, room, now);
   }, Math.round(PHYSICS_STEP * 1000));
 }
 
