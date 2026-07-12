@@ -11,7 +11,9 @@ import type {
 } from "../../../shared/protocol";
 import { createButton } from "../components/button";
 import { mountControllerView } from "../controller/controllerView";
+import { mountRacingView } from "../controller/racingView";
 import "../styles/controller.css";
+import "../styles/racing.css";
 
 function tokenKey(roomId: string, playerNumber: string): string {
   return `pocket-arena:player:${roomId}:${playerNumber}`;
@@ -105,11 +107,20 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
       section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
     } else if (isPlaying) {
       section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;
-      controllerCleanup = mountControllerView(section.querySelector("#controller-mount")!, {
-        nickname: self.nickname ?? "Player",
-        color: self.color,
-        roundId: room.roundId ?? ""
-      });
+      const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
+      controllerCleanup =
+        room.gameType === "racing"
+          ? mountRacingView(mountEl, {
+              nickname: self.nickname ?? "Player",
+              color: self.color,
+              roundId: room.roundId ?? "",
+              playerNumber: Number(playerNumber)
+            })
+          : mountControllerView(mountEl, {
+              nickname: self.nickname ?? "Player",
+              color: self.color,
+              roundId: room.roundId ?? ""
+            });
     } else {
       renderReadyScreen(room, self.color);
     }
