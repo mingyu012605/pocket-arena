@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Server } from "socket.io";
 import { resolveUrls } from "./network";
+import { registerSocketHandlers } from "./socketHandlers";
 
 const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT ?? 3000);
@@ -13,9 +14,7 @@ async function main(): Promise<void> {
   const httpServer = createServer(app);
   const io = new Server(httpServer, { cors: { origin: "*" } });
 
-  io.on("connection", (socket) => {
-    console.log(`socket connected: ${socket.id}`);
-  });
+  registerSocketHandlers(io, port);
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import("vite");
