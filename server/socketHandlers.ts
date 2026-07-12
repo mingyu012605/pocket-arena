@@ -288,6 +288,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       if (!room) return;
 
       if (session.role === "host") {
+        if (room.hostSocketId !== socket.id) return;
         room.hostSocketId = null;
         room.statusBeforeHostDisconnect = room.status;
         if (room.countdownTimer) {
