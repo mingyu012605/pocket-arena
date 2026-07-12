@@ -52,12 +52,13 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     section.style.setProperty("--player-color", color);
     section.innerHTML = `
       <p class="eyebrow">PLAYER ${playerNumber}</p>
-      <h1 class="glow-text">${self?.nickname ?? ""}</h1>
+      <h1 class="glow-text" id="ready-nickname"></h1>
       <div id="ready-slot"></div>
       <p id="waiting-text" class="hero-copy" hidden>Waiting for host…</p>
     `;
     const readySlot = section.querySelector<HTMLDivElement>("#ready-slot")!;
     const waitingText = section.querySelector<HTMLParagraphElement>("#waiting-text")!;
+    section.querySelector<HTMLHeadingElement>("#ready-nickname")!.textContent = self?.nickname ?? "";
     let ready = self?.ready ?? false;
     waitingText.hidden = !ready;
     const readyButton = createButton({
@@ -126,7 +127,9 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     })
     .catch((err: { message?: string }) => {
       if (cancelled) return;
-      section.innerHTML = `<h1>Invalid or Expired Link</h1><p>${err.message ?? "This QR code is no longer valid."}</p>`;
+      section.innerHTML = `<h1>Invalid or Expired Link</h1><p id="invalid-link-message"></p>`;
+      section.querySelector<HTMLParagraphElement>("#invalid-link-message")!.textContent =
+        err.message ?? "This QR code is no longer valid.";
     });
 
   function renderNicknameForm(validated: ValidateTokenResponse): void {
@@ -135,13 +138,14 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
       <p class="eyebrow">PLAYER ${playerNumber}</p>
       <h1 class="glow-text">Join the Arena</h1>
       <form id="nickname-form" class="nickname-form">
-        <input id="nickname-input" type="text" maxlength="20" placeholder="Your nickname" autocomplete="off" value="${validated.nickname ?? ""}" required />
+        <input id="nickname-input" type="text" maxlength="20" placeholder="Your nickname" autocomplete="off" required />
         <div id="nickname-submit"></div>
       </form>
       <p class="error-text" id="join-error" hidden></p>
     `;
     const form = section.querySelector<HTMLFormElement>("#nickname-form")!;
     const input = section.querySelector<HTMLInputElement>("#nickname-input")!;
+    input.value = validated.nickname ?? "";
     const submitSlot = section.querySelector<HTMLDivElement>("#nickname-submit")!;
     const errorEl = section.querySelector<HTMLParagraphElement>("#join-error")!;
     const submitButton = createButton({ label: "Join Game", variant: "primary" });

@@ -17,8 +17,9 @@ export function createPlayerCard(player: PublicPlayer): HTMLElement {
   card.className = `player-card status-${statusClass(player)}`;
   card.innerHTML = `
     <span class="player-number">Player ${player.playerNumber}</span>
-    <span class="player-nickname">${player.nickname ?? "Waiting to scan…"}</span>
+    <span class="player-nickname"></span>
     <span class="player-status">${statusLabel(player)}</span>
   `;
+  card.querySelector<HTMLSpanElement>(".player-nickname")!.textContent = player.nickname ?? "Waiting to scan...";
   return card;
 }

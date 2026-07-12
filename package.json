@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "cross-env": "^10.1.0",
     "express": "^4.21.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1"
@@ -21,7 +22,6 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
     "@types/qrcode": "^1.5.5",
-    "cross-env": "^10.1.0",
     "esbuild": "^0.24.2",
     "socket.io-client": "^4.8.1",
     "tsx": "^4.19.2",

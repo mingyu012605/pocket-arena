@@ -9,7 +9,7 @@ export function mountControllerView(
   container.innerHTML = `
     <div class="controller-screen" style="--player-color:${opts.color}">
       <header class="controller-header">
-        <span class="controller-nickname">${opts.nickname}</span>
+        <span class="controller-nickname"></span>
         <span class="controller-status" id="conn-indicator">●</span>
       </header>
       <button class="jump-button" id="btn-jump">JUMP</button>
@@ -25,6 +25,7 @@ export function mountControllerView(
   const leftBtn = container.querySelector<HTMLButtonElement>("#btn-left")!;
   const rightBtn = container.querySelector<HTMLButtonElement>("#btn-right")!;
   const indicator = container.querySelector<HTMLSpanElement>("#conn-indicator")!;
+  container.querySelector<HTMLSpanElement>(".controller-nickname")!.textContent = opts.nickname;
 
   const unbindLeft = bindHoldButton(
     leftBtn,
