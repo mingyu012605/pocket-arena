@@ -257,4 +257,67 @@ describe("room lifecycle", () => {
     host.close();
     p1.close();
   });
+
+  it("clamps out-of-range racing:input values and rejects stale sequence / wrong roundId", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+
+    // Out-of-range values must be clamped, not stored raw.
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 2, throttle: -1, brake: 5, sequence: 1, roundId });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    let room = getRoom(created.roomId);
+    if (room?.gameState?.gameType === "racing") {
+      const car = room.gameState.cars.get(1);
+      expect(car?.steering).toBe(1);
+      expect(car?.throttle).toBe(0);
+      expect(car?.brake).toBe(1);
+    }
+
+    // A stale/duplicate sequence must be dropped, not overwrite the stored value.
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: -0.9, throttle: 0.1, brake: 0, sequence: 1, roundId });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    room = getRoom(created.roomId);
+    if (room?.gameState?.gameType === "racing") {
+      const car = room.gameState.cars.get(1);
+      expect(car?.steering).toBe(1); // unchanged from the first, clamped packet
+    }
+
+    // A mismatched roundId must be dropped even with a fresh sequence number.
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: -0.5, throttle: 0.2, brake: 0, sequence: 2, roundId: "wrong-round" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    room = getRoom(created.roomId);
+    if (room?.gameState?.gameType === "racing") {
+      const car = room.gameState.cars.get(1);
+      expect(car?.steering).toBe(1); // still unchanged
+    }
+
+    host.close();
+    p1.close();
+  });
 });
