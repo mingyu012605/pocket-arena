@@ -55,7 +55,8 @@ export interface ErrorPayload {
     | "slot-taken"
     | "already-connected"
     | "not-host"
-    | "not-ready";
+    | "not-ready"
+    | "already-started";
   message: string;
 }
 

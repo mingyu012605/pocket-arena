@@ -113,6 +113,36 @@ describe("room lifecycle", () => {
     p2.close();
   });
 
+  it("rejects a second game:start while a round is already in progress", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "controller-test",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    const firstStart = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(firstStart.ok).toBe(true);
+
+    const secondStart = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(secondStart.ok).toBe(false);
+    if (!secondStart.ok) expect(secondStart.error.code).toBe("already-started");
+
+    host.close();
+    p1.close();
+  });
+
   it("rejects an invalid token", async () => {
     const host = connect();
     await new Promise<void>((resolve) => host.on("connect", resolve));

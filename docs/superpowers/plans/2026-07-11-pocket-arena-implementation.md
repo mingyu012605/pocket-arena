@@ -430,7 +430,8 @@ export interface ErrorPayload {
     | "slot-taken"
     | "already-connected"
     | "not-host"
-    | "not-ready";
+    | "not-ready"
+    | "already-started";
   message: string;
 }
 
@@ -1138,6 +1139,9 @@ export function registerSocketHandlers(io: Server, port: number): void {
       if (!session || session.role !== "host") return ack(errorAck("not-host", "Only the host can start the game."));
       const room = getRoom(session.roomId);
       if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      if (room.status !== "lobby") {
+        return ack(errorAck("already-started", "The game has already started."));
+      }
       if (!allSlotsReady(room)) {
         return ack(errorAck("not-ready", "Every player slot must be connected and ready."));
       }
@@ -1148,6 +1152,15 @@ export function registerSocketHandlers(io: Server, port: number): void {
       runCountdown(io, room);
       ack({ ok: true });
     });
+
+    // Amendment (applied during Task 8 review): the `room.status !== "lobby"` check above
+    // was missing in the original draft. `allSlotsReady` alone doesn't change once a round
+    // is `in-progress` (connected+ready players stay connected+ready), so a duplicate
+    // `game:start` (double-click, client retry) during an active round would silently
+    // re-enter `runCountdown` and, on reaching "go", call `startPhysicsLoop` a second time —
+    // orphaning the first `setInterval` (never reachable by `stopPhysicsLoop` again) and
+    // duplicating `game:state` broadcasts. Fixed with the status guard here, plus a matching
+    // idempotency guard in `startPhysicsLoop` itself (see Task 8) as defense in depth.
 
     socket.on(SOCKET_EVENTS.GAME_END, (_payload: unknown, ack: (res: Ack<Record<string, never>>) => void) => {
       const session = socket.data.session;
@@ -2593,6 +2606,7 @@ export function toGameStatePayload(room: InternalRoom): GameStatePayload {
 }
 
 export function startPhysicsLoop(io: Server, room: InternalRoom): void {
+  if (room.physicsInterval) return;
   let lastTick = Date.now();
   room.physicsInterval = setInterval(() => {
     const now = Date.now();

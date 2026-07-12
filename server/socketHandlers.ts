@@ -231,6 +231,9 @@ export function registerSocketHandlers(io: Server, port: number): void {
       if (!session || session.role !== "host") return ack(errorAck("not-host", "Only the host can start the game."));
       const room = getRoom(session.roomId);
       if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      if (room.status !== "lobby") {
+        return ack(errorAck("already-started", "The game has already started."));
+      }
       if (!allSlotsReady(room)) {
         return ack(errorAck("not-ready", "Every player slot must be connected and ready."));
       }

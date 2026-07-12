@@ -32,6 +32,7 @@ export function toGameStatePayload(room: InternalRoom): GameStatePayload {
 }
 
 export function startPhysicsLoop(io: Server, room: InternalRoom): void {
+  if (room.physicsInterval) return;
   let lastTick = Date.now();
   room.physicsInterval = setInterval(() => {
     const now = Date.now();
