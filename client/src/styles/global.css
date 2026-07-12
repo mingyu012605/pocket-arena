@@ -1,0 +1,78 @@
+:root {
+  --color-bg: #05070f;
+  --color-surface: #11162a;
+  --color-border: #232a45;
+  --color-text: #e8ecf9;
+  --color-text-dim: #8b93b8;
+  --color-blue: #3b82f6;
+  --color-purple: #a855f7;
+  --color-cyan: #22d3ee;
+  --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.35);
+  --radius-lg: 20px;
+  --radius-md: 12px;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #0c1224 0%, var(--color-bg) 60%);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 0.5em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: var(--color-cyan);
+}
+
+.glow-text {
+  background: linear-gradient(90deg, var(--color-cyan), var(--color-purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.eyebrow {
+  letter-spacing: 0.3em;
+  color: var(--color-text-dim);
+  font-size: 0.8rem;
+}
+
+.page-section {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  width: 100%;
+}
+
+.page-section.centered {
+  text-align: center;
+  max-width: 480px;
+  padding-top: 4rem;
+}
+
+.error-text {
+  color: #ef4444;
+  margin-top: 0.75rem;
+}
