@@ -59,10 +59,10 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
   {
     id: "racing",
     title: "Racing",
-    description: "Tilt, boost, and drift to the line.",
+    description: "Steer with your phone like a wheel, tilt to throttle and brake — real motion control, real turning physics.",
     minPlayers: 1,
     maxPlayers: 4,
-    playable: false,
+    playable: true,
     icon: "🏎️"
   }
 ];

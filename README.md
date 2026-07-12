@@ -49,6 +49,19 @@ production mode the server serves the pre-built static files in
 `dist/client/`, with an SPA fallback to `index.html` for client-side
 routes, instead of the Vite dev middleware `npm run dev` uses.
 
+## Racing
+
+Racing is enabled as a Cycle 1 technical foundation: real motion-controller
+input, server-authoritative track-relative turning physics, multiplayer
+ranking, results, and rematch on a basic Three.js renderer. It is playable,
+but it is not the finished high-quality Racing game; Cycle 2 will add the
+polished visual presentation, audio, AI opponents, and car collision.
+
+Real phone motion APIs generally require a secure context. `localhost` is
+accepted for local browser testing, but physical iPhone/Android testing over
+a LAN usually requires HTTPS. The existing HTTP-based Controller Test flow is
+unchanged.
+
 ## Type-checking and tests
 
 npm run typecheck
