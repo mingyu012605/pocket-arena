@@ -202,12 +202,25 @@ export class MotionInputSource {
 
   confirmCalibrationRight(): void {
     if (this.state !== "await-calibration" || this.calibrationStep !== "confirm-right") return;
+    // armSensorTimeout (called once, at "center") only catches "zero events
+    // ever arrived" — a sensor that fires once then goes silent (screen
+    // lock, permission revoked mid-flow, browser throttling) would satisfy
+    // that check yet still be dead by the time the user reaches this later,
+    // user-paced step. Re-checking freshness here catches that case too.
+    if (Date.now() - this.lastEventAt > STALE_READING_MS) {
+      this.setState("sensor-timeout");
+      return;
+    }
     this.steeringSign = deriveSign(this.lastRawRotation, this.neutralRotation);
     this.calibrationStep = "confirm-tilt";
   }
 
   confirmCalibrationTilt(): void {
     if (this.state !== "await-calibration" || this.calibrationStep !== "confirm-tilt") return;
+    if (Date.now() - this.lastEventAt > STALE_READING_MS) {
+      this.setState("sensor-timeout");
+      return;
+    }
     this.throttleSign = deriveSign(this.lastRawPitch, this.neutralPitch);
     this.calibrationStep = "done";
     this.clearSensorTimeout();
