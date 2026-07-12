@@ -32,8 +32,8 @@ For every task:
 1. Inspect current files before editing.
 2. Implement only that task.
 3. Run `npm.cmd run typecheck`.
-4. Run `cmd /c npx vitest run` or the task-specific test plus full suite when
-   risk warrants.
+4. Run `npm.cmd test` or the task-specific test plus full suite when risk
+   warrants.
 5. Run `npm.cmd run build`.
 6. Run the app when the task affects runtime behavior.
 7. Capture a screenshot when the task affects visuals.
@@ -108,7 +108,7 @@ technical renderer baseline before adding detail.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Run app with and without debug flag.
 - Screenshot baseline technical renderer.
@@ -146,7 +146,7 @@ and Controller Test should not eagerly load the Racing/Three chunk.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Inspect production chunks: Racing/Three should be separated from initial
   landing/Controller Test path.
@@ -234,7 +234,7 @@ with a primitive fallback if the model fails to load.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Run Racing and capture screenshot.
 - Record FPS/draw calls/triangles with 1 and 4 cars.
@@ -278,7 +278,7 @@ from the shared track source of truth.
 
 - `npm.cmd run typecheck`
 - Relevant shared tests if track helpers change.
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Screenshot at start/finish seam and at curves.
 - Metrics before/after.
@@ -318,7 +318,7 @@ Build one coherent Harbor City GP environment around the existing track.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Screenshot from chase and spectator viewpoints.
 - Metrics with Low/Medium/High placeholder settings if available.
@@ -355,7 +355,7 @@ Make the scene look intentional and premium even when stationary.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Screenshot with car stationary at start grid.
 - Metrics with shadows on/off.
@@ -396,7 +396,7 @@ Replace the simple chase camera with a multi-mode camera system.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Run Racing and cycle all modes.
 - Screenshot each mode.
@@ -439,7 +439,7 @@ Upgrade Racing host HUD and finish/result presentation.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Screenshot laptop and projector-ish wide viewport.
 - Verify results/rematch/change game.
@@ -483,7 +483,7 @@ Add original/properly licensed Racing audio with clean lifecycle.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Manual audio check with mute/unmute/rematch/navigation.
 - Confirm no new AudioContext per rematch after teardown.
@@ -520,7 +520,7 @@ Add performance-conscious visual effects using object pools.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Metrics with effects active.
 - Memory check across repeated races/rematches.
@@ -578,7 +578,7 @@ Document the chosen approach in the task report.
   - AI slows for curvature.
   - AI ranking/finish participates correctly.
   - Human input validation remains intact.
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Manual single-player race against AI.
 - Metrics with max AI count.
@@ -623,7 +623,7 @@ Add simple car-to-car collision response and feedback.
   - speed reduced
   - wrap-around collision works near seam
   - no collision when far apart
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Manual multi-car collision check.
 - Verify feedback without breaking phone controls.
@@ -669,7 +669,7 @@ Finalize Low/Medium/High presets and optimize scene cost.
 **Verification**
 
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - Run Racing on each preset.
 - Record FPS/draw calls/triangles/textures/memory for each preset.
@@ -726,7 +726,7 @@ results -> rematch.
 
 - `npm.cmd install`
 - `npm.cmd run typecheck`
-- `cmd /c npx vitest run`
+- `npm.cmd test`
 - `npm.cmd run build`
 - `npm start` or approved HTTPS deployment start.
 - `/` serves hashed production assets.
