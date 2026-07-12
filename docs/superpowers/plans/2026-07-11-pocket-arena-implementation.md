@@ -634,12 +634,15 @@ export type SocketSession =
   | { role: "host"; roomId: string }
   | { role: "controller"; roomId: string; playerNumber: number };
 
-declare module "socket.io" {
-  interface Socket {
-    data: { session?: SocketSession };
-  }
-}
+// socket.io's `Socket.data` is typed via a generic parameter that defaults to
+// `any`; declaration-merging into `Socket`/`SocketData` directly either fails
+// to compile (conflicts with the generic) or silently stays `any`. Verified
+// empirically: parameterizing the generic directly is the only approach that
+// actually narrows `socket.data.session` at compile time.
+export type AppSocket = Socket<any, any, any, { session?: SocketSession }>;
 ```
+
+**Amendment (applied during implementation, see commit `4fc9815`):** the code above supersedes an earlier draft of this file that tried `declare module "socket.io" { interface Socket { data: {...} } }`, which fails to compile against socket.io 4.8.1 (`TS2717: Subsequent property declarations must have the same type`). A follow-up attempt to augment a `SocketData` interface compiled, but only because `Socket`'s `SocketData` generic defaults to `any` — it added no real type safety. The `AppSocket` type alias above is the verified-working fix: every later task that handles a connected socket (Task 4, and any future task adding new socket handlers) must type that parameter as `AppSocket` (imported from `./types`), not the bare `Socket` type from `socket.io`.
 
 - [ ] **Step 2: Create `server/rooms.ts`**
 
@@ -903,7 +906,7 @@ export async function buildSlotQrData(room: InternalRoom, baseUrl: string): Prom
 - [ ] **Step 2: Create `server/socketHandlers.ts`**
 
 ```ts
-import type { Server, Socket } from "socket.io";
+import type { Server } from "socket.io";
 import {
   ARENA,
   MAX_PLAYERS,
@@ -936,7 +939,7 @@ import {
   teardownRoom,
   toPublicRoomState
 } from "./rooms";
-import type { InternalRoom } from "./types";
+import type { AppSocket, InternalRoom } from "./types";
 import { resolveUrls } from "./network";
 import { buildSlotQrData } from "./qr";
 
@@ -990,7 +993,7 @@ function runCountdown(io: Server, room: InternalRoom): void {
 }
 
 export function registerSocketHandlers(io: Server, port: number): void {
-  io.on("connection", (socket: Socket) => {
+  io.on("connection", (socket: AppSocket) => {
     socket.on(
       SOCKET_EVENTS.HOST_CREATE_ROOM,
       async (payload: CreateRoomRequest, ack: (res: Ack<CreateRoomResponse>) => void) => {
