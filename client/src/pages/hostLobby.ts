@@ -4,6 +4,7 @@ import type { CleanupFn, RouteContext } from "../networking/router";
 import { SOCKET_EVENTS } from "../../../shared/protocol";
 import type { CreateRoomSlot, PublicRoomState, RoomClosedPayload } from "../../../shared/protocol";
 import type { CountdownTickPayload, GameStatePayload } from "../../../shared/protocol";
+import type { HostReconnectResponse } from "../../../shared/protocol";
 import { createQrCard } from "../components/qrCard";
 import { createPlayerCard } from "../components/playerCard";
 import { createButton } from "../components/button";
@@ -33,12 +34,14 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         </div>
       </header>
       <div class="lobby-grid" id="lobby-grid"></div>
+      <p class="reconnecting-banner" id="reconnecting" hidden>Reconnecting…</p>
       <div class="lobby-footer" id="lobby-footer"></div>
     </section>
   `;
 
   const gridEl = container.querySelector<HTMLDivElement>("#lobby-grid")!;
   const footerEl = container.querySelector<HTMLDivElement>("#lobby-footer")!;
+  const reconnectingEl = container.querySelector<HTMLParagraphElement>("#reconnecting")!;
 
   const startButton = createButton({
     label: "Start Game",
@@ -98,6 +101,16 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   }
 
   function renderRoom(room: PublicRoomState): void {
+    if (room.status === "host-disconnected") {
+      gridEl.hidden = true;
+      footerEl.hidden = true;
+      gameSectionEl.hidden = true;
+      reconnectingEl.hidden = false;
+      lastStatus = room.status;
+      return;
+    }
+    reconnectingEl.hidden = true;
+
     const isPlaying = room.status === "countdown" || room.status === "in-progress";
     const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
     if (isPlaying && !wasPlaying) startGameView(room);
@@ -120,7 +133,16 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     startButton.disabled = !allReady;
   }
 
-  renderRoom(session.room);
+  emitWithAck<HostReconnectResponse>(SOCKET_EVENTS.HOST_RECONNECT, {
+    roomId,
+    hostToken: session.hostToken
+  }).then(
+    ({ room }) => renderRoom(room),
+    () => {
+      sessionStorage.removeItem(`pocket-arena:host:${roomId}`);
+      navigate("/");
+    }
+  );
 
   const socket = getSocket();
   const onRoomState = (room: PublicRoomState) => renderRoom(room);
