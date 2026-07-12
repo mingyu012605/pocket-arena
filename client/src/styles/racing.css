@@ -1,0 +1,94 @@
+.racing-controller {
+  align-items: center;
+  text-align: center;
+}
+
+.steering-wheel {
+  width: 220px;
+  height: 220px;
+  margin: 1.5rem auto 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wheel-rim {
+  --steer: 0;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 14px solid var(--player-color, var(--color-cyan));
+  position: relative;
+  transform: rotate(calc(var(--steer, 0) * 90deg));
+  transition: transform 80ms linear;
+  box-shadow: 0 0 32px color-mix(in srgb, var(--player-color, var(--color-cyan)) 35%, transparent);
+}
+
+.wheel-spoke {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  background: color-mix(in srgb, var(--player-color, var(--color-cyan)) 70%, white);
+  transform: translate(-50%, -50%);
+}
+
+.wheel-spoke-horizontal {
+  width: 136px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.wheel-spoke-vertical {
+  width: 10px;
+  height: 118px;
+  border-radius: 999px;
+}
+
+.wheel-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--player-color, var(--color-cyan));
+  transform: translate(-50%, -50%);
+}
+
+.steering-readout {
+  margin: 0 0 1rem;
+  color: var(--color-text-dim);
+  font-weight: 700;
+}
+
+.racing-telemetry {
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto 1rem;
+}
+
+.telemetry-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.telemetry-bar span {
+  width: 74px;
+  text-align: right;
+  color: var(--color-text-dim);
+}
+
+.telemetry-bar progress {
+  flex: 1;
+  height: 14px;
+  accent-color: var(--player-color, var(--color-cyan));
+}
+
+.safety-copy {
+  color: var(--color-text-dim);
+  font-size: 0.95rem;
+  margin-top: 1rem;
+}
