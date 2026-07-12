@@ -1497,7 +1497,7 @@ function compile(path: string): { pattern: RegExp; keys: string[] } {
       return segment ? `/${segment}` : "";
     })
     .join("");
-  return { pattern: new RegExp(`^${pattern}$`), keys };
+  return { pattern: new RegExp(`^${pattern || "/"}$`), keys };
 }
 
 export function registerRoute(path: string, handler: RouteHandler): void {
@@ -1507,6 +1507,10 @@ export function registerRoute(path: string, handler: RouteHandler): void {
 
 function render(): void {
   if (!container) return;
+  if (activeCleanup) {
+    activeCleanup();
+    activeCleanup = null;
+  }
   const url = new URL(window.location.href);
   for (const route of routes) {
     const match = route.pattern.exec(url.pathname);
@@ -1516,10 +1520,6 @@ function render(): void {
       const value = match[i + 1];
       if (value !== undefined) params[key] = value;
     });
-    if (activeCleanup) {
-      activeCleanup();
-      activeCleanup = null;
-    }
     container.innerHTML = "";
     const cleanup = route.handler({ container, params, query: url.searchParams });
     activeCleanup = cleanup ?? null;
@@ -1546,6 +1546,8 @@ export function startRouter(rootElement: HTMLElement): void {
   render();
 }
 ```
+
+**Amendment (applied during implementation, see commit in Task 5's ledger entry):** the code above supersedes an earlier draft that built the root path's regex as `new RegExp(`^${pattern}$`)` with no fallback. For `path === "/"`, `"/".split("/")` yields `["", ""]`, both segments map to the empty string, and the joined pattern is `""` — producing `/^$/`, which never matches `window.location.pathname === "/"`. The `pattern || "/"` fallback above is the fix, verified empirically (`/^\/$/.test("/") === true`). The same amendment also moves the `activeCleanup()` call to the top of `render()`, unconditionally, so the "no route matched" fallback path also tears down the previous route's listeners/loops instead of only doing so on a successful match — required by the plan's own cleanup-function guarantee (spec §9).
 
 - [ ] **Step 3: Create `client/src/components/button.ts`**
 
