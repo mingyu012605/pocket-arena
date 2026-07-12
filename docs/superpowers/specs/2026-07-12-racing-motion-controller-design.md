@@ -1,7 +1,16 @@
 # Racing Motion Controller — Design Spec
 
 Date: 2026-07-12
-Status: Approved for implementation
+Status: Approved for implementation, delivered in two required cycles (see
+§12). **Cycle 1 alone is not a finished Racing game** — it is the complete
+technical foundation and first playable race (real motion control,
+server-authoritative track-relative physics, full multiplayer lobby → race →
+results → rematch loop, plain technical visuals). **Cycle 2 is required**
+before Racing is considered feature-complete — it replaces only the visual
+presentation, audio, AI, and collision-response layers on top of the same
+architecture; it does not redesign the track model, race state, renderer
+interface, camera system, or protocol established in Cycle 1. Each cycle gets
+its own implementation plan document (§12).
 
 ## 1. Overview
 
@@ -323,21 +332,19 @@ helper both renderers call), tuned to the same one-broadcast-interval delay.
 Phone input arrives ~30Hz (§4); laptop rendering runs at `requestAnimationFrame`
 (~60Hz) reading the interpolated buffer.
 
-### 6.3 Race order, no collisions yet (Stage 1) → simple separation (Stage 2)
+### 6.3 Race order (Cycle 1) → collision/separation/impact (Cycle 2)
 
 Every tick, cars are sorted by `progress` descending (loop-aware: a car that
 has completed more of the track ranks above one that hasn't, ties broken by
-`lateralOffset` irrelevant) to compute live `rank`. **Stage 1** (this phase's
-initial milestone): cars may visually overlap, no collision response —
-matches the "focused prototype, not a full simulator" scope. **Stage 2**
-(added before this phase is considered feature-complete, per §9): a simple
-circle-radius overlap check between each car pair in track-space (arc-length
-distance along the loop, shortest-path aware so it's correct near the
-start/finish wrap), and on overlap, symmetric positional separation pushing
-both cars apart along the separation vector proportional to overlap depth.
-**Stage 3** (impact speed loss + vibration/screen-flash feedback) is grouped
-with the polished-slice audio/feedback work in §7.3, not required for this
-phase's playable milestone.
+`lateralOffset` irrelevant) to compute live `rank`. **Cycle 1**: cars may
+visually overlap, no collision response — matches "prove the loop end to
+end" scope; rank/finish detection do not depend on collision existing.
+**Cycle 2** (§12): a circle-radius overlap check between each car pair in
+track-space (arc-length distance along the loop, shortest-path aware so it's
+correct near the start/finish wrap), symmetric positional separation on
+overlap proportional to overlap depth, impact speed loss on both cars, and
+controller vibration/screen-flash feedback — delivered together as one
+Cycle 2 item, not split across further sub-stages.
 
 ### 6.4 Input timeout (stuck-input protection, racing's version)
 
@@ -359,7 +366,7 @@ three-channel input.
 
 ## 7. Client Racing Renderer
 
-### 7.1 Technical renderer (this phase's playable milestone)
+### 7.1 Technical renderer (Cycle 1)
 
 `RacingRenderer implements GameRenderer<RacingGameStatePayload>` — same
 `mount`/`applyState`/`render`/`destroy` contract as `ControllerTestRenderer`,
@@ -390,7 +397,7 @@ to change `focusedPlayerNumber` (a host-only action, similar in spirit to
 existing host controls); server just tracks the value on `RacingGameState`
 for the host's convenience — it doesn't affect physics.
 
-### 7.3 Polished vertical slice (later stage within this feature, not the initial milestone)
+### 7.3 Polished vertical slice (Cycle 2)
 
 Everything below is achieved with **procedural Three.js geometry, materials,
 lighting, and particle systems, plus Web Audio API-synthesized tones** — not
@@ -482,33 +489,66 @@ uses browser sensor emulation (Chrome DevTools' Sensors panel) — documented
 in the README, not a code fallback. Controller Test's existing HTTP flow is
 completely unaffected; this constraint is racing-specific.
 
-## 12. Delivery Stages
+## 12. Delivery Cycles
 
-Mirrors the requested work sequence, each stage independently verifiable
-before the next starts:
+This feature ships in **two required cycles, each with its own
+implementation plan document**. Cycle 1 is not an optional draft — it is the
+real, playable game with real physics; Cycle 2 is not optional polish that
+might be skipped — it is required before Racing is considered finished.
+Critically, **Cycle 2 does not replace or redesign anything Cycle 1 builds**:
+it enhances the same `RacingRenderer` class, reads/writes the same
+`RacingCarState`/`RacingGameState` shapes, and adds AI cars as ordinary
+entries in the same `cars: Map<number, RacingCarState>` (server-driven
+instead of packet-driven) and collision using the same `progress`/
+`lateralOffset` fields already tracked in Cycle 1. Nothing in Cycle 1 is a
+throwaway/temporary system.
+
+### Cycle 1 — Racing Foundation (plan:
+`docs/superpowers/plans/2026-07-12-racing-foundation-implementation.md`)
 
 1. Motion permission + secure-context handling, on-screen state only (no
    track, no server).
-2. Landscape gate + axis normalization + guided calibration + live debug
-   readout (raw steering/throttle/brake numbers on screen, still no
-   networking).
-3. `racing:input` wired to the server; server validates and stores values
-   (no physics integration yet — just confirms the pipe works).
-4. §5's `InternalGameState` refactor, with its regression gate, landing
+2. Landscape gate + axis normalization, added to the same module.
+3. Guided, sign-confirming calibration (§4).
+4. Live motion debug visualization (raw steering/throttle/brake numbers on
+   screen) — proves the sensor pipeline before any networking exists.
+5. `racing:input` Socket.IO protocol (§3) wired end-to-end: server validates
+   and stores values (no physics integration yet — confirms the pipe works).
+6. §5's `InternalGameState` refactor, with its regression gate, landing
    *before* any racing physics is written.
-5. §6.1–6.2 physics on a single test track, single car, proving the
-   track-relative model and 60Hz/20Hz split.
-6. Multiplayer: multiple cars, live rank, §6.3 Stage 1 (no collision).
-7. §9 results screen + rematch, closing the full lifecycle loop.
-8. §7.1 technical Three.js renderer replacing any interim debug visualization.
-9. §6.3 Stage 2 (simple collision/separation).
-10. §7.3 polished vertical slice + §10's AI opponents + §6.3 Stage 3
-    (impact feedback), as a distinct later pass — not required for this
-    feature to be considered a working playable milestone.
+7. §6.1–6.2 server-authoritative physics — real track-relative turning
+   (`progress`/`lateralOffset`/`headingError`/`yawRate`, not a lane-runner),
+   fixed 60Hz timestep, 20–30Hz network snapshots — proven on a single test
+   track with a single car.
+8. Multiplayer human cars, time-trial support for one player, countdown,
+   live position/ranking (§6.3 Stage 1: cars may overlap, no collision yet),
+   finish detection, results screen, rematch/return-to-lobby (§9).
+9. §7.1's basic technical Three.js renderer — plain track ribbon, colored
+   primitive cars, chase camera, DOM HUD — enough to *watch* the complete
+   loop from stage 8 work, not enough to call the game finished.
 
-Stages 1–7 constitute this phase's "first playable" bar — motion-controlled,
-multiplayer-capable, real turning physics, full lobby→results loop, plain
-(non-polished) visuals. Stages 8–10 are explicitly a follow-on pass.
+**Cycle 1 exit bar:** a full lobby → motion-controlled countdown → real
+turning multiplayer race → results → rematch loop, watchable end-to-end on
+the technical renderer. This is the first playable race. It is explicitly
+**not** the finished Racing game.
+
+### Cycle 2 — Polished Racing Vertical Slice (plan written *after* Cycle 1 is
+implemented and verified:
+`docs/superpowers/plans/2026-07-12-racing-polished-slice-implementation.md`)
+
+10. Full §7.3 visual presentation on the *same* `RacingRenderer`: procedural
+    multi-part car models, detailed track/curbs/barriers/grandstands/
+    environment, lighting/shadows, improved chase (and optional cockpit)
+    camera, racing HUD/speedometer, countdown lights, finish presentation,
+    engine/collision/environment audio (Web Audio synthesis), speed/dust/
+    tire particle effects, AI opponents (§10) for single-player and
+    grid-filling, car collision/separation with impact slowdown (§6.3
+    Stages 2–3 combined) and controller vibration/visual impact feedback,
+    final phone-controller visual polish, and performance passes plus
+    physical-phone testing (secure-context/HTTPS required for real sensor
+    testing, per §11).
+
+Racing is only considered feature-complete once Cycle 2 lands.
 
 ## 13. Testing Plan
 
@@ -548,7 +588,7 @@ with §11):
 7. Existing Controller Test (join, ready, JUMP/LEFT/RIGHT) still works
    unchanged after the §5 refactor.
 
-## 14. Known Limitations (this phase)
+## 14. Known Limitations (Cycle 1)
 
 - No real vehicle-dynamics tire model (grip/slip) — turning is responsive
   but simplified; understeer/oversteer is future work.
