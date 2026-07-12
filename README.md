@@ -38,16 +38,16 @@ default).
 ## Build and run (production)
 
 npm run build
-NODE_ENV=production npm start
+npm start
 
 `npm run build` compiles the client with Vite and bundles the server with
-esbuild into `dist/`. `npm start` runs the bundled `dist/server/index.js` —
-one process, one port, the same `Local`/`Network`/`QR codes will use:`
-banner as `npm run dev`. `NODE_ENV=production` matters: with it set, the
-server serves the pre-built static files in `dist/client/` (with an SPA
-fallback to `index.html` for client-side routes); without it, the server
-falls back to the same Vite dev middleware `npm run dev` uses. Always set
-`NODE_ENV=production` when running the built output.
+esbuild into `dist/`. `npm start` sets `NODE_ENV=production` itself (via
+`cross-env`, so this works the same on Windows, macOS, and Linux) and runs
+the bundled `dist/server/index.js` — one process, one port, the same
+`Local`/`Network`/`QR codes will use:` banner as `npm run dev`. In
+production mode the server serves the pre-built static files in
+`dist/client/`, with an SPA fallback to `index.html` for client-side
+routes, instead of the Vite dev middleware `npm run dev` uses.
 
 ## Type-checking and tests
 

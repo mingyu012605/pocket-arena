@@ -59,7 +59,7 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server/index.js",
-    "start": "node dist/server/index.js",
+    "start": "cross-env NODE_ENV=production node dist/server/index.js",
     "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run"
   },
@@ -72,6 +72,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
     "@types/qrcode": "^1.5.5",
+    "cross-env": "^10.1.0",
     "esbuild": "^0.24.2",
     "socket.io-client": "^4.8.1",
     "tsx": "^4.19.2",
@@ -81,6 +82,8 @@
   }
 }
 ```
+
+**Amendment (applied during Task 13):** the `start` script above supersedes an earlier draft's plain `node dist/server/index.js`. `server/index.ts`'s `isProduction` check reads `process.env.NODE_ENV === "production"` directly, but nothing set that variable for a plain `npm start` — so running it without manually prefixing `NODE_ENV=production` silently took the dev branch (`await import("vite")` + Vite middleware) instead of serving `dist/client/`, and would throw outright on a real production install that skipped `devDependencies` (no `vite` package present to import). Verified: after this fix, a plain `npm start` (no manual env prefix, on Windows) serves the built, hashed asset bundle (`/assets/index-*.js`), not `/src/main.ts`. `cross-env` is used because bare `NODE_ENV=production node ...` shell syntax isn't portable to Windows `cmd.exe`.
 
 - [ ] **Step 2: Create `tsconfig.json` (shared base)**
 
@@ -3845,7 +3848,7 @@ Expected: `vite build` completes and writes `dist/client/`; `esbuild` completes 
 
 - [ ] **Step 4: Run the production server and smoke-test it**
 
-Run: `NODE_ENV=production npm start`
+Run: `npm start` (the script sets `NODE_ENV=production` itself via `cross-env` — see the Task 1 amendment; do not rely on a manual env-var prefix)
 Expected terminal output: the same `Local:`/`Network:`/`QR codes will use:` banner as dev. Open the printed Local URL — the full landing page renders (confirms static file serving + SPA fallback work). Navigate directly to a nonexistent deep link, e.g. `http://localhost:3000/host/lobby/ZZZZZ` — confirm it does not 404 as a raw file-not-found (the Express SPA fallback should serve `index.html`, and the client router then shows its own "Page Not Found" or redirects, rather than a bare Express/browser error page).
 
 - [ ] **Step 5: Full manual play-through against the production build**
