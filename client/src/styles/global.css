@@ -1,15 +1,15 @@
 :root {
-  --color-bg: #05070f;
-  --color-surface: #11162a;
-  --color-border: #232a45;
-  --color-text: #e8ecf9;
-  --color-text-dim: #8b93b8;
-  --color-blue: #3b82f6;
-  --color-purple: #a855f7;
-  --color-cyan: #22d3ee;
-  --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.35);
-  --radius-lg: 20px;
-  --radius-md: 12px;
+  --color-bg: #f5fbff;
+  --color-surface: rgba(255, 255, 255, 0.88);
+  --color-border: #c9d8e8;
+  --color-text: #132238;
+  --color-text-dim: #5d6f86;
+  --color-blue: #2563eb;
+  --color-purple: #7c3aed;
+  --color-cyan: #0891b2;
+  --shadow-glow: 0 18px 45px rgba(37, 99, 235, 0.2);
+  --radius-lg: 16px;
+  --radius-md: 10px;
   --font-body: "Inter", system-ui, -apple-system, sans-serif;
 }
 
@@ -22,7 +22,10 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top, #0c1224 0%, var(--color-bg) 60%);
+  background:
+    radial-gradient(circle at 15% 0%, rgba(125, 211, 252, 0.45), transparent 32rem),
+    radial-gradient(circle at 85% 10%, rgba(196, 181, 253, 0.36), transparent 28rem),
+    linear-gradient(180deg, #ffffff 0%, var(--color-bg) 58%, #e7f6ff 100%);
   color: var(--color-text);
   font-family: var(--font-body);
   -webkit-tap-highlight-color: transparent;
@@ -47,7 +50,7 @@ a {
 }
 
 .glow-text {
-  background: linear-gradient(90deg, var(--color-cyan), var(--color-purple));
+  background: linear-gradient(90deg, #0369a1, var(--color-blue), var(--color-purple));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

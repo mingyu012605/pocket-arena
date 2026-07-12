@@ -9,9 +9,11 @@ import { createQrCard } from "../components/qrCard";
 import { createPlayerCard } from "../components/playerCard";
 import { createButton } from "../components/button";
 import { ControllerTestRenderer } from "../games/controller-test/renderer";
-import { RacingRenderer } from "../games/racing/renderer";
 import { TEST_OVAL_TRACK } from "../../../shared/racingTrack";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../../shared/protocol";
+import type { RacingRenderer } from "../games/racing/renderer";
+
+type MountedRenderer = ControllerTestRenderer | RacingRenderer;
 
 interface StoredHostSession {
   hostToken: string;
@@ -76,13 +78,16 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   gameSectionEl.hidden = true;
   container.querySelector(".page-section")!.appendChild(gameSectionEl);
 
-  let renderer: ControllerTestRenderer | RacingRenderer | null = null;
+  let renderer: MountedRenderer | null = null;
   let rafHandle: number | null = null;
+  let gameViewGeneration = 0;
   let lastStatus: PublicRoomState["status"] | null = null;
   let lastRoom: PublicRoomState = session.room;
   let lastRacingState: RacingGameStatePayload | null = null;
   let focusedRacingPlayer: number | null = null;
   let racingCameraMode = "chase";
+  let racingRendererControls: RacingRenderer | null = null;
+  let lastRacingHudAt = 0;
 
   function renderLobbyFooter(): void {
     footerEl.innerHTML = "";
@@ -90,7 +95,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     footerEl.appendChild(leaveButton);
   }
 
-  function startGameView(room: PublicRoomState): void {
+  async function startGameView(room: PublicRoomState): Promise<void> {
+    const generation = ++gameViewGeneration;
     pageSectionEl.classList.add("is-game-active");
     gridEl.hidden = true;
     footerEl.hidden = true;
@@ -100,9 +106,40 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       <div class="countdown-overlay" id="countdown"></div>
       <div class="racing-hud" id="racing-hud" hidden></div>
       <div class="race-results-overlay" id="race-results-overlay" hidden></div>
+      <p class="race-loading" id="race-loading" hidden>Loading Racing...</p>
+      <p class="race-error" id="race-error" hidden></p>
     `;
-    renderer = room.gameType === "racing" ? new RacingRenderer(room) : new ControllerTestRenderer(room);
+    const loadingEl = gameSectionEl.querySelector<HTMLParagraphElement>("#race-loading");
+    const errorEl = gameSectionEl.querySelector<HTMLParagraphElement>("#race-error");
+    if (room.gameType === "racing") loadingEl!.hidden = false;
+    try {
+      if (room.gameType === "racing") {
+        const { RacingRenderer: LoadedRacingRenderer } = await import("../games/racing/renderer");
+        if (generation !== gameViewGeneration) return;
+        const racingRenderer = new LoadedRacingRenderer(room);
+        renderer = racingRenderer;
+        racingRendererControls = racingRenderer;
+      } else {
+        renderer = new ControllerTestRenderer(room);
+        racingRendererControls = null;
+      }
+    } catch (err) {
+      if (generation !== gameViewGeneration) return;
+      if (errorEl) {
+        errorEl.hidden = false;
+        errorEl.textContent = "Racing failed to load. Refresh the host screen and try again.";
+      }
+      console.error("Failed to load racing renderer", err);
+      return;
+    } finally {
+      if (generation === gameViewGeneration && loadingEl) loadingEl.hidden = true;
+    }
+    if (generation !== gameViewGeneration || !renderer) return;
     renderer.mount(gameSectionEl);
+    if (racingRendererControls && lastRacingState) {
+      racingRendererControls.applyState(lastRacingState);
+      updateRacingHud(lastRacingState);
+    }
     const loop = (t: number) => {
       renderer?.render(t);
       rafHandle = requestAnimationFrame(loop);
@@ -111,10 +148,12 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   }
 
   function stopGameView(): void {
+    gameViewGeneration += 1;
     if (rafHandle !== null) cancelAnimationFrame(rafHandle);
     rafHandle = null;
     renderer?.destroy();
     renderer = null;
+    racingRendererControls = null;
     pageSectionEl.classList.remove("is-game-active");
     gameSectionEl.classList.remove("race-viewport");
     gameSectionEl.hidden = true;
@@ -127,6 +166,9 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   }
 
   function updateRacingHud(state: RacingGameStatePayload): void {
+    const now = performance.now();
+    if (state.raceStatus === "racing" && now - lastRacingHudAt < 250) return;
+    lastRacingHudAt = now;
     const hud = gameSectionEl.querySelector<HTMLDivElement>("#racing-hud");
     if (!hud) return;
     const ranked = [...state.players].sort((a, b) => a.rank - b.rank);
@@ -161,7 +203,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       focusButton.textContent = `#${player.rank} ${playerLabel(player.playerNumber)} ${Math.round(player.speed * 3.6)} km/h`;
       focusButton.addEventListener("click", () => {
         focusedRacingPlayer = player.playerNumber;
-        if (renderer instanceof RacingRenderer) renderer.setFocusedPlayer(focusedRacingPlayer);
+        racingRendererControls?.setFocusedPlayer(focusedRacingPlayer);
         updateRacingHud(state);
       });
       row.appendChild(focusButton);
@@ -193,8 +235,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         label: `Camera: ${racingCameraMode}`,
         variant: "secondary",
         onClick: () => {
-          if (renderer instanceof RacingRenderer) {
-            racingCameraMode = renderer.cycleCameraMode();
+          if (racingRendererControls) {
+            racingCameraMode = racingRendererControls.cycleCameraMode();
             updateRacingHud(state);
           }
         }
@@ -276,7 +318,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       lastStatus === "countdown" || lastStatus === "in-progress" || (room.gameType === "racing" && lastStatus === "results");
 
     if (room.status === "results") {
-      if (room.gameType === "racing" && !wasPlaying) startGameView(room);
+      if (room.gameType === "racing" && !wasPlaying) void startGameView(room);
       gridEl.hidden = true;
       gameSectionEl.hidden = room.gameType !== "racing";
       reconnectingEl.hidden = true;
@@ -295,7 +337,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     }
     reconnectingEl.hidden = true;
 
-    if (isPlaying && !wasPlaying) startGameView(room);
+    if (isPlaying && !wasPlaying) void startGameView(room);
     if (!isPlaying && wasPlaying) stopGameView();
     if (isPlaying) {
       gridEl.hidden = true;
@@ -364,7 +406,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       renderer.applyState(payload);
     } else if (payload.gameType === "racing") {
       lastRacingState = payload;
-      if (renderer instanceof RacingRenderer) renderer.applyState(payload);
+      if (racingRendererControls) racingRendererControls.applyState(payload);
       updateRacingHud(payload);
     }
   };

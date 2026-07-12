@@ -18,16 +18,16 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-blue), var(--color-purple));
+  background: linear-gradient(135deg, var(--color-blue), #06b6d4);
   color: white;
   box-shadow: var(--shadow-glow);
 }
 .btn-primary:hover:not(:disabled) {
-  box-shadow: 0 0 32px rgba(168, 85, 247, 0.5);
+  box-shadow: 0 20px 44px rgba(37, 99, 235, 0.24);
 }
 
 .btn-secondary {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.58);
   border-color: var(--color-border);
   color: var(--color-text);
 }
@@ -36,7 +36,7 @@
 }
 
 .btn-danger {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.64);
   border-color: #ef4444;
   color: #ef4444;
 }
@@ -46,6 +46,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
+  box-shadow: 0 18px 48px rgba(31, 78, 121, 0.12);
 }
 
 .hero {
@@ -89,6 +90,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 1rem 1.25rem;
+  box-shadow: 0 12px 34px rgba(31, 78, 121, 0.08);
 }
 .step-index {
   width: 2rem;
@@ -164,6 +166,7 @@
   padding: 1.25rem;
   text-align: center;
   border-top: 3px solid var(--player-color, var(--color-cyan));
+  box-shadow: 0 16px 42px rgba(31, 78, 121, 0.1);
 }
 .qr-card-image {
   width: 100%;
@@ -268,7 +271,7 @@
   height: 100dvh;
   margin: 0;
   overflow: hidden;
-  background: #000;
+  background: #dff5ff;
   z-index: 20;
 }
 .race-viewport .racing-canvas {
@@ -348,7 +351,7 @@
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
-  color: var(--color-text);
+  color: #f8fafc;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -498,6 +501,7 @@
   border-radius: 8px;
   background: rgba(5, 7, 15, 0.82);
   backdrop-filter: blur(16px);
+  color: #f8fafc;
 }
 .results-list {
   list-style: none;
@@ -507,10 +511,31 @@
   gap: 0.5rem;
 }
 .results-list li {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(226, 232, 240, 0.22);
   border-radius: var(--radius-md);
   padding: 0.75rem 1rem;
+}
+.race-loading,
+.race-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #132238;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+}
+.race-error {
+  color: #b91c1c;
+}
+.race-loading[hidden],
+.race-error[hidden] {
+  display: none;
 }
 .results-actions {
   display: flex;

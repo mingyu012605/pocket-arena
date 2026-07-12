@@ -26,7 +26,8 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
 
   if (queryToken) {
     sessionStorage.setItem(tokenKey(roomId, playerNumber), queryToken);
-    window.history.replaceState({}, "", `/join/${roomId}/${playerNumber}`);
+    const devSuffix = query.get("dev") === "1" ? "?dev=1" : "";
+    window.history.replaceState({}, "", `/join/${roomId}/${playerNumber}${devSuffix}`);
   }
   const token = queryToken ?? sessionStorage.getItem(tokenKey(roomId, playerNumber));
 
@@ -45,7 +46,9 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
 
   const onCountdownTick = (payload: CountdownTickPayload) => {
     const el = document.getElementById("phone-countdown");
-    if (el) el.textContent = String(payload.value);
+    if (!el) return;
+    el.textContent = String(payload.value).toUpperCase();
+    if (payload.value === "go") window.setTimeout(() => (el.textContent = ""), 650);
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
 

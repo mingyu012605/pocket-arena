@@ -19,6 +19,26 @@
   }
 }
 
+@keyframes rise-pop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes light-sweep {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
 .page-section {
   animation: fade-in 0.35s ease both;
 }
@@ -27,13 +47,20 @@
 .lobby-slot,
 .game-card {
   transition: transform 0.2s ease, border-color 0.2s ease;
+  animation: rise-pop 0.38s ease both;
 }
 .card:hover,
-.lobby-slot:hover {
+.lobby-slot:hover,
+.game-card:not(.game-card-disabled):hover {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--color-cyan) 40%, var(--color-border));
 }
 
 .status-ready {
   animation: pulse-glow 2.2s ease-in-out infinite;
+}
+
+.btn-primary {
+  background-size: 180% 180%;
+  animation: light-sweep 5s ease-in-out infinite alternate;
 }

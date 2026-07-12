@@ -36,9 +36,9 @@ interface Snapshot {
 
 const RENDER_DELAY_MS = 50;
 const TRACK_SAMPLES = 240;
-const CAMERA_DISTANCE = 16;
-const CAMERA_HEIGHT = 8;
-const CAMERA_LOOK_AHEAD = 8;
+const CAMERA_DISTANCE = 12;
+const CAMERA_HEIGHT = 5.8;
+const CAMERA_LOOK_AHEAD = 10;
 const CAMERA_MODES: CameraMode[] = ["chase", "close", "hood", "spectator"];
 
 export function computeRacingCarWorldTransform(frame: Pick<CarFrame, "progress" | "lateralOffset" | "headingError">): WorldCarTransform {
@@ -157,14 +157,22 @@ function buildTrackGroup(): THREE.Group {
     color: "#343946",
     map: buildTrackTexture(),
     roughness: 0.86,
-    metalness: 0.02
+    metalness: 0.02,
+    side: THREE.DoubleSide
   });
-  const lineMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
-  const curbMaterial = new THREE.MeshStandardMaterial({ map: buildCurbTexture(), roughness: 0.78 });
+  const runoffMaterial = new THREE.MeshStandardMaterial({
+    color: "#6b7280",
+    roughness: 0.92,
+    metalness: 0.01,
+    side: THREE.DoubleSide
+  });
+  const lineMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", side: THREE.DoubleSide });
+  const curbMaterial = new THREE.MeshStandardMaterial({ map: buildCurbTexture(), roughness: 0.78, side: THREE.DoubleSide });
   const barrierMaterial = new THREE.MeshStandardMaterial({ color: "#d8dee9", roughness: 0.55 });
   const startGridMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
 
-  group.add(buildRibbonMesh(-halfWidth, halfWidth, 0.02, roadMaterial));
+  group.add(buildRibbonMesh(-halfWidth - 5.2, halfWidth + 5.2, 0.012, runoffMaterial));
+  group.add(buildRibbonMesh(-halfWidth, halfWidth, 0.03, roadMaterial));
   group.add(buildRibbonMesh(halfWidth - 0.38, halfWidth - 0.16, 0.035, lineMaterial));
   group.add(buildRibbonMesh(-halfWidth + 0.16, -halfWidth + 0.38, 0.035, lineMaterial));
   group.add(buildRibbonMesh(halfWidth, halfWidth + 1.05, 0.025, curbMaterial));
@@ -173,7 +181,7 @@ function buildTrackGroup(): THREE.Group {
   const start = computeRacingCarWorldTransform({ progress: 0, lateralOffset: 0, headingError: 0 });
   const finish = new THREE.Mesh(
     new THREE.BoxGeometry(halfWidth * 2.35, 0.05, 1.4),
-    new THREE.MeshBasicMaterial({ map: buildCheckerTexture() })
+    new THREE.MeshBasicMaterial({ map: buildCheckerTexture(), side: THREE.DoubleSide })
   );
   finish.position.set(start.x, 0.08, start.z);
   finish.rotation.y = -start.heading;
@@ -304,7 +312,7 @@ function buildCarMesh(color: string): CarVisual {
   shadow.scale.set(1, 1.55, 1);
   shadow.position.y = 0.045;
   group.add(shadow);
-  group.scale.setScalar(1.35);
+  group.scale.setScalar(1.55);
   return { root: group, wheels, frontWheels, brakeLight };
 }
 
@@ -586,7 +594,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (this.cameraMode === "close") return { distance: 10, height: 4.8, lookHeight: 1.35, fov: 70, damping: 0.2, spectator: false };
     if (this.cameraMode === "hood") return { distance: -1.6, height: 1.55, lookHeight: 1.15, fov: 76, damping: 0.34, spectator: false };
     if (this.cameraMode === "spectator") return { distance: 0, height: 24 + speed * 0.03, lookHeight: 1.8, fov: 58, damping: 0.08, spectator: true };
-    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.6, fov: 66, damping: 0.18, spectator: false };
+    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.55, fov: 70, damping: 0.18, spectator: false };
   }
 
   private interpolate(): Map<number, CarFrame> {

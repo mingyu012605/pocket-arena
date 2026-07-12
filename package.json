@@ -19,6 +19,7 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.5",
     "@types/qrcode": "^1.5.5",

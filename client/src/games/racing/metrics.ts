@@ -12,10 +12,7 @@ const METRICS_UPDATE_MS = 250;
 
 export function shouldShowRacingMetrics(): boolean {
   const params = new URLSearchParams(window.location.search);
-  const urlEnabled = params.get("racingDebug") === "1";
-  const storedEnabled = window.localStorage.getItem("pocket-arena:racingDebug") === "1";
-  const env = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env;
-  return env?.DEV === true && (urlEnabled || storedEnabled);
+  return params.get("dev") === "1";
 }
 
 export class RacingMetricsOverlay {
