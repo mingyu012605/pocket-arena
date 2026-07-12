@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { ARENA, PLAYER_COLORS } from "../shared/protocol";
+import { PLAYER_COLORS } from "../shared/protocol";
 import type { GameType, PublicPlayer, PublicRoomState } from "../shared/protocol";
 import type { InternalPlayer, InternalRoom } from "./types";
 
@@ -38,9 +38,7 @@ function createPlayer(playerNumber: number): InternalPlayer {
     color: PLAYER_COLORS[(playerNumber - 1) % PLAYER_COLORS.length] ?? "#22d3ee",
     socketId: null,
     connected: false,
-    ready: false,
-    lastSequence: -1,
-    physics: { x: ARENA.width / 2, y: ARENA.groundY, vy: 0, grounded: true, direction: 0 }
+    ready: false
   };
 }
 
@@ -60,6 +58,7 @@ export function createRoom(gameType: GameType, maxPlayers: number): InternalRoom
     roundId: null,
     countdownEndsAt: null,
     players,
+    gameState: null,
     createdAt: Date.now(),
     hostGraceTimer: null,
     countdownTimer: null,

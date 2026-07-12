@@ -1,13 +1,20 @@
 import type { Socket } from "socket.io";
 import type { GameType, RoomStatus } from "../shared/protocol";
 
-export interface PlayerPhysics {
+export interface ControllerTestPhysics {
   x: number;
   y: number;
   vy: number;
   grounded: boolean;
   direction: -1 | 0 | 1;
+  lastSequence: number;
 }
+export interface ControllerTestGameState {
+  gameType: "controller-test";
+  players: Map<number, ControllerTestPhysics>;
+}
+
+export type InternalGameState = ControllerTestGameState;
 
 export interface InternalPlayer {
   playerNumber: number;
@@ -17,8 +24,6 @@ export interface InternalPlayer {
   socketId: string | null;
   connected: boolean;
   ready: boolean;
-  lastSequence: number;
-  physics: PlayerPhysics;
 }
 
 export interface InternalRoom {
@@ -32,6 +37,7 @@ export interface InternalRoom {
   roundId: string | null;
   countdownEndsAt: number | null;
   players: InternalPlayer[];
+  gameState: InternalGameState | null;
   createdAt: number;
   hostGraceTimer: NodeJS.Timeout | null;
   countdownTimer: NodeJS.Timeout | null;

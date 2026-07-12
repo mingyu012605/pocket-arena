@@ -34,7 +34,13 @@ import {
 import type { AppSocket, InternalRoom } from "./types";
 import { resolveUrls } from "./network";
 import { buildSlotQrData } from "./qr";
-import { resetAllDirections, resetPlayerDirection, startPhysicsLoop, stopPhysicsLoop } from "./games/controllerTest";
+import {
+  createControllerTestGameState,
+  resetAllDirections,
+  resetPlayerDirection,
+  startPhysicsLoop,
+  stopPhysicsLoop
+} from "./games/controllerTest";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
   return { ok: false, error: { code, message } };
@@ -58,7 +64,7 @@ function endRound(room: InternalRoom): void {
   room.status = "lobby";
   room.roundId = null;
   room.countdownEndsAt = null;
-  resetAllDirections(room);
+  room.gameState = null;
 }
 
 function runCountdown(io: Server, room: InternalRoom): void {
@@ -204,7 +210,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
         player.connected = false;
         player.ready = false;
         player.socketId = null;
-        player.physics.direction = 0;
+        resetPlayerDirection(room, player.playerNumber);
       }
       socket.leave(roomChannel(room.id));
       socket.data.session = undefined;
@@ -240,6 +246,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       room.roundId = createToken();
       room.status = "countdown";
       room.countdownEndsAt = Date.now() + 3000;
+      room.gameState = createControllerTestGameState(room);
       broadcastRoomState(io, room);
       runCountdown(io, room);
       ack({ ok: true } as Ack<Record<string, never>>);
@@ -262,32 +269,33 @@ export function registerSocketHandlers(io: Server, port: number): void {
       // "countdown" is accepted alongside "in-progress": a room's roundId is fixed
       // for the whole countdown+in-progress span (see GAME_START/runCountdown), and
       // the physics tick doesn't start until "go" — so a direction/jump set during
-      // the countdown just sits on player.physics until the tick loop begins
+      // the countdown just sits on the player's physics until the tick loop begins
       // consuming it, letting a pre-emptive hold take effect immediately at "go"
       // instead of being silently dropped and requiring a release-and-repress.
       if (!room || (room.status !== "in-progress" && room.status !== "countdown") || room.roundId !== payload.roundId) {
         return;
       }
-      const player = findPlayer(room, session.playerNumber);
-      if (!player || payload.sequence <= player.lastSequence) return;
-      player.lastSequence = payload.sequence;
+      if (room.gameState?.gameType !== "controller-test") return;
+      const physics = room.gameState.players.get(session.playerNumber);
+      if (!physics || payload.sequence <= physics.lastSequence) return;
+      physics.lastSequence = payload.sequence;
       switch (payload.action) {
         case "left-start":
-          player.physics.direction = -1;
+          physics.direction = -1;
           break;
         case "right-start":
-          player.physics.direction = 1;
+          physics.direction = 1;
           break;
         case "left-end":
-          if (player.physics.direction === -1) player.physics.direction = 0;
+          if (physics.direction === -1) physics.direction = 0;
           break;
         case "right-end":
-          if (player.physics.direction === 1) player.physics.direction = 0;
+          if (physics.direction === 1) physics.direction = 0;
           break;
         case "jump":
-          if (player.physics.grounded) {
-            player.physics.vy = ARENA.jumpVelocity;
-            player.physics.grounded = false;
+          if (physics.grounded) {
+            physics.vy = ARENA.jumpVelocity;
+            physics.grounded = false;
           }
           break;
       }
