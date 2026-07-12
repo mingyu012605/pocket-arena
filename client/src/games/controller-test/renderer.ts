@@ -1,13 +1,13 @@
 import type { GameRenderer } from "../gameRenderer";
 import { ARENA } from "../../../../shared/protocol";
-import type { GameStatePayload, PublicRoomState } from "../../../../shared/protocol";
+import type { ControllerTestGameStatePayload, PublicRoomState } from "../../../../shared/protocol";
 
 interface Snapshot {
   time: number;
   players: Map<number, { x: number; y: number }>;
 }
 
-export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
+export class ControllerTestRenderer implements GameRenderer<ControllerTestGameStatePayload> {
   // Server ticks at 20Hz (50ms). Rendering `now - RENDER_DELAY_MS` keeps the
   // render time inside the [prev.time, next.time] window in steady state, so
   // interpolate() blends between two known snapshots instead of racing ahead
@@ -32,7 +32,7 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
     this.ctx = this.canvas.getContext("2d");
   }
 
-  applyState(state: GameStatePayload): void {
+  applyState(state: ControllerTestGameStatePayload): void {
     const players = new Map(state.players.map((p) => [p.playerNumber, { x: p.x, y: p.y }]));
     this.snapshots.push({ time: performance.now(), players });
     if (this.snapshots.length > 2) this.snapshots.shift();

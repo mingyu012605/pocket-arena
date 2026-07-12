@@ -124,15 +124,37 @@ export interface CountdownTickPayload {
   roundId: string;
 }
 
-export interface GameStatePlayer {
+export interface ControllerTestPlayerState {
   playerNumber: number;
   x: number;
   y: number;
 }
-export interface GameStatePayload {
+export interface ControllerTestGameStatePayload {
+  gameType: "controller-test";
   roundId: string;
-  players: GameStatePlayer[];
+  players: ControllerTestPlayerState[];
 }
+
+export interface RacingPlayerState {
+  playerNumber: number;
+  progress: number;
+  lateralOffset: number;
+  headingError: number;
+  speed: number;
+  rank: number;
+  lap: number;
+  finished: boolean;
+  finishTime: number | null;
+}
+export interface RacingGameStatePayload {
+  gameType: "racing";
+  roundId: string;
+  trackId: string;
+  raceStatus: "countdown" | "racing" | "finished";
+  players: RacingPlayerState[];
+}
+
+export type GameStatePayload = ControllerTestGameStatePayload | RacingGameStatePayload;
 
 export interface RoomClosedPayload {
   reason: string;

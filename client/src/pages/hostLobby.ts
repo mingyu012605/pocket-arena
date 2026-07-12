@@ -156,7 +156,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     if (el) el.textContent = String(payload.value);
   };
   const onGameState = (payload: GameStatePayload) => {
-    renderer?.applyState(payload);
+    if (payload.gameType === "controller-test") renderer?.applyState(payload);
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);

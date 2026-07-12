@@ -1,6 +1,6 @@
 import type { Server } from "socket.io";
 import { ARENA, SOCKET_EVENTS } from "../../shared/protocol";
-import type { GameStatePayload } from "../../shared/protocol";
+import type { ControllerTestGameStatePayload } from "../../shared/protocol";
 import type { InternalRoom } from "../types";
 import { roomChannel } from "../rooms";
 
@@ -22,8 +22,9 @@ export function stepPhysics(room: InternalRoom, deltaSeconds: number): void {
   }
 }
 
-export function toGameStatePayload(room: InternalRoom): GameStatePayload {
+export function toGameStatePayload(room: InternalRoom): ControllerTestGameStatePayload {
   return {
+    gameType: "controller-test",
     roundId: room.roundId ?? "",
     players: room.players
       .filter((p) => p.connected)
