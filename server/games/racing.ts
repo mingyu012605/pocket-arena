@@ -146,6 +146,10 @@ export function checkRaceCompletion(io: Server, room: InternalRoom, now: number)
     }
   }
   gameState.finishOrder = [...gameState.cars.entries()].sort(compareFinishOrder).map(([playerNumber]) => playerNumber);
+  gameState.finishOrder.forEach((playerNumber, index) => {
+    const car = gameState.cars.get(playerNumber);
+    if (car) car.rank = index + 1;
+  });
   gameState.endedAt = now;
   stopRacingPhysicsLoop(room);
   room.status = "results";

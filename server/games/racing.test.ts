@@ -168,6 +168,8 @@ describe("checkRaceCompletion", () => {
     checkRaceCompletion(fakeIo(), room, Date.now());
 
     expect(gameState.finishOrder).toEqual([2, 1]);
+    expect(gameState.cars.get(2)!.rank).toBe(1);
+    expect(gameState.cars.get(1)!.rank).toBe(2);
   });
 
   it("does nothing while a car is still racing and the safety timeout has not elapsed", () => {
