@@ -3153,8 +3153,15 @@ export class ButtonInputSource {
 }
 
 export function bindHoldButton(element: HTMLElement, onPress: () => void, onRelease: () => void): () => void {
-  const down = (event: Event) => {
+  const down = (event: PointerEvent) => {
     event.preventDefault();
+    // Touch pointers are implicitly captured by the element that received
+    // pointerdown, so pointerleave never fires while dragging off the button
+    // unless capture is explicitly released here — without this, "release by
+    // sliding a finger off the button" silently only works for mouse input.
+    if (element.hasPointerCapture(event.pointerId)) {
+      element.releasePointerCapture(event.pointerId);
+    }
     onPress();
   };
   const up = (event: Event) => {
@@ -3173,6 +3180,8 @@ export function bindHoldButton(element: HTMLElement, onPress: () => void, onRele
   };
 }
 ```
+
+**Amendment (applied during Task 10 review):** the `down` handler above supersedes an earlier draft that didn't release pointer capture. On touch devices, the Pointer Events spec gives the element that received `pointerdown` implicit capture for the rest of that contact, so `pointerleave` never fires while a finger drags off the button — only `pointerup`(on lift)/`pointercancel` remain reliable, silently downgrading the "drag finger off to cancel" gesture to mouse-only behavior. Calling `releasePointerCapture` immediately on press restores natural `pointerleave` targeting for touch too.
 
 - [ ] **Step 2: Create `client/src/controller/controllerView.ts`**
 
@@ -3404,16 +3413,29 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
 
   function onRoomState(room: PublicRoomState): void {
     const self = room.players.find((p) => p.playerNumber === Number(playerNumber));
-    if (!self || room.status === lastStatus) {
+    if (!self) {
       lastStatus = room.status;
       return;
     }
+
+    // "countdown" and "in-progress" share one mounted controller view: a room's
+    // roundId is assigned once in game:start and stays fixed through both statuses,
+    // so remounting on that specific edge would tear down a player's actively-held
+    // button mid-hold (the new DOM element never receives the ongoing pointer contact)
+    // right at the "go" instant — exactly when a pre-emptive hold is most likely.
+    const isPlaying = room.status === "countdown" || room.status === "in-progress";
+    const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
+    if (room.status === lastStatus || (isPlaying && wasPlaying)) {
+      lastStatus = room.status;
+      return;
+    }
+
     controllerCleanup?.();
     controllerCleanup = null;
 
     if (room.status === "host-disconnected") {
       section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
-    } else if (room.status === "countdown" || room.status === "in-progress") {
+    } else if (isPlaying) {
       section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;
       controllerCleanup = mountControllerView(section.querySelector("#controller-mount")!, {
         nickname: self.nickname ?? "Player",
@@ -3426,6 +3448,17 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     lastStatus = room.status;
   }
   socket.on(SOCKET_EVENTS.ROOM_STATE, onRoomState);
+
+  // Amendment (applied during Task 10 review): the original version of onRoomState
+  // above used a plain `room.status === lastStatus` guard, which does NOT suppress
+  // the countdown -> in-progress transition (different string values) — so it tore
+  // down and remounted the controller view (a fresh ButtonInputSource, fresh DOM
+  // buttons) right as "go" fired. A player who pre-emptively held LEFT through the
+  // countdown lost that hold at the exact moment it should have started moving them,
+  // because the new button element never received the ongoing pointer contact. The
+  // isPlaying/wasPlaying check above (mirroring the pattern already used in
+  // hostLobby.ts's game-view toggle from Task 9) keeps one controller view mounted
+  // across that specific edge.
 
   emitWithAck<ValidateTokenResponse>(SOCKET_EVENTS.CONTROLLER_VALIDATE_TOKEN, {
     roomId,

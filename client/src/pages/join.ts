@@ -80,16 +80,29 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
 
   function onRoomState(room: PublicRoomState): void {
     const self = room.players.find((p) => p.playerNumber === Number(playerNumber));
-    if (!self || room.status === lastStatus) {
+    if (!self) {
       lastStatus = room.status;
       return;
     }
+
+    // "countdown" and "in-progress" share one mounted controller view: a room's
+    // roundId is assigned once in game:start and stays fixed through both statuses,
+    // so remounting on that specific edge would tear down a player's actively-held
+    // button mid-hold (the new DOM element never receives the ongoing pointer contact)
+    // right at the "go" instant — exactly when a pre-emptive hold is most likely.
+    const isPlaying = room.status === "countdown" || room.status === "in-progress";
+    const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
+    if (room.status === lastStatus || (isPlaying && wasPlaying)) {
+      lastStatus = room.status;
+      return;
+    }
+
     controllerCleanup?.();
     controllerCleanup = null;
 
     if (room.status === "host-disconnected") {
       section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
-    } else if (room.status === "countdown" || room.status === "in-progress") {
+    } else if (isPlaying) {
       section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;
       controllerCleanup = mountControllerView(section.querySelector("#controller-mount")!, {
         nickname: self.nickname ?? "Player",

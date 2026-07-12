@@ -54,8 +54,15 @@ export class ButtonInputSource {
 }
 
 export function bindHoldButton(element: HTMLElement, onPress: () => void, onRelease: () => void): () => void {
-  const down = (event: Event) => {
+  const down = (event: PointerEvent) => {
     event.preventDefault();
+    // Touch pointers are implicitly captured by the element that received
+    // pointerdown, so pointerleave never fires while dragging off the button
+    // unless capture is explicitly released here — without this, "release by
+    // sliding a finger off the button" silently only works for mouse input.
+    if (element.hasPointerCapture(event.pointerId)) {
+      element.releasePointerCapture(event.pointerId);
+    }
     onPress();
   };
   const up = (event: Event) => {
