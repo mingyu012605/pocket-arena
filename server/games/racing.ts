@@ -1,7 +1,7 @@
 import type { Server } from "socket.io";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../shared/protocol";
-import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK } from "../../shared/racingTrack";
 import type { TrackDefinition } from "../../shared/racingTrack";
 import { roomChannel } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";

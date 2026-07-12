@@ -13,6 +13,19 @@ describe("TEST_OVAL_TRACK", () => {
     expect(wrapped.z).toBeCloseTo(atStart.z, 0);
   });
 
+  it("wraps negative progress to the same seam region", () => {
+    const fromNegative = centerlinePoint(TEST_OVAL_TRACK, -1);
+    const fromEnd = centerlinePoint(TEST_OVAL_TRACK, TEST_OVAL_TRACK.trackLength - 1);
+    expect(fromNegative.x).toBeCloseTo(fromEnd.x, 5);
+    expect(fromNegative.z).toBeCloseTo(fromEnd.z, 5);
+  });
+
+  it("keeps lookup continuous across the start-finish seam", () => {
+    const beforeFinish = centerlinePoint(TEST_OVAL_TRACK, TEST_OVAL_TRACK.trackLength - 0.1);
+    const justAfterStart = centerlinePoint(TEST_OVAL_TRACK, 0.1);
+    expect(Math.hypot(justAfterStart.x - beforeFinish.x, justAfterStart.z - beforeFinish.z)).toBeLessThan(1);
+  });
+
   it("produces a finite tangent angle at any progress", () => {
     const angle = centerlineTangentAngle(TEST_OVAL_TRACK, TEST_OVAL_TRACK.trackLength / 4);
     expect(Number.isFinite(angle)).toBe(true);

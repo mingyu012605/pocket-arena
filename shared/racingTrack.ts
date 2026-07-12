@@ -67,6 +67,11 @@ function buildSampledCenterline(waypoints: TrackPoint[]): SampledCenterline {
     const dist = Math.hypot(curr.x - prev.x, curr.z - prev.z);
     cumulativeLengths.push(cumulativeLengths[i - 1]! + dist);
   }
+  const last = points[points.length - 1]!;
+  const first = points[0]!;
+  cumulativeLengths.push(
+    cumulativeLengths[cumulativeLengths.length - 1]! + Math.hypot(first.x - last.x, first.z - last.z)
+  );
   return { points, cumulativeLengths };
 }
 
