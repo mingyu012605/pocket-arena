@@ -47,7 +47,8 @@ import {
   resetAllRacingInputs,
   resetCarInput,
   startRacingPhysicsLoop,
-  stopRacingPhysicsLoop
+  stopRacingPhysicsLoop,
+  toGameStatePayload
 } from "./games/racing";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
@@ -259,6 +260,9 @@ export function registerSocketHandlers(io: Server, port: number): void {
       room.countdownEndsAt = Date.now() + 3000;
       room.gameState = room.gameType === "racing" ? createRacingGameState(room) : createControllerTestGameState(room);
       broadcastRoomState(io, room);
+      if (room.gameType === "racing") {
+        io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toGameStatePayload(room));
+      }
       runCountdown(io, room);
       ack({ ok: true } as Ack<Record<string, never>>);
     });

@@ -10,6 +10,7 @@ import { createPlayerCard } from "../components/playerCard";
 import { createButton } from "../components/button";
 import { ControllerTestRenderer } from "../games/controller-test/renderer";
 import { RacingRenderer } from "../games/racing/renderer";
+import { TEST_OVAL_TRACK } from "../../../shared/racingTrack";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../../shared/protocol";
 
 interface StoredHostSession {
@@ -41,6 +42,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     </section>
   `;
 
+  const pageSectionEl = container.querySelector<HTMLElement>(".page-section")!;
   const gridEl = container.querySelector<HTMLDivElement>("#lobby-grid")!;
   const footerEl = container.querySelector<HTMLDivElement>("#lobby-footer")!;
   const reconnectingEl = container.querySelector<HTMLParagraphElement>("#reconnecting")!;
@@ -80,6 +82,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   let lastRoom: PublicRoomState = session.room;
   let lastRacingState: RacingGameStatePayload | null = null;
   let focusedRacingPlayer: number | null = null;
+  let racingCameraMode = "chase";
 
   function renderLobbyFooter(): void {
     footerEl.innerHTML = "";
@@ -88,12 +91,15 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   }
 
   function startGameView(room: PublicRoomState): void {
+    pageSectionEl.classList.add("is-game-active");
     gridEl.hidden = true;
     footerEl.hidden = true;
     gameSectionEl.hidden = false;
+    gameSectionEl.classList.toggle("race-viewport", room.gameType === "racing");
     gameSectionEl.innerHTML = `
       <div class="countdown-overlay" id="countdown"></div>
       <div class="racing-hud" id="racing-hud" hidden></div>
+      <div class="race-results-overlay" id="race-results-overlay" hidden></div>
     `;
     renderer = room.gameType === "racing" ? new RacingRenderer(room) : new ControllerTestRenderer(room);
     renderer.mount(gameSectionEl);
@@ -109,6 +115,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     rafHandle = null;
     renderer?.destroy();
     renderer = null;
+    pageSectionEl.classList.remove("is-game-active");
+    gameSectionEl.classList.remove("race-viewport");
     gameSectionEl.hidden = true;
     gridEl.hidden = false;
     footerEl.hidden = false;
@@ -127,33 +135,20 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     hud.hidden = ranked.length === 0;
     hud.innerHTML = "";
     if (!focused) return;
+    const roomPlayer = lastRoom.players.find((player) => player.playerNumber === focused.playerNumber);
+    const color = roomPlayer?.color ?? "#22d3ee";
+    const progressPercent = Math.min(100, Math.max(0, (focused.progress / TEST_OVAL_TRACK.trackLength) * 100));
 
-    const summary = document.createElement("div");
-    summary.className = "racing-hud-summary";
+    const summary = document.createElement("section");
+    summary.className = "race-hud-panel race-hud-leaderboard";
+    const position = document.createElement("p");
+    position.className = "race-position";
+    position.textContent = `${focused.rank} / ${ranked.length}`;
     const title = document.createElement("p");
     title.className = "racing-hud-title";
     title.textContent = playerLabel(focused.playerNumber);
-    const telemetry = document.createElement("p");
-    telemetry.className = "racing-hud-telemetry";
-    telemetry.textContent = `${Math.round(focused.speed * 3.6)} km/h | ${Math.round(focused.progress)} m`;
-    summary.append(title, telemetry);
-
-    const cycleButton = createButton({
-      label: "Cycle Camera",
-      variant: "secondary",
-      onClick: () => {
-        const currentIndex = Math.max(
-          0,
-          ranked.findIndex((player) => player.playerNumber === (focusedRacingPlayer ?? leader?.playerNumber))
-        );
-        const next = ranked[(currentIndex + 1) % ranked.length];
-        focusedRacingPlayer = next?.playerNumber ?? null;
-        if (renderer instanceof RacingRenderer) renderer.setFocusedPlayer(focusedRacingPlayer);
-        updateRacingHud(state);
-      }
-    });
-    summary.appendChild(cycleButton);
-    hud.appendChild(summary);
+    title.style.setProperty("--player-color", color);
+    summary.append(position, title);
 
     const list = document.createElement("ol");
     list.className = "racing-leaderboard";
@@ -163,7 +158,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       focusButton.type = "button";
       focusButton.className = "racing-leaderboard-row";
       if (player.playerNumber === focused.playerNumber) focusButton.classList.add("is-focused");
-      focusButton.textContent = `#${player.rank} ${playerLabel(player.playerNumber)} - ${Math.round(player.speed * 3.6)} km/h`;
+      focusButton.textContent = `#${player.rank} ${playerLabel(player.playerNumber)} ${Math.round(player.speed * 3.6)} km/h`;
       focusButton.addEventListener("click", () => {
         focusedRacingPlayer = player.playerNumber;
         if (renderer instanceof RacingRenderer) renderer.setFocusedPlayer(focusedRacingPlayer);
@@ -172,13 +167,58 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       row.appendChild(focusButton);
       list.appendChild(row);
     }
-    hud.appendChild(list);
+    summary.appendChild(list);
+    hud.appendChild(summary);
+
+    const status = document.createElement("section");
+    status.className = "race-hud-panel race-hud-status";
+    status.textContent = state.raceStatus === "countdown" ? "Pocket Formula" : state.raceStatus === "finished" ? "Finish" : "Harbor City GP";
+    hud.appendChild(status);
+
+    const speed = document.createElement("section");
+    speed.className = "race-hud-panel race-speedometer";
+    speed.innerHTML = `<strong>${Math.round(focused.speed * 3.6)}</strong><span>km/h</span><small>${Math.abs(focused.lateralOffset) > 6 ? "OFF TRACK" : "THROTTLE"}</small>`;
+    hud.appendChild(speed);
+
+    const progress = document.createElement("section");
+    progress.className = "race-hud-panel race-progress";
+    progress.innerHTML = `<span style="--player-color:${color}"></span><p>${playerLabel(focused.playerNumber)}</p>`;
+    progress.querySelector<HTMLSpanElement>("span")!.style.width = `${progressPercent}%`;
+    hud.appendChild(progress);
+
+    const controls = document.createElement("section");
+    controls.className = "race-hud-panel race-controls";
+    controls.appendChild(
+      createButton({
+        label: `Camera: ${racingCameraMode}`,
+        variant: "secondary",
+        onClick: () => {
+          if (renderer instanceof RacingRenderer) {
+            racingCameraMode = renderer.cycleCameraMode();
+            updateRacingHud(state);
+          }
+        }
+      })
+    );
+    controls.appendChild(
+      createButton({
+        label: "End",
+        variant: "danger",
+        onClick: async () => {
+          await emitWithAck(SOCKET_EVENTS.GAME_END, {});
+        }
+      })
+    );
+    hud.appendChild(controls);
   }
 
   function renderResultsScreen(room: PublicRoomState): void {
-    footerEl.innerHTML = "";
     const players: RacingPlayerState[] = lastRacingState?.players ?? [];
     const ranked = [...players].sort((a, b) => a.rank - b.rank);
+    const mount = room.gameType === "racing" ? gameSectionEl.querySelector<HTMLDivElement>("#race-results-overlay") : footerEl;
+    if (!mount) return;
+    mount.innerHTML = "";
+    mount.hidden = false;
 
     const panel = document.createElement("div");
     panel.className = "results-panel";
@@ -224,25 +264,27 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       })
     );
     panel.appendChild(actions);
-    footerEl.appendChild(panel);
-    footerEl.hidden = false;
+    mount.appendChild(panel);
+    footerEl.hidden = room.gameType === "racing";
   }
 
   function renderRoom(room: PublicRoomState): void {
     lastRoom = room;
+    const isRaceResults = room.gameType === "racing" && room.status === "results";
+    const isPlaying = room.status === "countdown" || room.status === "in-progress" || isRaceResults;
+    const wasPlaying =
+      lastStatus === "countdown" || lastStatus === "in-progress" || (room.gameType === "racing" && lastStatus === "results");
+
     if (room.status === "results") {
-      const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
-      if (wasPlaying) stopGameView();
+      if (room.gameType === "racing" && !wasPlaying) startGameView(room);
       gridEl.hidden = true;
-      gameSectionEl.hidden = true;
+      gameSectionEl.hidden = room.gameType !== "racing";
       reconnectingEl.hidden = true;
       renderResultsScreen(room);
       lastStatus = room.status;
       return;
     }
-    footerEl.hidden = false;
     if (room.status === "host-disconnected") {
-      const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
       if (wasPlaying) stopGameView();
       gridEl.hidden = true;
       footerEl.hidden = true;
@@ -253,10 +295,18 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     }
     reconnectingEl.hidden = true;
 
-    const isPlaying = room.status === "countdown" || room.status === "in-progress";
-    const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
     if (isPlaying && !wasPlaying) startGameView(room);
     if (!isPlaying && wasPlaying) stopGameView();
+    if (isPlaying) {
+      gridEl.hidden = true;
+      footerEl.hidden = true;
+      const countdownEl = gameSectionEl.querySelector<HTMLDivElement>("#countdown");
+      if (countdownEl && room.status === "in-progress") countdownEl.textContent = "";
+      const resultsEl = gameSectionEl.querySelector<HTMLDivElement>("#race-results-overlay");
+      if (resultsEl) resultsEl.hidden = true;
+    } else {
+      footerEl.hidden = false;
+    }
     lastStatus = room.status;
 
     if (room.status !== "lobby") return;
@@ -296,7 +346,18 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   };
   const onCountdownTick = (payload: CountdownTickPayload) => {
     const el = document.getElementById("countdown");
-    if (el) el.textContent = String(payload.value);
+    if (el) {
+      const value = String(payload.value).toUpperCase();
+      if (payload.value === "go") {
+        el.innerHTML = `<div class="countdown-lights is-go"><span>GO</span></div>`;
+        window.setTimeout(() => (el.textContent = ""), 650);
+      } else {
+        const active = 4 - Number(payload.value);
+        el.innerHTML = `<div class="countdown-lights">${[1, 2, 3]
+          .map((light) => `<i class="${light <= active ? "is-active" : ""}"></i>`)
+          .join("")}</div>`;
+      }
+    }
   };
   const onGameState = (payload: GameStatePayload) => {
     if (payload.gameType === "controller-test" && renderer instanceof ControllerTestRenderer) {

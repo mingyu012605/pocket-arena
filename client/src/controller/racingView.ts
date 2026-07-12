@@ -22,6 +22,10 @@ function setText(el: HTMLElement, text: string): void {
   el.textContent = text;
 }
 
+function isDevDiagnosticsEnabled(): boolean {
+  return new URLSearchParams(window.location.search).get("dev") === "1";
+}
+
 export function mountRacingView(
   container: HTMLElement,
   opts: { nickname: string; color: string; roundId: string; playerNumber: number }
@@ -48,6 +52,10 @@ export function mountRacingView(
         <button class="btn btn-secondary" id="recalibrate-button" type="button">Recalibrate</button>
         <p class="safety-copy">Hold phone securely.</p>
       </div>
+      <details class="racing-dev-diagnostics" id="racing-dev-diagnostics" hidden>
+        <summary>Diagnostics</summary>
+        <pre id="racing-dev-readout"></pre>
+      </details>
     </div>
   `;
 
@@ -65,10 +73,36 @@ export function mountRacingView(
   const speedEl = container.querySelector<HTMLParagraphElement>("#speed-readout")!;
   const recalibrateButton = container.querySelector<HTMLButtonElement>("#recalibrate-button")!;
   const indicator = container.querySelector<HTMLSpanElement>("#racing-conn-indicator")!;
+  const diagnostics = container.querySelector<HTMLDetailsElement>("#racing-dev-diagnostics")!;
+  const diagnosticsReadout = container.querySelector<HTMLPreElement>("#racing-dev-readout")!;
 
   setText(nicknameEl, opts.nickname);
   const motion = new MotionInputSource();
   const input = new RacingInputSource(opts.roundId);
+  const devDiagnostics = isDevDiagnosticsEnabled();
+  let lastReading: MotionReading = { steering: 0, throttle: 0, brake: 0 };
+  let lastSendAt = 0;
+  let serverSpeed = 0;
+  if (devDiagnostics) diagnostics.hidden = false;
+
+  function updateDiagnostics(): void {
+    if (!devDiagnostics) return;
+    const orientation = screen.orientation as ScreenOrientation | undefined;
+    diagnosticsReadout.textContent = [
+      `secureContext: ${window.isSecureContext}`,
+      `motionState: ${motion.getState()}`,
+      `landscape: ${window.innerWidth > window.innerHeight}`,
+      `orientationAngle: ${orientation?.angle ?? "unknown"}`,
+      `calibration: ${motion.getCalibrationStep()}`,
+      `steering: ${lastReading.steering.toFixed(3)}`,
+      `throttle: ${lastReading.throttle.toFixed(3)}`,
+      `brake: ${lastReading.brake.toFixed(3)}`,
+      `sequence: ${input.getSequence()}`,
+      `lastSendMsAgo: ${lastSendAt === 0 ? "never" : Math.round(performance.now() - lastSendAt)}`,
+      `socket: ${getSocket().connected ? "connected" : "disconnected"}`,
+      `serverSpeedKmh: ${Math.round(serverSpeed * 3.6)}`
+    ].join("\n");
+  }
 
   function appendCalibrationButton(label: string, body: string, onClick: () => void): void {
     const copy = document.createElement("p");
@@ -125,11 +159,14 @@ export function mountRacingView(
 
   const offState = motion.onStateChange(renderForState);
   const offReading = motion.onReading((reading: MotionReading) => {
+    lastReading = reading;
     input.send(reading);
+    lastSendAt = performance.now();
     wheelRimEl.style.setProperty("--steer", String(reading.steering));
     throttleBar.value = reading.throttle;
     brakeBar.value = reading.brake;
     steeringReadout.textContent = `Steering ${Math.round(reading.steering * 100)}%`;
+    updateDiagnostics();
   });
 
   const onRecalibrate = () => {
@@ -142,7 +179,11 @@ export function mountRacingView(
   const onGameState = (payload: GameStatePayload) => {
     if (payload.gameType !== "racing") return;
     const self = payload.players.find((p) => p.playerNumber === opts.playerNumber);
-    if (self) speedEl.textContent = `Speed: ${Math.round(self.speed * 3.6)} km/h`;
+    if (self) {
+      serverSpeed = self.speed;
+      speedEl.textContent = `Speed: ${Math.round(self.speed * 3.6)} km/h`;
+      updateDiagnostics();
+    }
   };
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);
 
@@ -151,9 +192,17 @@ export function mountRacingView(
     indicator.classList.add("offline");
   };
   const onConnect = () => indicator.classList.remove("offline");
-  const onBlur = () => input.sendNeutral();
+  const onBlur = () => {
+    input.sendNeutral();
+    lastSendAt = performance.now();
+    updateDiagnostics();
+  };
   const onVisibility = () => {
-    if (document.hidden) input.sendNeutral();
+    if (document.hidden) {
+      input.sendNeutral();
+      lastSendAt = performance.now();
+      updateDiagnostics();
+    }
   };
   socket.on("disconnect", onDisconnect);
   socket.on("connect", onConnect);
@@ -161,6 +210,7 @@ export function mountRacingView(
   document.addEventListener("visibilitychange", onVisibility);
 
   renderForState(motion.getState());
+  updateDiagnostics();
 
   return () => {
     offState();

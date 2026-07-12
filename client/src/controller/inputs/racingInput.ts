@@ -27,4 +27,8 @@ export class RacingInputSource {
   sendNeutral(): void {
     this.send({ steering: 0, throttle: 0, brake: 0 });
   }
+
+  getSequence(): number {
+    return this.sequence;
+  }
 }

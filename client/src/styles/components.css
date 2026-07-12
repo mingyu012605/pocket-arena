@@ -240,6 +240,11 @@
   justify-content: center;
   margin-top: 1rem;
 }
+.page-section.is-game-active {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
 .lobby-grid[hidden],
 .lobby-footer[hidden],
 .game-section[hidden] {
@@ -256,43 +261,83 @@
   min-height: 420px;
   display: block;
 }
+.race-viewport {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+  z-index: 20;
+}
+.race-viewport .racing-canvas {
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+}
 .racing-hud {
   position: absolute;
+  inset: 0;
+  width: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+.race-hud-panel {
+  position: absolute;
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  border-radius: 8px;
+  background: rgba(5, 7, 15, 0.68);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  color: #f8fafc;
+  pointer-events: auto;
+}
+.race-hud-leaderboard {
   top: 1rem;
   left: 1rem;
-  width: min(320px, calc(100% - 2rem));
-  padding: 0.9rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: rgba(5, 7, 15, 0.82);
-  backdrop-filter: blur(12px);
-  z-index: 1;
+  width: min(290px, calc(100% - 2rem));
+  padding: 0.85rem;
 }
-.racing-hud-summary {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.6rem;
-  align-items: center;
-}
-.racing-hud-title,
-.racing-hud-telemetry {
+.race-position {
+  font-size: 2.2rem;
+  font-weight: 800;
   margin: 0;
+  line-height: 0.95;
 }
 .racing-hud-title {
+  margin: 0.25rem 0 0;
   font-weight: 700;
-}
-.racing-hud-telemetry {
-  color: var(--color-text-dim);
-  font-size: 0.9rem;
+  color: var(--player-color, #22d3ee);
 }
 .racing-hud .btn {
-  padding: 0.55rem 0.8rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
+  border-radius: 8px;
+}
+.racing-metrics-overlay {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  max-width: min(720px, calc(100% - 2rem));
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 6px;
+  background: rgba(5, 7, 15, 0.78);
+  color: #dbeafe;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  pointer-events: none;
+  z-index: 3;
 }
 .racing-leaderboard {
   list-style: none;
   padding: 0;
-  margin: 0.75rem 0 0;
+  margin: 0.85rem 0 0;
   display: grid;
   gap: 0.4rem;
 }
@@ -312,6 +357,91 @@
   border-color: var(--color-cyan);
   color: white;
 }
+.race-hud-status {
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.65rem 1.2rem;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.race-speedometer {
+  right: 1rem;
+  bottom: 1rem;
+  min-width: 190px;
+  padding: 0.9rem 1rem;
+  text-align: right;
+}
+.race-speedometer strong {
+  display: block;
+  font-size: 3.4rem;
+  line-height: 0.9;
+}
+.race-speedometer span {
+  display: block;
+  color: #bae6fd;
+  font-size: 0.85rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.race-speedometer small {
+  display: block;
+  margin-top: 0.5rem;
+  color: #fbbf24;
+  font-weight: 800;
+}
+.race-progress {
+  left: 1rem;
+  bottom: 1rem;
+  width: min(360px, calc(100% - 2rem));
+  height: 46px;
+  overflow: hidden;
+}
+.race-progress::before {
+  content: "";
+  position: absolute;
+  inset: 20px 14px auto;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.18);
+}
+.race-progress span {
+  position: absolute;
+  left: 14px;
+  top: 20px;
+  height: 6px;
+  max-width: calc(100% - 28px);
+  border-radius: 999px;
+  background: var(--player-color, #22d3ee);
+}
+.race-progress p {
+  position: absolute;
+  left: 14px;
+  bottom: 4px;
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+}
+.race-controls {
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.55rem;
+}
+.race-results-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 4;
+  background: linear-gradient(90deg, rgba(5, 7, 15, 0.78), rgba(5, 7, 15, 0.25));
+}
+.race-results-overlay[hidden] {
+  display: none;
+}
 .countdown-overlay {
   position: absolute;
   inset: 0;
@@ -323,7 +453,34 @@
   color: white;
   text-shadow: 0 0 40px var(--color-cyan);
   pointer-events: none;
-  z-index: 2;
+  z-index: 3;
+}
+.countdown-lights {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.25rem;
+  border-radius: 999px;
+  background: rgba(5, 7, 15, 0.68);
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  backdrop-filter: blur(12px);
+}
+.countdown-lights i {
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  background: #1f2937;
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.7);
+}
+.countdown-lights i.is-active {
+  background: #ef4444;
+  box-shadow: 0 0 26px rgba(239, 68, 68, 0.8);
+}
+.countdown-lights.is-go {
+  border-radius: 10px;
+  color: #34d399;
+  text-shadow: 0 0 32px rgba(52, 211, 153, 0.9);
 }
 
 .reconnecting-banner {
@@ -335,7 +492,12 @@
 
 .results-panel {
   text-align: center;
-  width: 100%;
+  width: min(520px, calc(100% - 2rem));
+  padding: 1.25rem;
+  border: 1px solid rgba(226, 232, 240, 0.22);
+  border-radius: 8px;
+  background: rgba(5, 7, 15, 0.82);
+  backdrop-filter: blur(16px);
 }
 .results-list {
   list-style: none;
@@ -388,4 +550,42 @@
   padding: 1rem;
   text-align: left;
   white-space: pre;
+}
+
+.racing-dev-diagnostics {
+  width: min(100%, 360px);
+  margin: 1rem auto 0;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(5, 7, 15, 0.72);
+  padding: 0.75rem;
+}
+.racing-dev-diagnostics pre {
+  white-space: pre-wrap;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #dbeafe;
+}
+
+@media (max-width: 760px) {
+  .race-hud-leaderboard {
+    width: 210px;
+  }
+  .race-position,
+  .race-speedometer strong {
+    font-size: 2rem;
+  }
+  .race-hud-status {
+    top: 4.5rem;
+    font-size: 0.72rem;
+  }
+  .race-controls {
+    max-width: calc(100% - 230px);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .race-speedometer {
+    min-width: 140px;
+  }
 }
