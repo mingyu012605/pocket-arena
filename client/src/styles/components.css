@@ -566,6 +566,469 @@
   border-color: color-mix(in srgb, var(--color-purple) 50%, var(--color-border));
 }
 
+.launcher-page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 22% 12%, rgba(34, 211, 238, 0.24), transparent 30rem),
+    radial-gradient(circle at 78% 8%, rgba(124, 58, 237, 0.28), transparent 34rem),
+    linear-gradient(145deg, #030712 0%, #07111f 45%, #0b1427 100%);
+  color: #f8fafc;
+}
+.launcher-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(105deg, transparent 0 18%, rgba(56, 189, 248, 0.1) 18.2% 18.6%, transparent 19% 100%),
+    repeating-linear-gradient(90deg, rgba(148, 163, 184, 0.04) 0 1px, transparent 1px 92px);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.86), transparent 82%);
+  pointer-events: none;
+}
+.launcher-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.launcher-bg span {
+  position: absolute;
+  width: 22rem;
+  height: 22rem;
+  border-radius: 50%;
+  filter: blur(44px);
+  opacity: 0.28;
+  animation: launcher-float 9s ease-in-out infinite alternate;
+}
+.launcher-bg span:nth-child(1) {
+  top: 9%;
+  left: 7%;
+  background: #0891b2;
+}
+.launcher-bg span:nth-child(2) {
+  right: 8%;
+  top: 16%;
+  background: #7c3aed;
+  animation-delay: -2s;
+}
+.launcher-bg span:nth-child(3) {
+  right: 32%;
+  bottom: -8rem;
+  background: #dc2626;
+  animation-delay: -4s;
+}
+.launcher-shell {
+  position: relative;
+  z-index: 1;
+  width: min(1440px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 1.4rem clamp(1rem, 3vw, 2rem) 2rem;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 1.2rem;
+}
+.launcher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 68px;
+}
+.launcher-kicker,
+.launcher-section-label,
+.launcher-card-eyebrow {
+  margin: 0;
+  color: #67e8f9;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.launcher-header h1 {
+  margin: 0.2rem 0 0;
+  font-size: clamp(1.55rem, 3.2vw, 2.6rem);
+  letter-spacing: 0;
+}
+.launcher-system {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem 0.55rem 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.62);
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.28);
+  color: #cbd5e1;
+}
+.launcher-system button {
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+.launcher-system button::before {
+  content: "";
+  display: block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin: auto;
+  border: 2px solid #e0f2fe;
+  border-radius: 50%;
+}
+.launcher-live-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 18px rgba(52, 211, 153, 0.78);
+}
+.launcher-feature {
+  position: relative;
+  min-height: clamp(320px, 48vh, 520px);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(460px, 1.1fr);
+  align-items: stretch;
+  border: 1px solid rgba(103, 232, 249, 0.32);
+  border-radius: 8px;
+  background:
+    linear-gradient(110deg, rgba(8, 47, 73, 0.92) 0%, rgba(15, 23, 42, 0.84) 48%, rgba(88, 28, 135, 0.76) 100%),
+    radial-gradient(circle at 70% 55%, rgba(34, 211, 238, 0.34), transparent 28rem);
+  box-shadow: 0 28px 90px rgba(2, 6, 23, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.launcher-feature::after {
+  content: "POCKET ARENA";
+  position: absolute;
+  right: 2rem;
+  bottom: 1.2rem;
+  color: rgba(255, 255, 255, 0.08);
+  font-size: clamp(2.4rem, 8vw, 7rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+.launcher-feature-copy {
+  position: relative;
+  z-index: 2;
+  padding: clamp(1.35rem, 3vw, 2.5rem);
+  align-self: center;
+}
+.launcher-feature-copy h2 {
+  margin: 0.35rem 0 0;
+  font-size: clamp(2.4rem, 6vw, 5.8rem);
+  line-height: 0.88;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+.launcher-feature-copy h3 {
+  margin: 0.3rem 0 1rem;
+  color: #67e8f9;
+  font-size: clamp(1.2rem, 3vw, 2.1rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.launcher-feature-copy > p:not(.launcher-section-label) {
+  max-width: 42rem;
+  color: #dbeafe;
+  font-size: clamp(1rem, 1.6vw, 1.2rem);
+  line-height: 1.55;
+}
+.launcher-badges,
+.launcher-card-facts {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.launcher-badges {
+  margin: 1.4rem 0;
+}
+.launcher-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.8rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.58);
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.launcher-badge-hot {
+  border-color: rgba(34, 211, 238, 0.62);
+  color: #67e8f9;
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.14);
+}
+.launcher-badge-muted {
+  color: #cbd5e1;
+  opacity: 0.78;
+}
+.launcher-hero-action {
+  border-radius: 8px;
+  padding: 1rem 1.35rem;
+}
+.launcher-art {
+  position: relative;
+  min-height: 180px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.launcher-feature .launcher-art {
+  min-height: 100%;
+  order: 2;
+}
+.launcher-art::before {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.25), transparent 62%);
+  filter: blur(6px);
+}
+.art-orbit,
+.art-shape {
+  position: absolute;
+  display: block;
+}
+.launcher-art-formula .art-orbit-a {
+  left: 2%;
+  right: 6%;
+  bottom: 22%;
+  height: 34%;
+  border: 18px solid rgba(15, 23, 42, 0.72);
+  border-top-color: transparent;
+  border-radius: 50%;
+  transform: rotate(-12deg);
+  box-shadow: 0 0 0 8px rgba(226, 232, 240, 0.14), 0 0 0 18px rgba(239, 68, 68, 0.16);
+}
+.launcher-art-formula .art-orbit-b {
+  right: -10%;
+  bottom: 34%;
+  width: 54%;
+  height: 8px;
+  background: repeating-linear-gradient(90deg, #f8fafc 0 22px, #0f172a 22px 44px);
+  transform: rotate(-12deg);
+}
+.launcher-art-formula .art-shape-a {
+  left: 36%;
+  top: 35%;
+  width: 30%;
+  height: 18%;
+  border-radius: 18px 18px 8px 8px;
+  background: linear-gradient(90deg, #06b6d4, #22d3ee);
+  transform: perspective(22rem) rotateX(58deg) rotateZ(-10deg);
+  box-shadow: 0 24px 46px rgba(0, 0, 0, 0.42);
+}
+.launcher-art-formula .art-shape-b {
+  left: 29%;
+  top: 43%;
+  width: 46%;
+  height: 9px;
+  background: #020617;
+  transform: rotate(-10deg);
+}
+.launcher-art-formula .art-shape-c {
+  left: 47%;
+  top: 32%;
+  width: 8%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #020617;
+  box-shadow: -86px 42px 0 10px #020617, 98px 20px 0 10px #020617;
+}
+.launcher-secondary {
+  margin-top: 1.15rem;
+}
+.launcher-secondary-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.launcher-secondary-heading span {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+.launcher-game-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+.launcher-game-card {
+  position: relative;
+  min-height: 250px;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 118px 1fr auto;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 0.92));
+  box-shadow: 0 18px 50px rgba(2, 6, 23, 0.34);
+}
+.launcher-game-card.is-locked {
+  filter: saturate(0.72);
+}
+.launcher-game-card:hover,
+.launcher-game-card:focus-visible,
+.launcher-feature:hover,
+.launcher-feature:focus-visible {
+  transform: translateY(-4px);
+  border-color: rgba(103, 232, 249, 0.68);
+  box-shadow: 0 28px 76px rgba(8, 145, 178, 0.22), 0 20px 60px rgba(2, 6, 23, 0.52);
+}
+.launcher-game-card-body {
+  position: relative;
+  z-index: 2;
+  padding: 0.85rem;
+}
+.launcher-game-card h3 {
+  margin: 0.25rem 0 0.3rem;
+  font-size: 1.05rem;
+  letter-spacing: 0;
+}
+.launcher-game-card p {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 0.88rem;
+}
+.launcher-card-facts {
+  margin-top: 0.85rem;
+}
+.launcher-status-badge {
+  position: absolute;
+  z-index: 3;
+  top: 0.65rem;
+  right: 0.65rem;
+}
+.launcher-card-action {
+  justify-self: start;
+  margin: 0 0.85rem 0.85rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 8px;
+}
+.launcher-game-card.is-playable .launcher-card-action {
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.12);
+  color: #e0faff;
+  box-shadow: 0 0 26px rgba(34, 211, 238, 0.14);
+}
+.launcher-art-rhythm .art-shape-a,
+.launcher-art-rhythm .art-shape-b,
+.launcher-art-rhythm .art-shape-c {
+  bottom: 24%;
+  width: 12%;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #22d3ee, #7c3aed);
+}
+.launcher-art-rhythm .art-shape-a {
+  left: 24%;
+  height: 30%;
+}
+.launcher-art-rhythm .art-shape-b {
+  left: 44%;
+  height: 52%;
+}
+.launcher-art-rhythm .art-shape-c {
+  left: 64%;
+  height: 38%;
+}
+.launcher-art-paddle .art-shape-a,
+.launcher-art-tennis .art-shape-a {
+  left: 24%;
+  top: 24%;
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 42px 34px 0 -10px #f8fafc;
+}
+.launcher-art-paddle .art-shape-b,
+.launcher-art-tennis .art-shape-b {
+  right: 26%;
+  bottom: 24%;
+  width: 38%;
+  height: 9px;
+  border-radius: 999px;
+  background: #f8fafc;
+  transform: rotate(-28deg);
+}
+.launcher-art-bowling .art-shape-a {
+  left: 28%;
+  top: 30%;
+  width: 28%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #e0f2fe 0 6px, transparent 7px), #22d3ee;
+}
+.launcher-art-bowling .art-shape-b {
+  right: 18%;
+  top: 18%;
+  width: 12%;
+  height: 58%;
+  border-radius: 999px 999px 18px 18px;
+  background: linear-gradient(180deg, #f8fafc, #94a3b8);
+  box-shadow: -22px 8px 0 -3px #f8fafc, 22px 8px 0 -3px #f8fafc;
+}
+.launcher-art-controller .art-shape-a {
+  left: 20%;
+  top: 38%;
+  width: 60%;
+  height: 34%;
+  border-radius: 28px;
+  background: linear-gradient(135deg, #334155, #0f172a);
+  box-shadow: inset 0 0 0 2px rgba(226, 232, 240, 0.18);
+}
+.launcher-art-controller .art-shape-b {
+  left: 31%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  background: #22d3ee;
+  box-shadow: 20px 0 0 #22d3ee, 118px -8px 0 #f43f5e, 140px 6px 0 #a78bfa;
+}
+@media (max-width: 1100px) {
+  .launcher-feature {
+    grid-template-columns: 1fr;
+  }
+  .launcher-feature .launcher-art {
+    min-height: 260px;
+  }
+  .launcher-game-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .launcher-header,
+  .launcher-secondary-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .launcher-system {
+    align-self: stretch;
+    justify-content: space-between;
+  }
+  .launcher-shell {
+    padding: 1rem;
+  }
+  .launcher-feature-copy h2 {
+    font-size: 2.5rem;
+  }
+  .launcher-game-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5rem;
+  }
+  .launcher-game-card {
+    min-width: 230px;
+    scroll-snap-align: start;
+  }
+}
+
 .motion-readout {
   font-family: ui-monospace, monospace;
   font-size: 1.1rem;
