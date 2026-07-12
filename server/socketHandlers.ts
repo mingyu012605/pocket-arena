@@ -259,7 +259,15 @@ export function registerSocketHandlers(io: Server, port: number): void {
       const session = socket.data.session;
       if (!session || session.role !== "controller") return;
       const room = getRoom(session.roomId);
-      if (!room || room.status !== "in-progress" || room.roundId !== payload.roundId) return;
+      // "countdown" is accepted alongside "in-progress": a room's roundId is fixed
+      // for the whole countdown+in-progress span (see GAME_START/runCountdown), and
+      // the physics tick doesn't start until "go" — so a direction/jump set during
+      // the countdown just sits on player.physics until the tick loop begins
+      // consuming it, letting a pre-emptive hold take effect immediately at "go"
+      // instead of being silently dropped and requiring a release-and-repress.
+      if (!room || (room.status !== "in-progress" && room.status !== "countdown") || room.roundId !== payload.roundId) {
+        return;
+      }
       const player = findPlayer(room, session.playerNumber);
       if (!player || payload.sequence <= player.lastSequence) return;
       player.lastSequence = payload.sequence;

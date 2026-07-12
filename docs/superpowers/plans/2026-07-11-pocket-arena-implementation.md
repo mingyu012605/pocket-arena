@@ -1176,7 +1176,15 @@ export function registerSocketHandlers(io: Server, port: number): void {
       const session = socket.data.session;
       if (!session || session.role !== "controller") return;
       const room = getRoom(session.roomId);
-      if (!room || room.status !== "in-progress" || room.roundId !== payload.roundId) return;
+      // "countdown" is accepted alongside "in-progress": a room's roundId is fixed
+      // for the whole countdown+in-progress span (see GAME_START/runCountdown), and
+      // the physics tick doesn't start until "go" — so a direction/jump set during
+      // the countdown just sits on player.physics until the tick loop begins
+      // consuming it, letting a pre-emptive hold take effect immediately at "go"
+      // instead of being silently dropped and requiring a release-and-repress.
+      if (!room || (room.status !== "in-progress" && room.status !== "countdown") || room.roundId !== payload.roundId) {
+        return;
+      }
       const player = findPlayer(room, session.playerNumber);
       if (!player || payload.sequence <= player.lastSequence) return;
       player.lastSequence = payload.sequence;
@@ -1201,6 +1209,19 @@ export function registerSocketHandlers(io: Server, port: number): void {
           break;
       }
     });
+
+    // Amendment (applied during Task 11's manual verification): the original guard
+    // above required `room.status === "in-progress"` exactly, dropping every
+    // `input:action` sent during "countdown". Task 10's client-side fix kept a
+    // player's held direction alive across the countdown->in-progress transition
+    // (no remount), but its very first `left-start`/`right-start` — sent the moment
+    // the button is pressed, which can happen mid-countdown — was silently dropped
+    // server-side and never resent, so the server never actually recorded the hold.
+    // A player who pre-pressed LEFT during "3-2-1" saw nothing move at "go" until
+    // they released and pressed again. Reproduced and fixed here by accepting
+    // "countdown" too; a regression test in server/socketHandlers.test.ts sends
+    // input mid-countdown and asserts the first in-progress game:state tick already
+    // reflects movement.
 
     socket.on("disconnect", () => {
       const session = socket.data.session;

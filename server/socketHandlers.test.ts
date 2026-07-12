@@ -143,6 +143,53 @@ describe("room lifecycle", () => {
     p1.close();
   });
 
+  it(
+    "accepts input held during the countdown so movement starts immediately at go",
+    async () => {
+      const host = connect();
+      await new Promise<void>((resolve) => host.on("connect", resolve));
+      const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+        gameType: "controller-test",
+        maxPlayers: 1
+      });
+      if (!created.ok) throw new Error("setup failed");
+
+      const p1 = connect();
+      await new Promise<void>((resolve) => p1.on("connect", resolve));
+      await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+        roomId: created.roomId,
+        playerNumber: 1,
+        token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+        nickname: "Alice"
+      });
+      await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+      let roundId: string | null = null;
+      host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+        if (room.roundId) roundId = room.roundId;
+      });
+
+      const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+      expect(started.ok).toBe(true);
+      expect(roundId).not.toBeNull();
+
+      // Held during the countdown, well before "go" fires (~3s later).
+      p1.emit(SOCKET_EVENTS.INPUT_ACTION, { action: "left-start", sequence: 1, roundId });
+
+      const firstState = await new Promise<{ players: Array<{ playerNumber: number; x: number }> }>(
+        (resolve) => {
+          host.once(SOCKET_EVENTS.GAME_STATE, resolve);
+        }
+      );
+
+      expect(firstState.players[0]!.x).toBeLessThan(400);
+
+      host.close();
+      p1.close();
+    },
+    8000
+  );
+
   it("rejects an invalid token", async () => {
     const host = connect();
     await new Promise<void>((resolve) => host.on("connect", resolve));
