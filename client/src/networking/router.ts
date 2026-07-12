@@ -30,7 +30,7 @@ function compile(path: string): { pattern: RegExp; keys: string[] } {
       return segment ? `/${segment}` : "";
     })
     .join("");
-  return { pattern: new RegExp(`^${pattern}$`), keys };
+  return { pattern: new RegExp(`^${pattern || "/"}$`), keys };
 }
 
 export function registerRoute(path: string, handler: RouteHandler): void {
@@ -40,6 +40,10 @@ export function registerRoute(path: string, handler: RouteHandler): void {
 
 function render(): void {
   if (!container) return;
+  if (activeCleanup) {
+    activeCleanup();
+    activeCleanup = null;
+  }
   const url = new URL(window.location.href);
   for (const route of routes) {
     const match = route.pattern.exec(url.pathname);
@@ -49,10 +53,6 @@ function render(): void {
       const value = match[i + 1];
       if (value !== undefined) params[key] = value;
     });
-    if (activeCleanup) {
-      activeCleanup();
-      activeCleanup = null;
-    }
     container.innerHTML = "";
     const cleanup = route.handler({ container, params, query: url.searchParams });
     activeCleanup = cleanup ?? null;
