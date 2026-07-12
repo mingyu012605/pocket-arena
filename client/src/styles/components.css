@@ -214,3 +214,22 @@
   justify-content: center;
   margin-top: 2rem;
 }
+
+.nickname-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.nickname-form input {
+  font-family: inherit;
+  font-size: 1.1rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.nickname-form input:focus {
+  outline: 2px solid var(--player-color, var(--color-cyan));
+}
