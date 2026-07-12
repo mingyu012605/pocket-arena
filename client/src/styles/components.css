@@ -292,3 +292,14 @@
 .game-card:not(.game-card-disabled):hover {
   border-color: color-mix(in srgb, var(--color-purple) 50%, var(--color-border));
 }
+
+.motion-readout {
+  font-family: ui-monospace, monospace;
+  font-size: 1.1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  text-align: left;
+  white-space: pre;
+}
