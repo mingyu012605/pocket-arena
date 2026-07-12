@@ -102,3 +102,115 @@
   color: #05070f;
   flex-shrink: 0;
 }
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+.game-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.game-card-disabled {
+  opacity: 0.6;
+}
+.game-icon {
+  font-size: 2.5rem;
+}
+.game-desc {
+  color: var(--color-text-dim);
+  font-size: 0.95rem;
+  flex-grow: 1;
+}
+.game-players {
+  font-size: 0.85rem;
+  color: var(--color-cyan);
+}
+.game-card-actions {
+  margin-top: 0.5rem;
+}
+
+.player-count-grid {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+
+.lobby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+.room-code {
+  font-size: 2.5rem;
+  letter-spacing: 0.15em;
+}
+
+.lobby-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1.25rem;
+}
+.lobby-slot {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  text-align: center;
+  border-top: 3px solid var(--player-color, var(--color-cyan));
+}
+.qr-card-image {
+  width: 100%;
+  max-width: 180px;
+  border-radius: var(--radius-md);
+  background: white;
+  padding: 0.5rem;
+}
+.player-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+.player-number {
+  font-weight: 700;
+}
+.player-nickname {
+  color: var(--color-text-dim);
+}
+.player-status {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  display: inline-block;
+  align-self: center;
+}
+.status-waiting .player-status {
+  background: var(--color-border);
+  color: var(--color-text-dim);
+}
+.status-connected .player-status {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--color-blue);
+}
+.status-ready .player-status {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+.status-disconnected .player-status {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.lobby-footer {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
+}
