@@ -1,13 +1,17 @@
-import { emitWithAck } from "../networking/socket";
+import { emitWithAck, getSocket } from "../networking/socket";
 import type { CleanupFn, RouteContext } from "../networking/router";
 import { SOCKET_EVENTS } from "../../../shared/protocol";
 import type {
   ControllerJoinRequest,
   ControllerJoinResponse,
+  CountdownTickPayload,
+  PublicRoomState,
   ValidateTokenRequest,
   ValidateTokenResponse
 } from "../../../shared/protocol";
 import { createButton } from "../components/button";
+import { mountControllerView } from "../controller/controllerView";
+import "../styles/controller.css";
 
 function tokenKey(roomId: string, playerNumber: string): string {
   return `pocket-arena:player:${roomId}:${playerNumber}`;
@@ -33,6 +37,71 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
   }
 
   let cancelled = false;
+  let controllerCleanup: CleanupFn | null = null;
+  let lastStatus: PublicRoomState["status"] | null = null;
+  const socket = getSocket();
+
+  const onCountdownTick = (payload: CountdownTickPayload) => {
+    const el = document.getElementById("phone-countdown");
+    if (el) el.textContent = String(payload.value);
+  };
+  socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
+
+  function renderReadyScreen(room: PublicRoomState, color: string): void {
+    const self = room.players.find((p) => p.playerNumber === Number(playerNumber));
+    section.style.setProperty("--player-color", color);
+    section.innerHTML = `
+      <p class="eyebrow">PLAYER ${playerNumber}</p>
+      <h1 class="glow-text">${self?.nickname ?? ""}</h1>
+      <div id="ready-slot"></div>
+      <p id="waiting-text" class="hero-copy" hidden>Waiting for host…</p>
+    `;
+    const readySlot = section.querySelector<HTMLDivElement>("#ready-slot")!;
+    const waitingText = section.querySelector<HTMLParagraphElement>("#waiting-text")!;
+    let ready = self?.ready ?? false;
+    waitingText.hidden = !ready;
+    const readyButton = createButton({
+      label: ready ? "Cancel Ready" : "Ready",
+      variant: "primary",
+      onClick: async () => {
+        ready = !ready;
+        readyButton.disabled = true;
+        try {
+          await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
+          readyButton.textContent = ready ? "Cancel Ready" : "Ready";
+          waitingText.hidden = !ready;
+        } finally {
+          readyButton.disabled = false;
+        }
+      }
+    });
+    readySlot.appendChild(readyButton);
+  }
+
+  function onRoomState(room: PublicRoomState): void {
+    const self = room.players.find((p) => p.playerNumber === Number(playerNumber));
+    if (!self || room.status === lastStatus) {
+      lastStatus = room.status;
+      return;
+    }
+    controllerCleanup?.();
+    controllerCleanup = null;
+
+    if (room.status === "host-disconnected") {
+      section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
+    } else if (room.status === "countdown" || room.status === "in-progress") {
+      section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;
+      controllerCleanup = mountControllerView(section.querySelector("#controller-mount")!, {
+        nickname: self.nickname ?? "Player",
+        color: self.color,
+        roundId: room.roundId ?? ""
+      });
+    } else {
+      renderReadyScreen(room, self.color);
+    }
+    lastStatus = room.status;
+  }
+  socket.on(SOCKET_EVENTS.ROOM_STATE, onRoomState);
 
   emitWithAck<ValidateTokenResponse>(SOCKET_EVENTS.CONTROLLER_VALIDATE_TOKEN, {
     roomId,
@@ -81,7 +150,8 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
           token: token!,
           nickname: input.value
         } satisfies ControllerJoinRequest);
-        renderReadyScreen(joined);
+        lastStatus = null;
+        onRoomState(joined.room);
       } catch (err) {
         errorEl.textContent = (err as { message?: string }).message ?? "Could not join the room.";
         errorEl.hidden = false;
@@ -90,37 +160,10 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     });
   }
 
-  function renderReadyScreen(joined: ControllerJoinResponse): void {
-    const self = joined.room.players.find((p) => p.playerNumber === Number(playerNumber));
-    section.style.setProperty("--player-color", joined.color);
-    section.innerHTML = `
-      <p class="eyebrow">PLAYER ${playerNumber}</p>
-      <h1 class="glow-text">${self?.nickname ?? ""}</h1>
-      <div id="ready-slot"></div>
-      <p id="waiting-text" class="hero-copy" hidden>Waiting for host…</p>
-    `;
-    const readySlot = section.querySelector<HTMLDivElement>("#ready-slot")!;
-    const waitingText = section.querySelector<HTMLParagraphElement>("#waiting-text")!;
-    let ready = false;
-    const readyButton = createButton({
-      label: "Ready",
-      variant: "primary",
-      onClick: async () => {
-        ready = !ready;
-        readyButton.disabled = true;
-        try {
-          await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
-          readyButton.textContent = ready ? "Cancel Ready" : "Ready";
-          waitingText.hidden = !ready;
-        } finally {
-          readyButton.disabled = false;
-        }
-      }
-    });
-    readySlot.appendChild(readyButton);
-  }
-
   return () => {
     cancelled = true;
+    controllerCleanup?.();
+    socket.off(SOCKET_EVENTS.ROOM_STATE, onRoomState);
+    socket.off(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
   };
 }
