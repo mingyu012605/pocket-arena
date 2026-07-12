@@ -34,6 +34,7 @@ import {
 import type { AppSocket, InternalRoom } from "./types";
 import { resolveUrls } from "./network";
 import { buildSlotQrData } from "./qr";
+import { resetAllDirections, resetPlayerDirection, startPhysicsLoop, stopPhysicsLoop } from "./games/controllerTest";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
   return { ok: false, error: { code, message } };
@@ -53,12 +54,11 @@ function connectedSocketIds(room: InternalRoom): string[] {
 function endRound(room: InternalRoom): void {
   if (room.countdownTimer) clearTimeout(room.countdownTimer);
   room.countdownTimer = null;
-  if (room.physicsInterval) clearInterval(room.physicsInterval);
-  room.physicsInterval = null;
+  stopPhysicsLoop(room);
   room.status = "lobby";
   room.roundId = null;
   room.countdownEndsAt = null;
-  for (const player of room.players) player.physics.direction = 0;
+  resetAllDirections(room);
 }
 
 function runCountdown(io: Server, room: InternalRoom): void {
@@ -76,6 +76,7 @@ function runCountdown(io: Server, room: InternalRoom): void {
       room.countdownEndsAt = null;
       room.countdownTimer = null;
       broadcastRoomState(io, room);
+      startPhysicsLoop(io, room);
       return;
     }
     room.countdownTimer = setTimeout(emitNext, 1000);
@@ -295,12 +296,9 @@ export function registerSocketHandlers(io: Server, port: number): void {
           clearTimeout(room.countdownTimer);
           room.countdownTimer = null;
         }
-        if (room.physicsInterval) {
-          clearInterval(room.physicsInterval);
-          room.physicsInterval = null;
-        }
+        stopPhysicsLoop(room);
         room.status = "host-disconnected";
-        for (const player of room.players) player.physics.direction = 0;
+        resetAllDirections(room);
         broadcastRoomState(io, room);
         room.hostGraceTimer = setTimeout(() => {
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.ROOM_CLOSED, {
@@ -313,7 +311,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (player && player.socketId === socket.id) {
           player.connected = false;
           player.socketId = null;
-          player.physics.direction = 0;
+          resetPlayerDirection(room, player.playerNumber);
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.PLAYER_DISCONNECTED, { playerNumber: player.playerNumber });
           broadcastRoomState(io, room);
         }
