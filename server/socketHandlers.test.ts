@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { registerSocketHandlers } from "./socketHandlers";
+import { getRoom } from "./rooms";
 import { SOCKET_EVENTS } from "../shared/protocol";
 import type { Ack, ControllerJoinResponse, CreateRoomResponse } from "../shared/protocol";
 
@@ -210,6 +211,48 @@ describe("room lifecycle", () => {
       nickname: "Eve"
     });
     expect(join.ok).toBe(false);
+
+    host.close();
+    p1.close();
+  });
+
+  it("stores validated racing:input values on the room's racing game state", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 0.5, throttle: 0.8, brake: 0, sequence: 1, roundId });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const room = getRoom(created.roomId);
+    expect(room?.gameState?.gameType).toBe("racing");
+    if (room?.gameState?.gameType === "racing") {
+      const car = room.gameState.cars.get(1);
+      expect(car?.steering).toBe(0.5);
+      expect(car?.throttle).toBe(0.8);
+    }
 
     host.close();
     p1.close();

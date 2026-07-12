@@ -16,6 +16,7 @@ import type {
   HostReconnectResponse,
   InputActionPayload,
   PlayerReadyRequest,
+  RacingInputPayload,
   ValidateTokenRequest,
   ValidateTokenResponse
 } from "../shared/protocol";
@@ -41,6 +42,7 @@ import {
   startPhysicsLoop,
   stopPhysicsLoop
 } from "./games/controllerTest";
+import { createRacingGameState } from "./games/racing";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
   return { ok: false, error: { code, message } };
@@ -246,7 +248,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       room.roundId = createToken();
       room.status = "countdown";
       room.countdownEndsAt = Date.now() + 3000;
-      room.gameState = createControllerTestGameState(room);
+      room.gameState = room.gameType === "racing" ? createRacingGameState(room) : createControllerTestGameState(room);
       broadcastRoomState(io, room);
       runCountdown(io, room);
       ack({ ok: true } as Ack<Record<string, never>>);
@@ -299,6 +301,23 @@ export function registerSocketHandlers(io: Server, port: number): void {
           }
           break;
       }
+    });
+
+    socket.on(SOCKET_EVENTS.RACING_INPUT, (payload: RacingInputPayload) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return;
+      const room = getRoom(session.roomId);
+      if (!room || (room.status !== "in-progress" && room.status !== "countdown") || room.roundId !== payload.roundId) {
+        return;
+      }
+      if (room.gameState?.gameType !== "racing") return;
+      const car = room.gameState.cars.get(session.playerNumber);
+      if (!car || payload.sequence <= car.lastSequence) return;
+      car.lastSequence = payload.sequence;
+      car.lastInputAt = Date.now();
+      car.steering = Math.max(-1, Math.min(1, payload.steering));
+      car.throttle = Math.max(0, Math.min(1, payload.throttle));
+      car.brake = Math.max(0, Math.min(1, payload.brake));
     });
 
     socket.on("disconnect", () => {

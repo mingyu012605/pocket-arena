@@ -13,8 +13,33 @@ export interface ControllerTestGameState {
   gameType: "controller-test";
   players: Map<number, ControllerTestPhysics>;
 }
+export interface RacingCarState {
+  progress: number;
+  lateralOffset: number;
+  headingError: number;
+  speed: number;
+  yawRate: number;
+  steering: number;
+  throttle: number;
+  brake: number;
+  lastInputAt: number;
+  lastSequence: number;
+  rank: number;
+  lap: number;
+  finished: boolean;
+  finishTime: number | null;
+}
+export interface RacingGameState {
+  gameType: "racing";
+  trackId: string;
+  cars: Map<number, RacingCarState>;
+  finishOrder: number[];
+  focusedPlayerNumber: number | null;
+  startedAt: number | null;
+  endedAt: number | null;
+}
 
-export type InternalGameState = ControllerTestGameState;
+export type InternalGameState = ControllerTestGameState | RacingGameState;
 
 export interface InternalPlayer {
   playerNumber: number;

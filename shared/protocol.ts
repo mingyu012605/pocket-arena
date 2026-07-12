@@ -119,6 +119,14 @@ export interface InputActionPayload {
   roundId: string;
 }
 
+export interface RacingInputPayload {
+  steering: number; // -1..1
+  throttle: number; // 0..1
+  brake: number;    // 0..1
+  sequence: number;
+  roundId: string;
+}
+
 export interface CountdownTickPayload {
   value: 3 | 2 | 1 | "go";
   roundId: string;
@@ -174,6 +182,7 @@ export const SOCKET_EVENTS = {
   GAME_START: "game:start",
   GAME_END: "game:end",
   INPUT_ACTION: "input:action",
+  RACING_INPUT: "racing:input",
   ROOM_STATE: "room:state",
   ROOM_CLOSED: "room:closed",
   PLAYER_DISCONNECTED: "player:disconnected",
