@@ -13,10 +13,11 @@ npm run dev
 
 This starts a single server on http://localhost:3000 that serves the
 website and the Socket.IO game server together, with hot reload. On
-startup the terminal prints two URLs:
+startup the terminal prints:
 
 Local:    http://localhost:3000
 Network:  http://<your-lan-ip>:3000
+QR codes will use: http://<your-lan-ip>:3000
 
 Open the **Local** URL on the laptop that will host the game.
 
@@ -37,11 +38,16 @@ default).
 ## Build and run (production)
 
 npm run build
-npm start
+NODE_ENV=production npm start
 
 `npm run build` compiles the client with Vite and bundles the server with
-esbuild into `dist/`. `npm start` runs the production server the same way
-`npm run dev` runs the development one — one process, one port.
+esbuild into `dist/`. `npm start` runs the bundled `dist/server/index.js` —
+one process, one port, the same `Local`/`Network`/`QR codes will use:`
+banner as `npm run dev`. `NODE_ENV=production` matters: with it set, the
+server serves the pre-built static files in `dist/client/` (with an SPA
+fallback to `index.html` for client-side routes); without it, the server
+falls back to the same Vite dev middleware `npm run dev` uses. Always set
+`NODE_ENV=production` when running the built output.
 
 ## Type-checking and tests
 
