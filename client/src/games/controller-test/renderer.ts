@@ -12,7 +12,7 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
   // render time inside the [prev.time, next.time] window in steady state, so
   // interpolate() blends between two known snapshots instead of racing ahead
   // of the latest one (see amendment note in the plan for the bug this fixes).
-  private static readonly RENDER_DELAY_MS = 60;
+  private static readonly RENDER_DELAY_MS = 50;
 
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;

@@ -2864,7 +2864,7 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
   // render time inside the [prev.time, next.time] window in steady state, so
   // interpolate() blends between two known snapshots instead of racing ahead
   // of the latest one (see amendment note below).
-  private static readonly RENDER_DELAY_MS = 60;
+  private static readonly RENDER_DELAY_MS = 50;
 
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -2934,7 +2934,7 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
 }
 ```
 
-**Amendment (applied during Task 9 review):** the code above supersedes an earlier draft's `interpolate()`, which computed `t = (performance.now() - next.time) / span + 1`. Since `next.time` is always in the past by the time `render()` runs (snapshots are timestamped on receipt, `render()` fires on the next animation frame after), `performance.now() - next.time >= 0` essentially always, making `t >= 1` always — the renderer always *extrapolated* forward from the latest snapshot (clamped at 1.2×) rather than *interpolating between* the two buffered ones, contradicting this task's own purpose. Verified with a synthetic tick-stream simulation. The fix renders at `now - RENDER_DELAY_MS` (60ms, just over one 20Hz/50ms server tick) instead of raw `now`, so the render time falls inside `[prev.time, next.time]` in steady state and `t` genuinely ranges over `[0, 1]` — true interpolation, at the cost of ~60ms of visual latency versus the server's authoritative state (imperceptible for this game, and the server remains authoritative regardless of what's drawn).
+**Amendment (applied during Task 9 review):** the code above supersedes an earlier draft's `interpolate()`, which computed `t = (performance.now() - next.time) / span + 1`. Since `next.time` is always in the past by the time `render()` runs (snapshots are timestamped on receipt, `render()` fires on the next animation frame after), `performance.now() - next.time >= 0` essentially always, making `t >= 1` always — the renderer always *extrapolated* forward from the latest snapshot (clamped at 1.2×) rather than *interpolating between* the two buffered ones, contradicting this task's own purpose. Verified with a synthetic tick-stream simulation. The fix renders at `now - RENDER_DELAY_MS` (50ms, matching the 20Hz server tick exactly) instead of raw `now`, so the render time falls inside `[prev.time, next.time]` in steady state and `t` genuinely ranges over `[0, 1]` — true interpolation, at the cost of ~50ms of visual latency versus the server's authoritative state (imperceptible for this game, and the server remains authoritative regardless of what's drawn). A first pass used 60ms (a small jitter margin above the 50ms tick); task review flagged that the extra 10ms margin created a small periodic dead-zone (`t` clamped to 0 for part of each cycle, never reaching 1) since the `Math.min(1, …)` clamp already prevents extrapolation without needing that margin — tuned to exactly 50ms to remove it.
 
 - [ ] **Step 3: Modify `client/src/pages/hostLobby.ts`** — add the game view
 
