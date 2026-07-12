@@ -176,12 +176,14 @@ describe("room lifecycle", () => {
       // Held during the countdown, well before "go" fires (~3s later).
       p1.emit(SOCKET_EVENTS.INPUT_ACTION, { action: "left-start", sequence: 1, roundId });
 
-      const firstState = await new Promise<{ players: Array<{ playerNumber: number; x: number }> }>(
-        (resolve) => {
-          host.once(SOCKET_EVENTS.GAME_STATE, resolve);
-        }
-      );
+      const firstState = await new Promise<{
+        gameType: string;
+        players: Array<{ playerNumber: number; x: number }>;
+      }>((resolve) => {
+        host.once(SOCKET_EVENTS.GAME_STATE, resolve);
+      });
 
+      expect(firstState.gameType).toBe("controller-test");
       expect(firstState.players[0]!.x).toBeLessThan(400);
 
       host.close();
