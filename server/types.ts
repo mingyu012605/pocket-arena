@@ -1,3 +1,4 @@
+import type { Socket } from "socket.io";
 import type { GameType, RoomStatus } from "../shared/protocol";
 
 export interface PlayerPhysics {
@@ -41,8 +42,9 @@ export type SocketSession =
   | { role: "host"; roomId: string }
   | { role: "controller"; roomId: string; playerNumber: number };
 
-declare module "socket.io" {
-  interface SocketData {
-    session?: SocketSession;
-  }
-}
+// socket.io's `Socket.data` is typed via a generic parameter that defaults to
+// `any`; declaration-merging into `Socket`/`SocketData` directly either fails
+// to compile (conflicts with the generic) or silently stays `any`. Verified
+// empirically: parameterizing the generic directly is the only approach that
+// actually narrows `socket.data.session` at compile time.
+export type AppSocket = Socket<any, any, any, { session?: SocketSession }>;
