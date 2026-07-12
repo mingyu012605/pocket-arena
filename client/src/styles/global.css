@@ -76,3 +76,21 @@ a {
   color: #ef4444;
   margin-top: 0.75rem;
 }
+
+@media (max-width: 480px) {
+  .page-section {
+    padding: 2rem 1rem;
+  }
+  .hero-title {
+    font-size: clamp(1.75rem, 8vw, 2.5rem);
+  }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-cyan) 40%, transparent);
+}
+
+button,
+input {
+  font: inherit;
+}

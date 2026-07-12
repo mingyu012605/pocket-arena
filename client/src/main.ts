@@ -1,5 +1,6 @@
 import "./styles/global.css";
 import "./styles/components.css";
+import "./styles/animations.css";
 import { registerRoute, startRouter } from "./networking/router";
 import { renderLandingPage } from "./pages/landing";
 import { renderHostGameSelectPage } from "./pages/hostGameSelect";

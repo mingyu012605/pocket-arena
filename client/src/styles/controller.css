@@ -62,3 +62,22 @@
 .dpad-button:active {
   background: var(--color-border);
 }
+
+@media (orientation: portrait) {
+  .jump-button {
+    min-height: 40vh;
+  }
+  .dpad-button {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-height: 600px) {
+  .jump-button {
+    min-height: 30vh;
+    font-size: 1.8rem;
+  }
+  .dpad-row {
+    height: 4.5rem;
+  }
+}
