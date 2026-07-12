@@ -8,6 +8,12 @@ interface Snapshot {
 }
 
 export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
+  // Server ticks at 20Hz (50ms). Rendering `now - RENDER_DELAY_MS` keeps the
+  // render time inside the [prev.time, next.time] window in steady state, so
+  // interpolate() blends between two known snapshots instead of racing ahead
+  // of the latest one (see amendment note in the plan for the bug this fixes).
+  private static readonly RENDER_DELAY_MS = 60;
+
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private snapshots: Snapshot[] = [];
@@ -54,8 +60,9 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
     if (this.snapshots.length === 0) return new Map();
     if (this.snapshots.length === 1) return this.snapshots[0]!.players;
     const [prev, next] = this.snapshots as [Snapshot, Snapshot];
+    const renderTime = performance.now() - ControllerTestRenderer.RENDER_DELAY_MS;
     const span = next.time - prev.time || 1;
-    const t = Math.min(1.2, Math.max(0, (performance.now() - next.time) / span + 1));
+    const t = Math.min(1, Math.max(0, (renderTime - prev.time) / span));
     const result = new Map<number, { x: number; y: number }>();
     for (const [playerNumber, nextPos] of next.players) {
       const prevPos = prev.players.get(playerNumber) ?? nextPos;

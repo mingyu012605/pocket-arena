@@ -2860,6 +2860,12 @@ interface Snapshot {
 }
 
 export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
+  // Server ticks at 20Hz (50ms). Rendering `now - RENDER_DELAY_MS` keeps the
+  // render time inside the [prev.time, next.time] window in steady state, so
+  // interpolate() blends between two known snapshots instead of racing ahead
+  // of the latest one (see amendment note below).
+  private static readonly RENDER_DELAY_MS = 60;
+
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private snapshots: Snapshot[] = [];
@@ -2906,8 +2912,9 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
     if (this.snapshots.length === 0) return new Map();
     if (this.snapshots.length === 1) return this.snapshots[0]!.players;
     const [prev, next] = this.snapshots as [Snapshot, Snapshot];
+    const renderTime = performance.now() - ControllerTestRenderer.RENDER_DELAY_MS;
     const span = next.time - prev.time || 1;
-    const t = Math.min(1.2, Math.max(0, (performance.now() - next.time) / span + 1));
+    const t = Math.min(1, Math.max(0, (renderTime - prev.time) / span));
     const result = new Map<number, { x: number; y: number }>();
     for (const [playerNumber, nextPos] of next.players) {
       const prevPos = prev.players.get(playerNumber) ?? nextPos;
@@ -2926,6 +2933,8 @@ export class ControllerTestRenderer implements GameRenderer<GameStatePayload> {
   }
 }
 ```
+
+**Amendment (applied during Task 9 review):** the code above supersedes an earlier draft's `interpolate()`, which computed `t = (performance.now() - next.time) / span + 1`. Since `next.time` is always in the past by the time `render()` runs (snapshots are timestamped on receipt, `render()` fires on the next animation frame after), `performance.now() - next.time >= 0` essentially always, making `t >= 1` always — the renderer always *extrapolated* forward from the latest snapshot (clamped at 1.2×) rather than *interpolating between* the two buffered ones, contradicting this task's own purpose. Verified with a synthetic tick-stream simulation. The fix renders at `now - RENDER_DELAY_MS` (60ms, just over one 20Hz/50ms server tick) instead of raw `now`, so the render time falls inside `[prev.time, next.time]` in steady state and `t` genuinely ranges over `[0, 1]` — true interpolation, at the cost of ~60ms of visual latency versus the server's authoritative state (imperceptible for this game, and the server remains authoritative regardless of what's drawn).
 
 - [ ] **Step 3: Modify `client/src/pages/hostLobby.ts`** — add the game view
 
