@@ -76,6 +76,7 @@ export type Ack<T> = ({ ok: true } & T) | { ok: false; error: ErrorPayload };
 export interface CreateRoomRequest {
   gameType: GameType;
   maxPlayers: number;
+  publicOrigin?: string;
 }
 export interface CreateRoomSlot {
   playerNumber: number;

@@ -12,6 +12,7 @@ const port = Number(process.env.PORT ?? 3000);
 
 async function main(): Promise<void> {
   const app = express();
+  app.set("trust proxy", 1);
   const httpsKeyPath = process.env.HTTPS_KEY_FILE?.trim();
   const httpsCertPath = process.env.HTTPS_CERT_FILE?.trim();
   const useHttps = Boolean(httpsKeyPath && httpsCertPath);
@@ -24,9 +25,13 @@ async function main(): Promise<void> {
         app
       )
     : createServer(app);
-  const io = new Server(httpServer, { cors: { origin: "*" } });
+  const io = new Server(httpServer);
 
   registerSocketHandlers(io, port);
+
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import("vite");

@@ -37,12 +37,13 @@ describe("room lifecycle", () => {
 
     const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
       gameType: "racing",
-      maxPlayers: 2
+      maxPlayers: 2,
+      publicOrigin: "https://pocket-arena.example"
     });
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    expect(created.slots[0]!.joinUrl).toMatch(new RegExp(`/join/${created.roomId}$`));
+    expect(created.slots[0]!.joinUrl).toBe(`https://pocket-arena.example/join/${created.roomId}`);
     expect(created.slots[1]!.joinUrl).toBe(created.slots[0]!.joinUrl);
     expect(new URL(created.slots[0]!.joinUrl).searchParams.get("token")).toBeNull();
     expect(created.slots[0]!.token).not.toBe(created.slots[1]!.token);

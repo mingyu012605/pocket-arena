@@ -38,7 +38,7 @@ import {
   toPublicRoomState
 } from "./rooms";
 import type { AppSocket, InternalRoom } from "./types";
-import { resolveUrls } from "./network";
+import { resolvePublicBaseUrl } from "./network";
 import { buildSlotQrData } from "./qr";
 import {
   createControllerTestGameState,
@@ -109,10 +109,7 @@ function runCountdown(io: Server, room: InternalRoom): void {
 
 export function registerSocketHandlers(io: Server, port: number): void {
   io.on("connection", (socket: AppSocket) => {
-    // Set by the client only when its own page URL has ?dev=1 (see
-    // client/src/networking/socket.ts) - never implies anything about
-    // production URLs, and only affects this one socket's own console
-    // logging, not gameplay.
+    // Optional one-socket diagnostic logging; it never affects gameplay or URL routing.
     const racingInputDevLogEnabled = socket.handshake.query.dev === "1";
     socket.on(
       SOCKET_EVENTS.HOST_CREATE_ROOM,
@@ -124,7 +121,13 @@ export function registerSocketHandlers(io: Server, port: number): void {
         room.hostSocketId = socket.id;
         socket.data.session = { role: "host", roomId: room.id };
         socket.join(roomChannel(room.id));
-        const { publicUrl } = resolveUrls(port);
+        const publicUrl = resolvePublicBaseUrl({
+          requestOrigin: payload.publicOrigin ?? socket.handshake.headers.origin,
+          forwardedProto: socket.handshake.headers["x-forwarded-proto"],
+          forwardedHost: socket.handshake.headers["x-forwarded-host"],
+          host: socket.handshake.headers.host,
+          fallbackPort: port
+        });
         const slots = await buildSlotQrData(room, publicUrl);
         ack({ ok: true, roomId: room.id, hostToken: room.hostToken, slots, room: toPublicRoomState(room) });
       }

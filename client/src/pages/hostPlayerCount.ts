@@ -47,7 +47,8 @@ export function renderHostPlayerCountPage({ container, params }: RouteContext): 
         try {
           const res = await emitWithAck<CreateRoomResponse>(SOCKET_EVENTS.HOST_CREATE_ROOM, {
             gameType: entry.id,
-            maxPlayers: n
+            maxPlayers: n,
+            publicOrigin: window.location.origin
           } satisfies CreateRoomRequest);
           sessionStorage.setItem(
             `pocket-arena:host:${res.roomId}`,
