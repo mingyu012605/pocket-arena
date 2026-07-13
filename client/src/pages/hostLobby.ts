@@ -222,11 +222,21 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     const position = document.createElement("p");
     position.className = "race-position";
     position.textContent = `${focused.rank} / ${ranked.length}`;
+    const lap = document.createElement("p");
+    lap.className = "race-lap";
+    lap.textContent = `LAP ${focused.lap}`;
     const title = document.createElement("p");
     title.className = "racing-hud-title";
     title.textContent = playerLabel(focused.playerNumber);
     title.style.setProperty("--player-color", color);
-    summary.append(position, title);
+    summary.append(position, lap, title);
+
+    if (focused.inputStale) {
+      const staleWarning = document.createElement("p");
+      staleWarning.className = "race-connection-warning";
+      staleWarning.textContent = "Controller signal lost - reconnecting...";
+      summary.appendChild(staleWarning);
+    }
 
     const list = document.createElement("ol");
     list.className = "racing-leaderboard";
@@ -272,15 +282,17 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     progress.querySelector<HTMLSpanElement>("span")!.style.width = `${progressPercent}%`;
     hud.appendChild(progress);
 
-    const inputPanel = document.createElement("section");
-    inputPanel.className = "race-hud-panel race-input-monitor";
-    inputPanel.innerHTML = [
-      `<b>Input</b>`,
-      `<span>Steer ${Math.round((focused.steering ?? 0) * 100)}%</span>`,
-      `<span>Gas ${Math.round((focused.throttle ?? 0) * 100)}%</span>`,
-      `<span>Back ${Math.round((focused.brake ?? 0) * 100)}%</span>`
-    ].join("");
-    hud.appendChild(inputPanel);
+    if (devMode) {
+      const inputPanel = document.createElement("section");
+      inputPanel.className = "race-hud-panel race-input-monitor";
+      inputPanel.innerHTML = [
+        `<b>Input</b>`,
+        `<span>Steer ${Math.round((focused.steering ?? 0) * 100)}%</span>`,
+        `<span>Gas ${Math.round((focused.throttle ?? 0) * 100)}%</span>`,
+        `<span>Back ${Math.round((focused.brake ?? 0) * 100)}%</span>`
+      ].join("");
+      hud.appendChild(inputPanel);
+    }
 
     const controls = document.createElement("section");
     controls.className = "race-hud-panel race-controls";
