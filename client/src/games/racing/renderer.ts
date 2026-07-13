@@ -78,6 +78,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private cameraMode: CameraMode = "chase";
   private lookTarget = new THREE.Vector3();
   private cameraShake = 0;
+  private cameraRoll = 0;
   private pixelRatio = 1;
   private targetPixelRatio = 1;
   private frameDeltas: number[] = [];
@@ -235,8 +236,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.updateRenderBudget(_timestamp);
 
     const positions = this.interpolationBuffer.interpolate(performance.now());
-    let focused: { x: number; z: number; heading: number; speed: number; progress: number; playerNumber: number } | null = null;
-    let leader: { x: number; z: number; heading: number; speed: number; rank: number; progress: number; playerNumber: number } | null = null;
+    let focused: { x: number; z: number; heading: number; speed: number; progress: number; playerNumber: number; headingError: number } | null = null;
+    let leader: { x: number; z: number; heading: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number } | null = null;
     const otherCarPositions: Array<{ playerNumber: number; x: number; z: number }> = [];
 
     for (const [playerNumber, car] of this.cars) {
@@ -254,6 +255,12 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
       car.root.position.set(x, 0, z);
       car.root.rotation.y = -heading;
+      // Chassis lean: bank the body slightly into turns, proportional to how
+      // hard the car is steering and how fast it's going. car.root.rotation.z
+      // is never set anywhere else, so reading it back each frame doubles as
+      // the lean's own persistent accumulator - no extra state map needed.
+      const leanTarget = Math.max(-0.05, Math.min(0.05, pos.headingError * pos.speed * 0.008));
+      car.root.rotation.z = car.root.rotation.z * 0.85 + leanTarget * 0.15;
       car.marker.visible = playerNumber === this.focusedPlayerNumber;
       for (const wheel of car.wheels) wheel.rotation.x -= pos.speed * 0.025;
       for (const wheel of car.frontWheels) wheel.rotation.y = Math.max(-0.45, Math.min(0.45, pos.headingError * 0.75));
@@ -274,8 +281,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
 
       otherCarPositions.push({ playerNumber, x, z });
-      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, heading, speed: pos.speed, progress: pos.progress, playerNumber };
-      if (!leader || pos.rank < leader.rank) leader = { x, z, heading, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber };
+      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, heading, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError };
+      if (!leader || pos.rank < leader.rank) leader = { x, z, heading, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError };
     }
 
     if (DEV_MODE) {
@@ -320,6 +327,16 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       );
       this.lookTarget.lerp(desiredLook, 0.16);
       camera.lookAt(this.lookTarget);
+      // Bank the camera into turns (restrained - a few degrees at most) and
+      // add a faint continuous sway so the chase cam reads as handheld
+      // rather than a rigid rig, both tied to the same interpolated state
+      // already used for positioning above. lookAt() fully overwrites the
+      // camera's orientation, so this roll must be applied afterward as a
+      // local Z rotation on top of it.
+      const rollTarget = config.spectator ? 0 : Math.max(-0.05, Math.min(0.05, -target.headingError * target.speed * 0.0009));
+      this.cameraRoll += (rollTarget - this.cameraRoll) * 0.1;
+      const sway = config.spectator ? 0 : Math.sin(_timestamp * 0.0021) * Math.min(0.01, target.speed * 0.00025);
+      camera.rotation.z += this.cameraRoll + sway;
       camera.fov += (config.fov + Math.min(8, target.speed * 0.12) - camera.fov) * 0.08;
       camera.updateProjectionMatrix();
     }
