@@ -184,6 +184,7 @@ export interface RacingPlayerState {
   throttle?: number;
   brake?: number;
   inputStale?: boolean;
+  collided?: boolean;
   rank: number;
   lap: number;
   finished: boolean;

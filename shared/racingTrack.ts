@@ -125,4 +125,20 @@ export function centerlineTangentAngle(track: TrackDefinition, progress: number)
   return Math.atan2(ahead.x - behind.x, -(ahead.z - behind.z));
 }
 
+/**
+ * Shortest signed progress delta from `from` to `to` around the closed
+ * loop - the short way, whether that means going forward through the wrap
+ * or backward. Naively subtracting two raw progress values breaks near the
+ * start/finish seam: two cars sitting right next to each other, one just
+ * before the wrap and one just after, would otherwise look almost a full
+ * lap apart instead of a few meters apart.
+ */
+export function shortestProgressDelta(track: TrackDefinition, from: number, to: number): number {
+  const wrapLength = track.trackLength;
+  let delta = (to - from) % wrapLength;
+  if (delta > wrapLength / 2) delta -= wrapLength;
+  if (delta < -wrapLength / 2) delta += wrapLength;
+  return delta;
+}
+
 export const TEST_OVAL_TRACK = createTrack("test-oval", TEST_OVAL_WAYPOINTS, 16);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "./racingTrack";
+import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle, shortestProgressDelta } from "./racingTrack";
 
 describe("TEST_OVAL_TRACK", () => {
   it("has a positive track length", () => {
@@ -35,5 +35,17 @@ describe("TEST_OVAL_TRACK", () => {
     const a = centerlinePoint(TEST_OVAL_TRACK, 0);
     const b = centerlinePoint(TEST_OVAL_TRACK, TEST_OVAL_TRACK.trackLength / 2);
     expect(Math.hypot(b.x - a.x, b.z - a.z)).toBeGreaterThan(1);
+  });
+});
+
+describe("shortestProgressDelta", () => {
+  it("treats two cars just on opposite sides of the start/finish seam as close, not almost a lap apart", () => {
+    const trackLength = TEST_OVAL_TRACK.trackLength;
+    const delta = shortestProgressDelta(TEST_OVAL_TRACK, trackLength - 2, 3);
+    expect(Math.abs(delta)).toBeCloseTo(5, 5);
+  });
+
+  it("returns the plain difference away from the seam", () => {
+    expect(shortestProgressDelta(TEST_OVAL_TRACK, 100, 108)).toBeCloseTo(8, 5);
   });
 });

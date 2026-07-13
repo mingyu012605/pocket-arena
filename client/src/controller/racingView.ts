@@ -350,6 +350,7 @@ export function mountRacingView(
   }
 
   const socket = getSocket();
+  let wasCollided = false;
   const onGameState = (payload: GameStatePayload) => {
     if (payload.gameType !== "racing") return;
     const self = payload.players.find((p) => p.playerNumber === opts.playerNumber);
@@ -360,6 +361,13 @@ export function mountRacingView(
       serverBrake = self.brake ?? 0;
       speedEl.textContent = `Speed: ${Math.round(self.speed * 3.6)} km/h | Server steer ${Math.round(serverSteering * 100)}%`;
       updateDiagnostics();
+
+      if (self.collided && !wasCollided) {
+        navigator.vibrate?.(120);
+        root.classList.add("is-collision-flash");
+        window.setTimeout(() => root.classList.remove("is-collision-flash"), 220);
+      }
+      wasCollided = Boolean(self.collided);
     }
   };
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);

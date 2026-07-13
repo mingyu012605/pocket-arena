@@ -27,6 +27,7 @@ export interface RacingCarState {
   brake: number;
   lastInputAt: number;
   lastSequence: number;
+  lastCollisionAt: number;
   rank: number;
   lap: number;
   finished: boolean;

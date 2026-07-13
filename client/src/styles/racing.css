@@ -1,6 +1,11 @@
 .racing-controller {
   align-items: center;
   text-align: center;
+  transition: background-color 0.15s ease;
+}
+
+.racing-controller.is-collision-flash {
+  background-color: rgba(239, 68, 68, 0.35);
 }
 
 .steering-wheel {

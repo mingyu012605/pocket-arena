@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TEST_OVAL_TRACK } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
-import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics } from "./racing";
+import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload } from "./racing";
 import { createRoom, findPlayer } from "../rooms";
 import type { RacingCarState } from "../types";
 
@@ -19,6 +19,7 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     brake: 0,
     lastInputAt: Date.now(),
     lastSequence: 0,
+    lastCollisionAt: 0,
     rank: 1,
     lap: 1,
     finished: false,
@@ -170,6 +171,100 @@ describe("stepPhysics", () => {
 
     expect(car.finished).toBe(true);
     expect(car.finishTime).not.toBeNull();
+  });
+
+  describe("collisions", () => {
+    it("separates two overlapping cars sideways instead of letting them pass through each other", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = 300;
+      carB.progress = 300;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 1;
+
+      stepPhysics(room, 1 / 60);
+
+      const separation = carB.lateralOffset - carA.lateralOffset;
+      expect(separation).toBeGreaterThan(1);
+    });
+
+    it("reduces speed on both cars in a collision", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = 300;
+      carB.progress = 300;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 1;
+      carA.speed = 20;
+      carB.speed = 18;
+
+      stepPhysics(room, 0);
+
+      expect(carA.speed).toBeLessThan(20);
+      expect(carB.speed).toBeLessThan(18);
+    });
+
+    it("does not collide when cars are far apart", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = 300;
+      carB.progress = 340;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 0;
+      carA.speed = 20;
+      carB.speed = 20;
+
+      stepPhysics(room, 0);
+
+      expect(carA.lateralOffset).toBe(0);
+      expect(carB.speed).toBe(20);
+    });
+
+    it("detects a collision across the start/finish seam using the shortest wrap-aware distance", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = TEST_OVAL_TRACK.trackLength - 1;
+      carB.progress = 1;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 1;
+      carA.speed = 20;
+      carB.speed = 20;
+
+      stepPhysics(room, 0);
+
+      expect(carA.speed).toBeLessThan(20);
+      expect(carB.speed).toBeLessThan(20);
+    });
+
+    it("surfaces a transient collided flag on the game-state payload within the feedback window", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = 300;
+      carB.progress = 300;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 1;
+
+      stepPhysics(room, 0);
+      const payload = toGameStatePayload(room);
+
+      expect(payload.players.find((p) => p.playerNumber === 1)?.collided).toBe(true);
+      expect(payload.players.find((p) => p.playerNumber === 2)?.collided).toBe(true);
+    });
   });
 });
 

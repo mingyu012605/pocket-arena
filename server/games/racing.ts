@@ -1,7 +1,7 @@
 import type { Server } from "socket.io";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../shared/protocol";
-import { TEST_OVAL_TRACK } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta } from "../../shared/racingTrack";
 import type { TrackDefinition } from "../../shared/racingTrack";
 import { roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";
@@ -24,6 +24,7 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     brake: 0,
     lastInputAt: Date.now(),
     lastSequence: -1,
+    lastCollisionAt: 0,
     rank: 1,
     lap: 1,
     finished: false,
@@ -82,6 +83,12 @@ const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
 const MAX_HEADING_ERROR = Math.PI * (80 / 180);
 const RACE_SAFETY_TIMEOUT_MS = 180_000;
+// Arcade car "footprint" for collision purposes - roughly the car's real length/width
+// (see the art bible proportions), not a full rigid-body hull.
+const COLLISION_LONGITUDINAL_RADIUS = 3.2;
+const COLLISION_LATERAL_RADIUS = 1.7;
+const COLLISION_SPEED_FACTOR = 0.82;
+const COLLISION_FEEDBACK_WINDOW_MS = 220;
 
 export const RACING = {
   trackHalfWidth: 16,
@@ -169,6 +176,43 @@ function updateRanks(gameState: RacingGameState): void {
   });
 }
 
+/**
+ * Simple arcade car-to-car collisions: a circle/capsule-style overlap check
+ * in track-relative space (progress = longitudinal, lateralOffset =
+ * lateral), resolved by separating cars sideways and shaving some speed off
+ * both - never a full rigid-body simulation, and never touching progress
+ * itself so ranking/finish order stay exactly as authoritative physics
+ * already produced them. Uses shortestProgressDelta so two cars sitting a
+ * few meters apart right across the start/finish seam are correctly
+ * treated as close, not almost a full lap apart.
+ */
+function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, now: number): void {
+  const entries = [...gameState.cars.entries()];
+  for (let i = 0; i < entries.length; i++) {
+    const [playerNumberA, carA] = entries[i]!;
+    if (carA.finished) continue;
+    for (let j = i + 1; j < entries.length; j++) {
+      const [playerNumberB, carB] = entries[j]!;
+      if (carB.finished) continue;
+      const longitudinal = shortestProgressDelta(track, carA.progress, carB.progress);
+      if (Math.abs(longitudinal) >= COLLISION_LONGITUDINAL_RADIUS) continue;
+      const lateral = carB.lateralOffset - carA.lateralOffset;
+      if (Math.abs(lateral) >= COLLISION_LATERAL_RADIUS) continue;
+
+      const overlap = COLLISION_LATERAL_RADIUS - Math.abs(lateral);
+      const pushDirection = lateral !== 0 ? Math.sign(lateral) : playerNumberA < playerNumberB ? -1 : 1;
+      const push = overlap / 2 + 0.02;
+      carB.lateralOffset += push * pushDirection;
+      carA.lateralOffset -= push * pushDirection;
+
+      carA.speed *= COLLISION_SPEED_FACTOR;
+      carB.speed *= COLLISION_SPEED_FACTOR;
+      carA.lastCollisionAt = now;
+      carB.lastCollisionAt = now;
+    }
+  }
+}
+
 export function stepPhysics(room: InternalRoom, dt: number): void {
   if (room.gameState?.gameType !== "racing") return;
   const track = trackFor(room);
@@ -181,6 +225,7 @@ export function stepPhysics(room: InternalRoom, dt: number): void {
     stepCar(track, car, dt);
     if (car.finished) car.finishTime = now - startedAt;
   }
+  resolveCollisions(track, room.gameState, now);
   updateRanks(room.gameState);
 }
 
@@ -239,6 +284,7 @@ export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
         throttle: car.throttle,
         brake: car.brake,
         inputStale: !car.isBot && now - car.lastInputAt > INPUT_TIMEOUT_MS,
+        collided: now - car.lastCollisionAt < COLLISION_FEEDBACK_WINDOW_MS,
         rank: car.rank,
         lap: car.lap,
         finished: car.finished,
