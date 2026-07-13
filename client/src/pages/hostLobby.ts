@@ -314,7 +314,19 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
           : focused.speed < 1
             ? "IDLE"
             : "DRIVE";
-    speed.innerHTML = `<strong>${Math.abs(Math.round(focused.speed * 3.6))}</strong><span>km/h</span><small>${focusedMode}</small>`;
+    const speedFraction = Math.max(0, Math.min(1, Math.abs(focused.speed) / RACING_MAX_SPEED_ESTIMATE));
+    const gaugeFillWidth = (speedFraction * 160).toFixed(1);
+    speed.innerHTML = `<svg class="speed-gauge-wedge" viewBox="0 0 160 30" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="speedGaugeFill" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#22d3ee" />
+          <stop offset="100%" stop-color="#fb923c" />
+        </linearGradient>
+        <clipPath id="speedGaugeClip"><rect x="0" y="0" width="${gaugeFillWidth}" height="30" /></clipPath>
+      </defs>
+      <path class="speed-gauge-track" d="M0,30 L160,2 L160,30 Z" />
+      <path class="speed-gauge-fill" d="M0,30 L160,2 L160,30 Z" clip-path="url(#speedGaugeClip)" />
+    </svg><strong>${Math.abs(Math.round(focused.speed * 3.6))}</strong><span>km/h</span><small>${focusedMode}</small>`;
     hud.appendChild(speed);
 
     const progress = document.createElement("section");

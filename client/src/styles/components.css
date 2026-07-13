@@ -416,6 +416,19 @@
   padding: 0.9rem 1rem;
   text-align: right;
 }
+.speed-gauge-wedge {
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin-bottom: 0.3rem;
+}
+.speed-gauge-track {
+  fill: rgba(100, 116, 139, 0.25);
+}
+.speed-gauge-fill {
+  fill: url(#speedGaugeFill);
+  transition: clip-path 0.08s linear;
+}
 .race-speedometer strong {
   display: block;
   font-size: 3.4rem;
