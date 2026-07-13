@@ -12,16 +12,21 @@ export interface TrackDefinition {
 
 const TEST_OVAL_WAYPOINTS: TrackPoint[] = [
   { x: 0, z: 0 },
-  { x: 110, z: -12 },
-  { x: 175, z: -70 },
-  { x: 168, z: -150 },
-  { x: 92, z: -206 },
-  { x: 12, z: -228 },
-  { x: -72, z: -218 },
-  { x: -155, z: -176 },
-  { x: -182, z: -108 },
-  { x: -132, z: -48 },
-  { x: -58, z: -18 }
+  { x: 175, z: -16 },
+  { x: 355, z: -42 },
+  { x: 455, z: -145 },
+  { x: 418, z: -270 },
+  { x: 285, z: -338 },
+  { x: 145, z: -304 },
+  { x: 42, z: -360 },
+  { x: -150, z: -366 },
+  { x: -310, z: -306 },
+  { x: -405, z: -205 },
+  { x: -356, z: -86 },
+  { x: -448, z: 26 },
+  { x: -306, z: 132 },
+  { x: -126, z: 94 },
+  { x: -24, z: 34 }
 ];
 
 const SEGMENT_SAMPLES = 40;
@@ -142,4 +147,4 @@ export function shortestProgressDelta(track: TrackDefinition, from: number, to: 
   return delta;
 }
 
-export const TEST_OVAL_TRACK = createTrack("harbor-city-rally", TEST_OVAL_WAYPOINTS, 30);
+export const TEST_OVAL_TRACK = createTrack("harbor-city-rally", TEST_OVAL_WAYPOINTS, 34);

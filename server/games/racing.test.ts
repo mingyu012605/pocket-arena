@@ -74,6 +74,40 @@ describe("stepCar", () => {
     expect(car.lastCollisionAt).toBeGreaterThan(0);
   });
 
+  it("keeps a high-speed barrier impact inside the barrier with mild speed loss", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: RACING.maxSpeed, lateralOffset: barrierLimit + 9, steering: 1, headingError: 0.35 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThanOrEqual(barrierLimit);
+    expect(car.speed).toBeGreaterThan(RACING.maxSpeed * 0.7);
+    expect(Math.abs(car.headingError)).toBeLessThan(Math.PI / 2);
+  });
+
+  it("slides shallow barrier contact along the wall instead of trapping the car", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 28, lateralOffset: barrierLimit + 0.6, steering: 0.1, headingError: 0.08 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThanOrEqual(barrierLimit);
+    expect(car.speed).toBeGreaterThan(23);
+    expect(car.finished).toBe(false);
+  });
+
+  it("does not tunnel through the barrier during repeated contact", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 32, lateralOffset: barrierLimit + 1.2, steering: 1 });
+    for (let i = 0; i < 90; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(Math.abs(car.lateralOffset)).toBeLessThanOrEqual(barrierLimit);
+    expect(car.speed).toBeGreaterThan(0);
+  });
+
+  it("handles corner barrier impact without extreme speed reduction", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 30, progress: TEST_OVAL_TRACK.trackLength * 0.32, lateralOffset: -barrierLimit - 5, steering: -1 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeGreaterThanOrEqual(-barrierLimit);
+    expect(car.speed).toBeGreaterThan(20);
+  });
+
   it("coasts to a stop with no throttle or brake", () => {
     const car = makeCar({ speed: 10 });
     for (let i = 0; i < 300; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);

@@ -9,7 +9,7 @@ import { getDefaultRacingQuality } from "./quality";
 import type { RacingQualitySettings } from "./quality";
 import { buildCarMesh } from "./cars";
 import type { CarVisual } from "./cars";
-import { buildTrackGroup } from "./track";
+import { VISUAL_BARRIER_OFFSET, buildTrackGroup } from "./track";
 import { computeRacingCarWorldTransform } from "./carTransform";
 import { buildHarborEnvironment, buildTracksideDetails, buildSkyDome, buildConfettiField } from "./environment";
 import { RacingInterpolationBuffer } from "./interpolation";
@@ -177,6 +177,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         this.assetLoadState = "ready";
         this.importedTrackLandmark = buildImportedTrackLandmark(library);
         scene.add(this.importedTrackLandmark);
+        this.devHelpers?.showImportedAssetBounds(this.importedTrackLandmark);
         for (const [playerNumber, car] of this.cars) {
           this.applyImportedCarVisual(playerNumber, car);
         }
@@ -196,7 +197,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       Math.round(this.quality.particles * 0.4),
       Math.round(this.quality.particles * 0.5)
     );
-    if (DEV_MODE) this.devHelpers = new RacingDevHelpers(scene);
+    if (DEV_MODE) {
+      this.devHelpers = new RacingDevHelpers(scene);
+      this.devHelpers.addTrackAlignmentGuides(TEST_OVAL_TRACK, VISUAL_BARRIER_OFFSET);
+    }
     if (shouldShowRacingMetrics()) {
       this.metrics = new RacingMetricsOverlay({
         container,

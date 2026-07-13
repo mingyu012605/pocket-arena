@@ -6,6 +6,7 @@ import curbNormalUrl from "@pmndrs/assets/normals/0012.webp";
 import terrainDetailUrl from "@pmndrs/assets/textures/cloud.webp";
 
 const TRACK_SAMPLES = 320;
+export const VISUAL_BARRIER_OFFSET = 2.6;
 
 /**
  * Layer heights are spaced by at least 0.02 units and curbs sit flush with
@@ -310,7 +311,7 @@ export function buildTrackGroup(): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     for (const side of [-1, 1]) {
-      const offset = side * (halfWidth + 2.6);
+      const offset = side * (halfWidth + VISUAL_BARRIER_OFFSET);
       matrix.compose(
         new THREE.Vector3(center.x + nx * offset, 0.62, center.z + nz * offset),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
@@ -349,15 +350,15 @@ export function buildTrackGroup(): THREE.Group {
   const signMaterial = new THREE.MeshStandardMaterial({ color: "#f97316", roughness: 0.35, metalness: 0.03 });
   const gantrySignMaterial = new THREE.MeshBasicMaterial({ map: buildSponsorTexture("RACING RALLY", "#facc15", "#2563eb") });
   for (const x of [-halfWidth - 2.8, halfWidth + 2.8]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.2, 0.35), gantryMaterial);
-    post.position.set(x, 2.6, 0);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 8.6, 0.35), gantryMaterial);
+    post.position.set(x, 4.3, 0);
     gantry.add(post);
   }
   const beam = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 6.2, 1.05, 0.45), signMaterial);
-  beam.position.set(0, 5.05, 0);
+  beam.position.set(0, 8.35, 0);
   gantry.add(beam);
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(halfWidth * 1.9, 3), gantrySignMaterial);
-  sign.position.set(0, 5.14, -0.27);
+  sign.position.set(0, 8.44, -0.27);
   gantry.add(sign);
   gantry.position.set(start.x, 0, start.z);
   gantry.rotation.y = -start.heading;

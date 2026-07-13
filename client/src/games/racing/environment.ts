@@ -174,6 +174,139 @@ function buildFencing(density: number): THREE.InstancedMesh {
   return mesh;
 }
 
+function tracksidePosition(progress: number, side: -1 | 1, offset: number): { position: THREE.Vector3; angle: number } {
+  const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+  const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+  const nx = Math.cos(angle);
+  const nz = Math.sin(angle);
+  return {
+    position: new THREE.Vector3(center.x + nx * side * offset, 0, center.z + nz * side * offset),
+    angle
+  };
+}
+
+function buildVenueZones(density: number): THREE.Group {
+  const group = new THREE.Group();
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const trackLength = TEST_OVAL_TRACK.trackLength;
+
+  const garageMaterial = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.62, metalness: 0.04 });
+  const garageDoorMaterial = new THREE.MeshStandardMaterial({ color: "#0ea5e9", roughness: 0.38, metalness: 0.1 });
+  for (let i = 0; i < 10; i++) {
+    const { position, angle } = tracksidePosition(12 + i * 7, 1, halfWidth + 18);
+    const garage = new THREE.Group();
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(9, 5, 8), garageMaterial);
+    shell.position.y = 2.5;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(5.8, 2.7, 0.2), garageDoorMaterial);
+    door.position.set(0, 1.6, -4.12);
+    garage.add(shell, door);
+    garage.position.copy(position);
+    garage.rotation.y = -angle + Math.PI;
+    group.add(garage);
+  }
+
+  const cityMaterial = new THREE.MeshStandardMaterial({ color: "#c7d2fe", roughness: 0.74, metalness: 0.02 });
+  const glassMaterial = new THREE.MeshBasicMaterial({ color: "#e0f2fe", transparent: true, opacity: 0.72 });
+  const cityCount = Math.max(14, Math.round(24 * density));
+  for (let i = 0; i < cityCount; i++) {
+    const progress = trackLength * (0.56 + (i / cityCount) * 0.19);
+    const { position, angle } = tracksidePosition(progress, i % 2 === 0 ? 1 : -1, halfWidth + 32 + (i % 3) * 8);
+    const height = 12 + ((i * 11) % 34);
+    const width = 7 + (i % 4) * 2;
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(width, height, width * 0.8), cityMaterial);
+    tower.position.set(position.x, height / 2 - 0.05, position.z);
+    tower.rotation.y = -angle + (i % 2 === 0 ? 0.18 : -0.18);
+    tower.castShadow = true;
+    tower.receiveShadow = true;
+    group.add(tower);
+    const windows = new THREE.Mesh(new THREE.BoxGeometry(width * 0.78, height * 0.72, 0.05), glassMaterial);
+    windows.position.set(position.x, height * 0.55, position.z);
+    windows.rotation.y = tower.rotation.y;
+    group.add(windows);
+  }
+
+  const dockMaterial = new THREE.MeshStandardMaterial({ color: "#b45309", roughness: 0.66, metalness: 0.02 });
+  const buoyMaterial = new THREE.MeshStandardMaterial({ color: "#fb7185", roughness: 0.45, metalness: 0.02 });
+  const dockCount = Math.max(8, Math.round(15 * density));
+  for (let i = 0; i < dockCount; i++) {
+    const progress = trackLength * (0.43 + (i / dockCount) * 0.12);
+    const { position, angle } = tracksidePosition(progress, -1, halfWidth + 18);
+    const dock = new THREE.Mesh(new THREE.BoxGeometry(8, 0.38, 2.4), dockMaterial);
+    dock.position.set(position.x, 0.22, position.z);
+    dock.rotation.y = -angle + Math.PI / 2;
+    group.add(dock);
+    const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 1.2, 12), buoyMaterial);
+    buoy.position.set(position.x, 0.62, position.z - 5 - (i % 2) * 3);
+    group.add(buoy);
+  }
+
+  const flagMaterial = new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true, side: THREE.DoubleSide });
+  const poleMaterial = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.42, metalness: 0.22 });
+  const flagCount = Math.max(36, Math.round(72 * density));
+  const flags = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.2, 0.72), flagMaterial, flagCount);
+  const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.035, 0.04, 3.2, 6), poleMaterial, flagCount);
+  const matrix = new THREE.Matrix4();
+  const flagColors = ["#f97316", "#facc15", "#22c55e", "#38bdf8", "#ec4899", "#8b5cf6"];
+  for (let i = 0; i < flagCount; i++) {
+    const progress = (i / flagCount) * trackLength;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 8 + (i % 3) * 2);
+    matrix.compose(
+      new THREE.Vector3(position.x, 1.6, position.z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
+      new THREE.Vector3(1, 1, 1)
+    );
+    poles.setMatrixAt(i, matrix);
+    matrix.compose(
+      new THREE.Vector3(position.x, 3.1, position.z),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle + Math.PI / 2, 0)),
+      new THREE.Vector3(1, 1, 1)
+    );
+    flags.setMatrixAt(i, matrix);
+    flags.setColorAt(i, new THREE.Color(flagColors[i % flagColors.length]!));
+  }
+  group.add(flags, poles);
+
+  const balloonMaterial = new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true });
+  const balloonCount = Math.max(10, Math.round(18 * density));
+  const balloons = new THREE.InstancedMesh(new THREE.SphereGeometry(1.8, 14, 10), balloonMaterial, balloonCount);
+  for (let i = 0; i < balloonCount; i++) {
+    const progress = (i / balloonCount) * trackLength;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position } = tracksidePosition(progress, side, halfWidth + 38 + (i % 4) * 7);
+    matrix.compose(new THREE.Vector3(position.x, 18 + (i % 5) * 3, position.z), new THREE.Quaternion(), new THREE.Vector3(1, 1.2, 1));
+    balloons.setMatrixAt(i, matrix);
+    balloons.setColorAt(i, new THREE.Color(flagColors[(i * 2) % flagColors.length]!));
+  }
+  group.add(balloons);
+
+  const bridgeMaterial = new THREE.MeshStandardMaterial({ color: "#bae6fd", roughness: 0.36, metalness: 0.08 });
+  for (const progress of [trackLength * 0.18, trackLength * 0.52, trackLength * 0.84]) {
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const bridge = new THREE.Group();
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 18, 0.55, 3.2), bridgeMaterial);
+    deck.position.y = 10.4;
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 19, 1.1, 0.3), bridgeMaterial);
+    rail.position.set(0, 11.05, -1.75);
+    const rail2 = rail.clone();
+    rail2.position.z = 1.75;
+    bridge.add(deck, rail, rail2);
+    for (const x of [-halfWidth - 8, halfWidth + 8]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.45, 10, 0.45), bridgeMaterial);
+      post.position.set(x, 5, -1.2);
+      const post2 = post.clone();
+      post2.position.z = 1.2;
+      bridge.add(post, post2);
+    }
+    bridge.position.set(center.x, 0, center.z);
+    bridge.rotation.y = -angle;
+    group.add(bridge);
+  }
+
+  return group;
+}
+
 export function buildHarborEnvironment(density: number): THREE.Group {
   const group = new THREE.Group();
   const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
@@ -427,6 +560,7 @@ export function buildTracksideDetails(density: number): THREE.Group {
 
   group.add(buildFencing(density));
   group.add(buildMarshals(density));
+  group.add(buildVenueZones(density));
 
   return group;
 }

@@ -103,8 +103,8 @@ export const RACING = {
   headingCentering: 5.8,
   lateralResponsiveness: 0.78,
   offTrackSlowFactor: 0.94,
-  barrierOffset: 2.1,
-  barrierSpeedRetention: 0.82
+  barrierOffset: 2.6,
+  barrierSpeedRetention: 0.88
 } as const;
 
 function trackFor(_room: InternalRoom): TrackDefinition {
@@ -156,16 +156,26 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   car.lateralOffset += lateralSpeed * dt;
 
   const barrierLimit = track.trackHalfWidth + RACING.barrierOffset;
+  let hitBarrier = false;
+  let repeatedBarrierContact = false;
   if (Math.abs(car.lateralOffset) > barrierLimit) {
     const side = Math.sign(car.lateralOffset);
-    car.lateralOffset = side * barrierLimit;
-    car.speed *= RACING.barrierSpeedRetention;
-    car.yawRate += -side * Math.max(0.5, Math.abs(car.speed) * 0.035);
-    car.headingError += -side * 0.045;
-    car.lastCollisionAt = Date.now();
+    const penetration = Math.abs(car.lateralOffset) - barrierLimit;
+    const now = Date.now();
+    repeatedBarrierContact = now - car.lastCollisionAt < 140;
+    hitBarrier = true;
+    car.lateralOffset = side * (barrierLimit - 0.04);
+    car.speed *= repeatedBarrierContact ? 0.995 : RACING.barrierSpeedRetention;
+    car.yawRate += -side * Math.min(1.6, 0.35 + penetration * 0.08 + Math.abs(car.speed) * 0.02);
+    car.headingError += -side * Math.min(0.16, 0.035 + penetration * 0.012);
+    car.lastCollisionAt = now;
   }
   if (Math.abs(car.lateralOffset) > track.trackHalfWidth) {
-    car.speed *= RACING.offTrackSlowFactor;
+    if (!hitBarrier) {
+      car.speed *= RACING.offTrackSlowFactor;
+    } else if (!repeatedBarrierContact) {
+      car.speed *= 0.98;
+    }
     if (Math.abs(car.speed) < 5) {
       const edge = Math.sign(car.lateralOffset) * track.trackHalfWidth * 0.92;
       car.lateralOffset += (edge - car.lateralOffset) * Math.min(1, dt * 2.4);

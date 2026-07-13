@@ -6,6 +6,12 @@ describe("TEST_OVAL_TRACK", () => {
     expect(TEST_OVAL_TRACK.trackLength).toBeGreaterThan(0);
   });
 
+  it("is a larger rally course with a forgiving wide road", () => {
+    expect(TEST_OVAL_TRACK.trackLength).toBeGreaterThan(1450);
+    expect(TEST_OVAL_TRACK.trackHalfWidth).toBe(34);
+    expect(TEST_OVAL_TRACK.waypoints.length).toBeGreaterThanOrEqual(16);
+  });
+
   it("wraps progress past trackLength back to the start region", () => {
     const atStart = centerlinePoint(TEST_OVAL_TRACK, 0);
     const wrapped = centerlinePoint(TEST_OVAL_TRACK, TEST_OVAL_TRACK.trackLength);
