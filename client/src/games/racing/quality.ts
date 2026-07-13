@@ -1,6 +1,6 @@
 export type RacingQualityPreset = "low" | "medium" | "high";
 
-export const DEFAULT_RACING_QUALITY: RacingQualityPreset = "medium";
+export const DEFAULT_RACING_QUALITY: RacingQualityPreset = "high";
 
 export interface RacingQualitySettings {
   preset: RacingQualityPreset;
@@ -28,11 +28,11 @@ export function getDefaultRacingQuality(): RacingQualitySettings {
   if (preset === "high") {
     return {
       preset,
-      maxPixelRatio: 1.5,
+      maxPixelRatio: 1.75,
       shadows: true,
       shadowMapSize: 2048,
-      environmentDensity: 1,
-      particles: 420
+      environmentDensity: 1.25,
+      particles: 640
     };
   }
   return {
