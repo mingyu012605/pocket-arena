@@ -316,6 +316,30 @@ export function createGameGrid(games: LauncherGameView[], onPlay: (id: GameType)
   return section;
 }
 
+const ASSET_CREDITS: Array<{ name: string; creator: string; license: string }> = [
+  { name: "Classic Muscle car (chassis + wheel)", creator: "Lexyc16 (Sketchfab)", license: "CC-BY-4.0" },
+  { name: "Desert Race Game Prototype Map V2 (landmark)", creator: "Batuhan13 (Sketchfab)", license: "CC-BY-4.0" },
+  { name: "Racing normal/detail maps", creator: "@pmndrs/assets package", license: "CC0 1.0" }
+];
+
+function createAssetCreditsDialog(): HTMLDialogElement {
+  const dialog = document.createElement("dialog");
+  dialog.className = "pa-credits-dialog";
+  dialog.innerHTML = `
+    <h2>Asset Credits</h2>
+    <p>Pocket Arena Racing uses these third-party assets. Full details, sources, and licenses are in <code>THIRD_PARTY_ASSETS.md</code>.</p>
+    <ul class="pa-credits-list">
+      ${ASSET_CREDITS.map((asset) => `<li><strong>${asset.name}</strong><span>${asset.creator} - ${asset.license}</span></li>`).join("")}
+    </ul>
+    <button type="button" class="btn" data-close>Close</button>
+  `;
+  dialog.querySelector<HTMLButtonElement>("[data-close]")!.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  return dialog;
+}
+
 export function createLauncherStatusBar(): HTMLElement {
   const bar = document.createElement("footer");
   bar.className = "pa-status-bar";
@@ -324,7 +348,10 @@ export function createLauncherStatusBar(): HTMLElement {
     <span class="pa-status-item"><i class="pa-status-icon pa-status-pink">${createIcon("gift")}</i><strong>Daily Bonus</strong><small>Claim your reward!</small></span>
     <span class="pa-status-item"><i class="pa-status-icon pa-status-blue">${createIcon("friends")}</i><strong>Invite Friends</strong><small>More friends, more fun!</small></span>
     <span class="pa-status-item pa-xp"><i class="pa-status-icon pa-status-yellow">12</i><strong>Arena Rookie</strong><span class="pa-xp-track"><b></b></span><small>1,250 / 2,000 XP</small></span>
-    <button type="button" aria-label="Settings">${createIcon("settings")}</button>
+    <button type="button" aria-label="Asset Credits" data-credits-trigger>${createIcon("settings")}</button>
   `;
+  const dialog = createAssetCreditsDialog();
+  bar.appendChild(dialog);
+  bar.querySelector<HTMLButtonElement>("[data-credits-trigger]")!.addEventListener("click", () => dialog.showModal());
   return bar;
 }

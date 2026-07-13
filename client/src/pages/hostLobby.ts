@@ -304,6 +304,13 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     status.textContent = state.raceStatus === "countdown" ? "Rally Ready" : state.raceStatus === "finished" ? "Finish" : "Pocket Rally";
     hud.appendChild(status);
 
+    if (racingRendererControls?.getAssetLoadState() === "loading") {
+      const loading = document.createElement("section");
+      loading.className = "race-hud-panel race-asset-loading";
+      loading.textContent = "Loading car model...";
+      hud.appendChild(loading);
+    }
+
     const speed = document.createElement("section");
     speed.className = "race-hud-panel race-speedometer";
     const focusedMode =

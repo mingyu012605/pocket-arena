@@ -409,6 +409,16 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+.race-asset-loading {
+  top: 3.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.35rem 0.9rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #48677f;
+}
 .race-speedometer {
   right: 1rem;
   bottom: 1rem;
@@ -2058,6 +2068,44 @@
 .pa-status-bar svg {
   width: 18px;
   height: 18px;
+}
+.pa-credits-dialog {
+  max-width: min(420px, calc(100% - 2rem));
+  border: none;
+  border-radius: 16px;
+  padding: 1.4rem;
+  color: #12304a;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.pa-credits-dialog::backdrop {
+  background: rgba(5, 7, 15, 0.55);
+}
+.pa-credits-dialog h2 {
+  margin: 0 0 0.5rem;
+}
+.pa-credits-dialog p {
+  margin: 0 0 0.9rem;
+  font-size: 0.85rem;
+  color: #48677f;
+}
+.pa-credits-list {
+  list-style: none;
+  margin: 0 0 1.1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+.pa-credits-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: rgba(14, 165, 233, 0.08);
+}
+.pa-credits-list li span {
+  font-size: 0.78rem;
+  color: #48677f;
 }
 @keyframes pa-float {
   from { transform: translate3d(0, 0, 0) rotate(0deg); }
