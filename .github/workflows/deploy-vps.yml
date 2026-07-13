@@ -1,0 +1,55 @@
+name: Deploy VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Git branch to deploy
+        required: true
+        default: main
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Install SSH key
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          test -n "$VPS_SSH_KEY"
+          test -n "$VPS_HOST"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          DEPLOY_BRANCH: ${{ inputs.branch }}
+        run: |
+          test -n "$VPS_HOST"
+          test -n "$VPS_USER"
+          SSH_PORT="${VPS_SSH_PORT:-22}"
+          ssh -p "$SSH_PORT" "$VPS_USER@$VPS_HOST" "DEPLOY_BRANCH='$DEPLOY_BRANCH' /opt/pocket-arena/repo/scripts/deploy-vps.sh '$DEPLOY_BRANCH'"

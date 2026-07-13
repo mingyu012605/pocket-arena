@@ -9,12 +9,16 @@ import { registerSocketHandlers } from "./socketHandlers";
 
 const isProduction = process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT ?? 3000);
+const host = process.env.HOST?.trim() || (isProduction ? "127.0.0.1" : "0.0.0.0");
 
 async function main(): Promise<void> {
   const app = express();
   app.set("trust proxy", 1);
   const httpsKeyPath = process.env.HTTPS_KEY_FILE?.trim();
   const httpsCertPath = process.env.HTTPS_CERT_FILE?.trim();
+  if (isProduction && (httpsKeyPath || httpsCertPath)) {
+    throw new Error("Production TLS must terminate at the reverse proxy. Do not set HTTPS_KEY_FILE or HTTPS_CERT_FILE.");
+  }
   const useHttps = Boolean(httpsKeyPath && httpsCertPath);
   const httpServer = useHttps
     ? createHttpsServer(
@@ -58,13 +62,18 @@ async function main(): Promise<void> {
     });
   }
 
-  httpServer.listen(port, "0.0.0.0", () => {
-    const { localUrl, lanUrl, publicUrl } = resolveUrls(port, useHttps ? "https" : "http");
-    console.log(`Local:    ${localUrl}`);
-    console.log(`Network:  ${lanUrl ?? "(no LAN address detected)"}`);
-    console.log(`QR codes will use: ${publicUrl}`);
-    if (!useHttps && !process.env.PUBLIC_BASE_URL) {
-      console.log("Phone motion controls usually require HTTPS. Set PUBLIC_BASE_URL to an HTTPS tunnel, or set HTTPS_KEY_FILE and HTTPS_CERT_FILE.");
+  httpServer.listen(port, host, () => {
+    console.log(`Pocket Arena listening on ${host}:${port}`);
+    if (isProduction) {
+      console.log("Public QR URLs use PUBLIC_BASE_URL when set, otherwise the HTTPS origin provided by the reverse proxy.");
+    } else {
+      const { localUrl, lanUrl, publicUrl } = resolveUrls(port, useHttps ? "https" : "http");
+      console.log(`Local:    ${localUrl}`);
+      console.log(`Network:  ${lanUrl ?? "(no LAN address detected)"}`);
+      console.log(`QR codes will use: ${publicUrl}`);
+      if (!useHttps && !process.env.PUBLIC_BASE_URL) {
+        console.log("Phone motion controls usually require HTTPS. Set PUBLIC_BASE_URL to an HTTPS tunnel, or set HTTPS_KEY_FILE and HTTPS_CERT_FILE.");
+      }
     }
   });
 }
