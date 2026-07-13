@@ -42,6 +42,7 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
   let cancelled = false;
   let controllerCleanup: CleanupFn | null = null;
   let lastStatus: PublicRoomState["status"] | null = null;
+  let racingRoundId = "";
   const socket = getSocket();
 
   const onCountdownTick = (payload: CountdownTickPayload) => {
@@ -55,6 +56,32 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
   function renderReadyScreen(room: PublicRoomState, color: string): void {
     const self = room.players.find((p) => p.playerNumber === Number(playerNumber));
     section.style.setProperty("--player-color", color);
+    if (room.gameType === "racing") {
+      section.classList.remove("centered");
+      section.innerHTML = `
+        <div class="countdown-overlay" id="phone-countdown"></div>
+        <div id="racing-preflight"></div>
+        <p id="waiting-text" class="hero-copy" hidden>Waiting for host...</p>
+      `;
+      const waitingText = section.querySelector<HTMLParagraphElement>("#waiting-text")!;
+      waitingText.hidden = !(self?.ready ?? false);
+      const mountEl = section.querySelector<HTMLElement>("#racing-preflight")!;
+      controllerCleanup = mountRacingView(mountEl, {
+        nickname: self?.nickname ?? "Player",
+        color,
+        roundId: racingRoundId,
+        getRoundId: () => racingRoundId,
+        playerNumber: Number(playerNumber),
+        preflight: true,
+        initialReady: self?.ready ?? false,
+        onReadyChange: async (ready) => {
+          await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
+          waitingText.hidden = !ready;
+        }
+      });
+      return;
+    }
+    section.classList.add("centered");
     section.innerHTML = `
       <p class="eyebrow">PLAYER ${playerNumber}</p>
       <h1 class="glow-text" id="ready-nickname"></h1>
@@ -98,6 +125,11 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     // right at the "go" instant — exactly when a pre-emptive hold is most likely.
     const isPlaying = room.status === "countdown" || room.status === "in-progress";
     const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
+    if (room.gameType === "racing" && isPlaying && controllerCleanup) {
+      racingRoundId = room.roundId ?? "";
+      lastStatus = room.status;
+      return;
+    }
     if (room.status === lastStatus || (isPlaying && wasPlaying)) {
       lastStatus = room.status;
       return;
@@ -109,6 +141,7 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     if (room.status === "host-disconnected") {
       section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
     } else if (isPlaying) {
+      racingRoundId = room.roundId ?? "";
       section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;
       const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
       controllerCleanup =

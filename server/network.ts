@@ -18,10 +18,10 @@ export function detectLanAddress(): string | null {
   return null;
 }
 
-export function resolveUrls(port: number): ResolvedUrls {
-  const localUrl = `http://localhost:${port}`;
+export function resolveUrls(port: number, protocol = "http"): ResolvedUrls {
+  const localUrl = `${protocol}://localhost:${port}`;
   const lanAddress = detectLanAddress();
-  const lanUrl = lanAddress ? `http://${lanAddress}:${port}` : null;
+  const lanUrl = lanAddress ? `${protocol}://${lanAddress}:${port}` : null;
   const override = process.env.PUBLIC_BASE_URL?.trim();
   const publicUrl = override && override.length > 0 ? override.replace(/\/$/, "") : (lanUrl ?? localUrl);
   return { localUrl, lanUrl, publicUrl };

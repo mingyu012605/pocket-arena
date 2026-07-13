@@ -7,6 +7,24 @@ import type { GameStatePayload } from "../../../shared/protocol";
 import { createButton } from "../components/button";
 import type { CleanupFn } from "../networking/router";
 
+interface VerificationState {
+  left: boolean;
+  right: boolean;
+  throttle: boolean;
+  brake: boolean;
+}
+
+interface RacingViewOptions {
+  nickname: string;
+  color: string;
+  roundId: string;
+  getRoundId?: () => string;
+  playerNumber: number;
+  preflight?: boolean;
+  initialReady?: boolean;
+  onReadyChange?: (ready: boolean) => Promise<void>;
+}
+
 const STATE_COPY: Record<MotionState, string> = {
   "insecure-context": "Motion controls need a secure connection. Open this page with HTTPS or localhost.",
   unavailable: "Motion sensors are not available in this browser.",
@@ -28,7 +46,7 @@ function isDevDiagnosticsEnabled(): boolean {
 
 export function mountRacingView(
   container: HTMLElement,
-  opts: { nickname: string; color: string; roundId: string; playerNumber: number }
+  opts: RacingViewOptions
 ): CleanupFn {
   container.innerHTML = `
     <div class="controller-screen racing-controller">
@@ -48,6 +66,17 @@ export function mountRacingView(
           <div class="telemetry-bar"><span>Throttle</span><progress id="throttle-bar" max="1" value="0"></progress></div>
           <div class="telemetry-bar"><span>Brake</span><progress id="brake-bar" max="1" value="0"></progress></div>
           <p id="speed-readout">Speed: 0 km/h</p>
+        </div>
+        <div class="racing-verification" id="racing-verification" hidden>
+          <p>Confirm motion before ready</p>
+          <ul>
+            <li data-check="left">Turn left</li>
+            <li data-check="right">Turn right</li>
+            <li data-check="throttle">Tilt forward</li>
+            <li data-check="brake">Tilt backward</li>
+          </ul>
+          <div id="racing-ready-action"></div>
+          <p class="safety-copy" id="racing-ready-help">Ready unlocks after all four motion checks pass.</p>
         </div>
         <button class="btn btn-secondary" id="recalibrate-button" type="button">Recalibrate</button>
         <p class="safety-copy">Hold phone securely.</p>
@@ -73,6 +102,9 @@ export function mountRacingView(
   const brakeBar = container.querySelector<HTMLProgressElement>("#brake-bar")!;
   const speedEl = container.querySelector<HTMLParagraphElement>("#speed-readout")!;
   const recalibrateButton = container.querySelector<HTMLButtonElement>("#recalibrate-button")!;
+  const verificationEl = container.querySelector<HTMLDivElement>("#racing-verification")!;
+  const readyActionSlot = container.querySelector<HTMLDivElement>("#racing-ready-action")!;
+  const readyHelpEl = container.querySelector<HTMLParagraphElement>("#racing-ready-help")!;
   const indicator = container.querySelector<HTMLSpanElement>("#racing-conn-indicator")!;
   const diagnostics = container.querySelector<HTMLDetailsElement>("#racing-dev-diagnostics")!;
   const diagnosticsReadout = container.querySelector<HTMLPreElement>("#racing-dev-readout")!;
@@ -86,7 +118,25 @@ export function mountRacingView(
   let lastSendAt = 0;
   let packetsSent = 0;
   let serverSpeed = 0;
+  let verification: VerificationState = { left: false, right: false, throttle: false, brake: false };
+  let playerReady = opts.initialReady ?? false;
+  let readyBusy = false;
+  let readyButton: HTMLButtonElement | null = null;
   if (devDiagnostics) diagnostics.hidden = false;
+
+  function activeRoundId(): string {
+    return opts.getRoundId?.() ?? opts.roundId;
+  }
+
+  function syncRoundId(): string {
+    const roundId = activeRoundId();
+    input.setRoundId(roundId);
+    return roundId;
+  }
+
+  function isPreflightVerified(): boolean {
+    return verification.left && verification.right && verification.throttle && verification.brake;
+  }
 
   function updateDiagnostics(): void {
     if (!devDiagnostics) return;
@@ -110,7 +160,9 @@ export function mountRacingView(
       `steering: ${lastReading.steering.toFixed(3)}`,
       `throttle: ${lastReading.throttle.toFixed(3)}`,
       `brake: ${lastReading.brake.toFixed(3)}`,
-      `roundId: ${input.getRoundId()}`,
+      `verification: left=${verification.left} right=${verification.right} throttle=${verification.throttle} brake=${verification.brake}`,
+      `readyEnabled: ${!opts.preflight || isPreflightVerified()}`,
+      `roundId: ${syncRoundId()}`,
       `sequence: ${input.getSequence()}`,
       `packetsSent: ${packetsSent}`,
       `lastSendMsAgo: ${lastSendAt === 0 ? "never" : Math.round(performance.now() - lastSendAt)}`,
@@ -120,15 +172,71 @@ export function mountRacingView(
     ].join("\n");
   }
 
+  function updateVerification(reading: MotionReading): void {
+    if (!opts.preflight) return;
+    if (reading.steering < -0.28) verification.left = true;
+    if (reading.steering > 0.28) verification.right = true;
+    if (reading.throttle > 0.24) verification.throttle = true;
+    if (reading.brake > 0.24) verification.brake = true;
+    for (const item of verificationEl.querySelectorAll<HTMLLIElement>("[data-check]")) {
+      const key = item.dataset.check as keyof VerificationState;
+      item.classList.toggle("is-complete", verification[key]);
+    }
+    const verified = isPreflightVerified();
+    if (readyButton) readyButton.disabled = readyBusy || (!playerReady && !verified);
+    readyHelpEl.textContent = playerReady
+      ? "You are ready. Keep your phone open until the race starts."
+      : verified
+        ? "Motion looks good. You can ready up."
+        : "Ready unlocks after all four motion checks pass.";
+  }
+
+  async function setPlayerReady(nextReady: boolean): Promise<void> {
+    if (!opts.onReadyChange || readyBusy) return;
+    readyBusy = true;
+    if (readyButton) readyButton.disabled = true;
+    try {
+      await opts.onReadyChange(nextReady);
+      playerReady = nextReady;
+      if (readyButton) readyButton.textContent = playerReady ? "Cancel Ready" : "Ready";
+      updateVerification(lastReading);
+    } finally {
+      readyBusy = false;
+      if (readyButton) readyButton.disabled = !playerReady && !isPreflightVerified();
+    }
+  }
+
+  function renderReadyAction(): void {
+    if (!opts.preflight) return;
+    verificationEl.hidden = false;
+    readyActionSlot.innerHTML = "";
+    readyButton = createButton({
+      label: playerReady ? "Cancel Ready" : "Ready",
+      variant: "primary",
+      onClick: () => void setPlayerReady(!playerReady)
+    });
+    readyButton.disabled = !playerReady && !isPreflightVerified();
+    readyActionSlot.appendChild(readyButton);
+    updateVerification(lastReading);
+  }
+
+  function clearPreflightReady(): void {
+    if (opts.preflight && playerReady) void setPlayerReady(false);
+  }
+
   function sendDevReading(reading: MotionReading): void {
     lastReading = reading;
-    input.send(reading);
-    packetsSent += 1;
+    const roundId = syncRoundId();
+    if (roundId) {
+      input.send(reading);
+      packetsSent += 1;
+    }
     lastSendAt = performance.now();
     wheelRimEl.style.setProperty("--steer", String(reading.steering));
     throttleBar.value = reading.throttle;
     brakeBar.value = reading.brake;
     steeringReadout.textContent = `Steering ${Math.round(reading.steering * 100)}%`;
+    updateVerification(reading);
     updateDiagnostics();
   }
 
@@ -144,6 +252,7 @@ export function mountRacingView(
     actionSlot.innerHTML = "";
     calibrationSlot.innerHTML = "";
     readySlot.hidden = state !== "ready";
+    if (opts.preflight && state !== "ready") clearPreflightReady();
 
     if (state === "permission-required") {
       actionSlot.appendChild(
@@ -165,6 +274,8 @@ export function mountRacingView(
         createButton({ label: "Reload", variant: "primary", onClick: () => window.location.reload() })
       );
     } else if (state === "await-calibration") {
+      verification = { left: false, right: false, throttle: false, brake: false };
+      updateVerification(lastReading);
       const step = motion.getCalibrationStep();
       if (step === "center") {
         appendCalibrationButton("Center", "Hold the phone comfortably like a steering wheel.", () => {
@@ -182,25 +293,37 @@ export function mountRacingView(
           renderForState(motion.getState());
         });
       }
+    } else if (state === "ready") {
+      renderReadyAction();
     }
   }
 
   const offState = motion.onStateChange(renderForState);
   const offReading = motion.onReading((reading: MotionReading) => {
     lastReading = reading;
-    input.send(reading);
-    packetsSent += 1;
+    const roundId = syncRoundId();
+    if (roundId) {
+      input.send(reading);
+      packetsSent += 1;
+    }
     lastSendAt = performance.now();
     wheelRimEl.style.setProperty("--steer", String(reading.steering));
     throttleBar.value = reading.throttle;
     brakeBar.value = reading.brake;
     steeringReadout.textContent = `Steering ${Math.round(reading.steering * 100)}%`;
+    updateVerification(reading);
     updateDiagnostics();
   });
 
   const onRecalibrate = () => {
-    input.sendNeutral();
-    packetsSent += 1;
+    const roundId = syncRoundId();
+    if (roundId) {
+      input.sendNeutral();
+      packetsSent += 1;
+    }
+    clearPreflightReady();
+    verification = { left: false, right: false, throttle: false, brake: false };
+    updateVerification(lastReading);
     motion.recalibrate();
   };
   recalibrateButton.addEventListener("click", onRecalibrate);
@@ -233,21 +356,30 @@ export function mountRacingView(
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);
 
   const onDisconnect = () => {
-    input.sendNeutral();
-    packetsSent += 1;
+    const roundId = syncRoundId();
+    if (roundId) {
+      input.sendNeutral();
+      packetsSent += 1;
+    }
     indicator.classList.add("offline");
   };
   const onConnect = () => indicator.classList.remove("offline");
   const onBlur = () => {
-    input.sendNeutral();
-    packetsSent += 1;
+    const roundId = syncRoundId();
+    if (roundId) {
+      input.sendNeutral();
+      packetsSent += 1;
+    }
     lastSendAt = performance.now();
     updateDiagnostics();
   };
   const onVisibility = () => {
     if (document.hidden) {
-      input.sendNeutral();
-      packetsSent += 1;
+      const roundId = syncRoundId();
+      if (roundId) {
+        input.sendNeutral();
+        packetsSent += 1;
+      }
       lastSendAt = performance.now();
       updateDiagnostics();
     }
@@ -269,8 +401,11 @@ export function mountRacingView(
     socket.off("connect", onConnect);
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("visibilitychange", onVisibility);
-    input.sendNeutral();
-    packetsSent += 1;
+    const roundId = syncRoundId();
+    if (roundId) {
+      input.sendNeutral();
+      packetsSent += 1;
+    }
     motion.destroy();
   };
 }

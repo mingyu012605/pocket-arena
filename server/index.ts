@@ -1,5 +1,6 @@
 import express from "express";
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Server } from "socket.io";
@@ -11,7 +12,18 @@ const port = Number(process.env.PORT ?? 3000);
 
 async function main(): Promise<void> {
   const app = express();
-  const httpServer = createServer(app);
+  const httpsKeyPath = process.env.HTTPS_KEY_FILE?.trim();
+  const httpsCertPath = process.env.HTTPS_CERT_FILE?.trim();
+  const useHttps = Boolean(httpsKeyPath && httpsCertPath);
+  const httpServer = useHttps
+    ? createHttpsServer(
+        {
+          key: await fs.readFile(path.resolve(process.cwd(), httpsKeyPath!)),
+          cert: await fs.readFile(path.resolve(process.cwd(), httpsCertPath!))
+        },
+        app
+      )
+    : createServer(app);
   const io = new Server(httpServer, { cors: { origin: "*" } });
 
   registerSocketHandlers(io, port);
@@ -42,10 +54,13 @@ async function main(): Promise<void> {
   }
 
   httpServer.listen(port, "0.0.0.0", () => {
-    const { localUrl, lanUrl, publicUrl } = resolveUrls(port);
+    const { localUrl, lanUrl, publicUrl } = resolveUrls(port, useHttps ? "https" : "http");
     console.log(`Local:    ${localUrl}`);
     console.log(`Network:  ${lanUrl ?? "(no LAN address detected)"}`);
     console.log(`QR codes will use: ${publicUrl}`);
+    if (!useHttps && !process.env.PUBLIC_BASE_URL) {
+      console.log("Phone motion controls usually require HTTPS. Set PUBLIC_BASE_URL to an HTTPS tunnel, or set HTTPS_KEY_FILE and HTTPS_CERT_FILE.");
+    }
   });
 }
 

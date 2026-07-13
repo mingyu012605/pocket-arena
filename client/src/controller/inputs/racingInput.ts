@@ -11,6 +11,12 @@ export class RacingInputSource {
     this.roundId = roundId;
   }
 
+  setRoundId(roundId: string): void {
+    if (this.roundId === roundId) return;
+    this.roundId = roundId;
+    this.sequence = 0;
+  }
+
   send(reading: MotionReading): void {
     const socket = getSocket();
     if (!socket.connected) return;

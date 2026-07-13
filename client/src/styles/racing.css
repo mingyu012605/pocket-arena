@@ -92,3 +92,50 @@
   font-size: 0.95rem;
   margin-top: 1rem;
 }
+
+.racing-verification {
+  width: min(100%, 360px);
+  margin: 1rem auto;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--player-color, var(--color-cyan)) 28%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 14px 32px rgba(14, 116, 144, 0.1);
+}
+
+.racing-verification p {
+  margin: 0 0 0.7rem;
+  font-weight: 800;
+}
+
+.racing-verification ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.racing-verification li {
+  min-height: 2.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.racing-verification li.is-complete {
+  border-color: color-mix(in srgb, var(--player-color, var(--color-cyan)) 42%, #22c55e);
+  background: color-mix(in srgb, var(--player-color, var(--color-cyan)) 12%, #dcfce7);
+  color: #166534;
+}
+
+#racing-ready-action {
+  margin-top: 0.8rem;
+}
