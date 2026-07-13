@@ -221,9 +221,22 @@
 
 .lobby-footer {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   justify-content: center;
   margin-top: 2rem;
+}
+
+.racing-quality-selector {
+  display: flex;
+  flex-basis: 100%;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+.racing-quality-selector .btn {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
 }
 
 .nickname-form {

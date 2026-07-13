@@ -98,6 +98,24 @@ function buildMarshals(density: number): THREE.Group {
   const poleMaterial = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.4, metalness: 0.2 });
 
   const marshalCount = Math.max(4, Math.round(9 * density));
+  const legsMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.18, 0.9, 8), legMaterial, marshalCount);
+  const torsoMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.2, 0.7, 8), vestMaterial, marshalCount);
+  const headMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.17, 10, 8), skinMaterial, marshalCount);
+  const poleMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.02, 0.02, 1.4, 6), poleMaterial, marshalCount);
+  const flagMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.5, 0.34), flagMaterial, marshalCount);
+
+  const bodyMatrix = new THREE.Matrix4();
+  const localMatrix = new THREE.Matrix4();
+  const instanceMatrix = new THREE.Matrix4();
+  const identityScale = new THREE.Vector3(1, 1, 1);
+  const parts: Array<{ mesh: THREE.InstancedMesh; localPosition: THREE.Vector3 }> = [
+    { mesh: legsMesh, localPosition: new THREE.Vector3(0, 0.45, 0) },
+    { mesh: torsoMesh, localPosition: new THREE.Vector3(0, 1.25, 0) },
+    { mesh: headMesh, localPosition: new THREE.Vector3(0, 1.72, 0) },
+    { mesh: poleMesh, localPosition: new THREE.Vector3(0.22, 1.3, 0) },
+    { mesh: flagMesh, localPosition: new THREE.Vector3(0.5, 1.85, 0) }
+  ];
+
   for (let i = 0; i < marshalCount; i++) {
     const progress = ((i + 0.6) / marshalCount) * TEST_OVAL_TRACK.trackLength;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
@@ -105,28 +123,20 @@ function buildMarshals(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
-    const marshal = new THREE.Group();
-
-    const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.9, 8), legMaterial);
-    legs.position.y = 0.45;
-    marshal.add(legs);
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.2, 0.7, 8), vestMaterial);
-    torso.position.y = 1.25;
-    marshal.add(torso);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), skinMaterial);
-    head.position.y = 1.72;
-    marshal.add(head);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.4, 6), poleMaterial);
-    pole.position.set(0.22, 1.3, 0);
-    marshal.add(pole);
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.34), flagMaterial);
-    flag.position.set(0.5, 1.85, 0);
-    marshal.add(flag);
-
-    marshal.position.set(center.x + nx * side * (halfWidth + 4.4), 0, center.z + nz * side * (halfWidth + 4.4));
-    marshal.rotation.y = -angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
-    group.add(marshal);
+    const marshalRotationY = -angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    const marshalQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, marshalRotationY, 0));
+    bodyMatrix.compose(
+      new THREE.Vector3(center.x + nx * side * (halfWidth + 4.4), 0, center.z + nz * side * (halfWidth + 4.4)),
+      marshalQuaternion,
+      identityScale
+    );
+    for (const part of parts) {
+      localMatrix.makeTranslation(part.localPosition.x, part.localPosition.y, part.localPosition.z);
+      instanceMatrix.multiplyMatrices(bodyMatrix, localMatrix);
+      part.mesh.setMatrixAt(i, instanceMatrix);
+    }
   }
+  group.add(legsMesh, torsoMesh, headMesh, poleMesh, flagMesh);
   return group;
 }
 
@@ -213,19 +223,23 @@ export function buildHarborEnvironment(density: number): THREE.Group {
   const base = new THREE.Mesh(new THREE.BoxGeometry(46, 7, 10), foregroundStandMaterial);
   base.position.set(0, 3.5, 0);
   foregroundStand.add(base);
+  const fanGeometry = new THREE.SphereGeometry(0.34, 8, 6);
+  const fanMaterial = new THREE.MeshBasicMaterial({ color: "#ffffff", vertexColors: true });
+  const fans = new THREE.InstancedMesh(fanGeometry, fanMaterial, 4 * 14);
+  const fanMatrix = new THREE.Matrix4();
+  let fanIndex = 0;
   for (let row = 0; row < 4; row++) {
     const seats = new THREE.Mesh(new THREE.BoxGeometry(42, 0.5, 0.7), foregroundSeatMaterial);
     seats.position.set(0, 4.6 + row * 0.65, -3.5 + row * 1.8);
     foregroundStand.add(seats);
     for (let i = 0; i < 14; i++) {
-      const fan = new THREE.Mesh(
-        new THREE.SphereGeometry(0.34, 8, 6),
-        new THREE.MeshBasicMaterial({ color: foregroundCrowdColors[(i + row) % foregroundCrowdColors.length]! })
-      );
-      fan.position.set(-19 + i * 2.9, 5.1 + row * 0.65, -3.1 + row * 1.8);
-      foregroundStand.add(fan);
+      fanMatrix.setPosition(-19 + i * 2.9, 5.1 + row * 0.65, -3.1 + row * 1.8);
+      fans.setMatrixAt(fanIndex, fanMatrix);
+      fans.setColorAt(fanIndex, new THREE.Color(foregroundCrowdColors[(i + row) % foregroundCrowdColors.length]!));
+      fanIndex += 1;
     }
   }
+  foregroundStand.add(fans);
   foregroundStand.position.set(48, 0, -28);
   foregroundStand.rotation.y = -0.48;
   const foregroundCrowd = new THREE.Mesh(
@@ -282,28 +296,36 @@ export function buildHarborEnvironment(density: number): THREE.Group {
   const palmTrunkMaterial = new THREE.MeshStandardMaterial({ color: "#b45309", roughness: 0.8 });
   const palmLeafMaterial = new THREE.MeshStandardMaterial({ color: "#22c55e", roughness: 0.82 });
   const palmCount = Math.round(16 * density);
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.32, 6, 8), palmTrunkMaterial, palmCount);
+  const leaves = new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.08, 4.8), palmLeafMaterial, palmCount * 5);
+  const trunkMatrix = new THREE.Matrix4();
+  const groupMatrix = new THREE.Matrix4();
+  const localMatrix = new THREE.Matrix4();
+  const leafMatrix = new THREE.Matrix4();
+  let leafIndex = 0;
   for (let i = 0; i < palmCount; i++) {
     const jitterX = ((i * 53) % 11) - 5;
     const jitterZ = ((i * 29) % 9) - 4;
     const x = -120 + i * 16 + jitterX;
     const z = (i % 2 === 0 ? 34 : -228) + jitterZ;
     const scale = 0.85 + ((i * 7) % 5) * 0.08;
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 6, 8), palmTrunkMaterial);
-    trunk.scale.set(scale, scale, scale);
-    trunk.position.set(x, 3 * scale, z);
-    group.add(trunk);
-    const leaves = new THREE.Group();
+    trunkMatrix.compose(new THREE.Vector3(x, 3 * scale, z), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
+    trunks.setMatrixAt(i, trunkMatrix);
+
+    groupMatrix.compose(new THREE.Vector3(x, 0, z), new THREE.Quaternion(), new THREE.Vector3(scale, scale, scale));
     for (let j = 0; j < 5; j++) {
-      const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 4.8), palmLeafMaterial);
-      leaf.position.y = 6.25 * scale;
-      leaf.rotation.y = (j / 5) * Math.PI * 2 + (i % 4) * 0.15;
-      leaf.rotation.x = 0.36;
-      leaves.add(leaf);
+      const rotationY = (j / 5) * Math.PI * 2 + (i % 4) * 0.15;
+      localMatrix.compose(
+        new THREE.Vector3(0, 6.25 * scale, 0),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0.36, rotationY, 0)),
+        new THREE.Vector3(1, 1, 1)
+      );
+      leafMatrix.multiplyMatrices(groupMatrix, localMatrix);
+      leaves.setMatrixAt(leafIndex, leafMatrix);
+      leafIndex += 1;
     }
-    leaves.position.set(x, 0, z);
-    leaves.scale.set(scale, scale, scale);
-    group.add(leaves);
   }
+  group.add(trunks, leaves);
 
   group.add(buildKeyArtBackdrop());
 

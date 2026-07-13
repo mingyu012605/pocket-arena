@@ -13,9 +13,12 @@ import { TEST_OVAL_TRACK } from "../../../shared/racingTrack";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../../shared/protocol";
 import type { RacingRenderer } from "../games/racing/renderer";
 import { RacingAudio } from "../games/racing/audio";
+import { RACING_QUALITY_STORAGE_KEY } from "../games/racing/quality";
+import type { RacingQualitySelection } from "../games/racing/quality";
 
 const RACING_MAX_SPEED_ESTIMATE = 42;
 const RACING_AUDIO_MUTE_KEY = "pocket-arena:racingAudioMuted";
+const RACING_QUALITY_OPTIONS: RacingQualitySelection[] = ["auto", "low", "medium", "high"];
 
 type MountedRenderer = ControllerTestRenderer | RacingRenderer;
 
@@ -112,6 +115,23 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
 
   function renderLobbyFooter(): void {
     footerEl.innerHTML = "";
+    if (lastRoom.gameType === "racing") {
+      const qualityRow = document.createElement("div");
+      qualityRow.className = "racing-quality-selector";
+      const current = (localStorage.getItem(RACING_QUALITY_STORAGE_KEY) as RacingQualitySelection | null) ?? "auto";
+      for (const option of RACING_QUALITY_OPTIONS) {
+        const button = createButton({
+          label: option === "auto" ? "Auto" : option[0]!.toUpperCase() + option.slice(1),
+          variant: option === current ? "primary" : "secondary",
+          onClick: () => {
+            localStorage.setItem(RACING_QUALITY_STORAGE_KEY, option);
+            renderLobbyFooter();
+          }
+        });
+        qualityRow.appendChild(button);
+      }
+      footerEl.appendChild(qualityRow);
+    }
     footerEl.appendChild(startButton);
     footerEl.appendChild(leaveButton);
   }

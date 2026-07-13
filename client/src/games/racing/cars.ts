@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 export interface CarVisual {
   root: THREE.Group;
@@ -55,6 +56,80 @@ const WHEEL_OFFSETS: Array<[number, number]> = [
   [-1.18, -1.15]
 ];
 
+interface Transform {
+  position?: [number, number, number];
+  rotation?: [number, number, number];
+  scale?: [number, number, number];
+}
+
+/** Clones `geometry` and bakes the given local transform into its vertices, so it can be safely merged with other parts into one static mesh. */
+function bake(geometry: THREE.BufferGeometry, transform: Transform = {}): THREE.BufferGeometry {
+  const geo = geometry.clone();
+  const matrix = new THREE.Matrix4().compose(
+    new THREE.Vector3(...(transform.position ?? [0, 0, 0])),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...(transform.rotation ?? [0, 0, 0]))),
+    new THREE.Vector3(...(transform.scale ?? [1, 1, 1]))
+  );
+  geo.applyMatrix4(matrix);
+  return geo;
+}
+
+/**
+ * Every car shares the same relative layout for its non-player-colored,
+ * non-animated parts (carbon trim, accent trim, wheel rims/spokes, mirrors,
+ * headlights), so those get merged into a handful of static geometries
+ * once at module load instead of once per car. Before this, each car
+ * contributed ~57 individual draw calls (most of them one box/cylinder
+ * each for trim details and wheel rim spokes that never even animate);
+ * merging brings that down to ~17 per car without changing what's drawn.
+ * The player-colored tub/nose/sidepods still merge per car (they can't
+ * share geometry across cars since the paint material differs), and
+ * wheels/lights/marker stay separate because those animate per frame.
+ */
+const CARBON_MERGED_GEOMETRY = mergeGeometries([
+  bake(COCKPIT_GEOMETRY, { position: [0, 0.92, -0.35], rotation: [Math.PI / 2, 0, 0] }),
+  bake(HALO_GEOMETRY, { position: [0, 1.08, -0.28], rotation: [Math.PI / 2, 0, Math.PI * 0.82] }),
+  bake(new THREE.BoxGeometry(0.06, 0.36, 0.06), { position: [0, 0.92, -0.72] }),
+  bake(MIRROR_ARM_GEOMETRY, { position: [-0.72, 0.98, -0.7], rotation: [0, 0.28, 0] }),
+  bake(MIRROR_ARM_GEOMETRY, { position: [0.72, 0.98, -0.7], rotation: [0, -0.28, 0] }),
+  bake(FRONT_WING_GEOMETRY, { position: [0, 0.32, -2.85] }),
+  bake(FRONT_ENDPLATE_GEOMETRY, { position: [-1.78, 0.38, -2.85] }),
+  bake(FRONT_ENDPLATE_GEOMETRY, { position: [1.78, 0.38, -2.85] }),
+  bake(REAR_WING_GEOMETRY, { position: [0, 1.14, 1.78] }),
+  bake(REAR_ENDPLATE_GEOMETRY, { position: [-1.28, 1.1, 1.78] }),
+  bake(REAR_ENDPLATE_GEOMETRY, { position: [1.28, 1.1, 1.78] }),
+  bake(REAR_STRUT_GEOMETRY, { position: [0, 0.76, 1.68] }),
+  ...WHEEL_OFFSETS.map(([x, z]) => bake(TIRE_GROOVE_GEOMETRY, { position: [x, 0.44, z], rotation: [0, Math.PI / 2, 0] }))
+]);
+
+const ACCENT_MERGED_GEOMETRY = mergeGeometries([
+  bake(CHARACTER_LINE_GEOMETRY, { position: [0.51, 0.62, -0.85] }),
+  bake(CHARACTER_LINE_GEOMETRY, { position: [-0.51, 0.62, -0.85] }),
+  bake(CHARACTER_LINE_GEOMETRY, { position: [0.51, 0.62, 1.15] }),
+  bake(CHARACTER_LINE_GEOMETRY, { position: [-0.51, 0.62, 1.15] }),
+  bake(FRONT_WING_ACCENT_GEOMETRY, { position: [0, 0.42, -3.04] }),
+  bake(REAR_WING_ACCENT_GEOMETRY, { position: [0, 1.28, 1.54] })
+]);
+
+const RIM_MERGED_GEOMETRY = mergeGeometries(
+  WHEEL_OFFSETS.flatMap(([x, z]) => [
+    bake(RIM_GEOMETRY, { position: [x, 0.44, z], rotation: [0, 0, Math.PI / 2] }),
+    bake(RIM_SPOKE_GEOMETRY, { position: [x, 0.44, z], rotation: [0, 0, Math.PI / 2] }),
+    bake(RIM_SPOKE_GEOMETRY, { position: [x, 0.44, z], rotation: [Math.PI / 3, 0, Math.PI / 2] }),
+    bake(RIM_SPOKE_GEOMETRY, { position: [x, 0.44, z], rotation: [(2 * Math.PI) / 3, 0, Math.PI / 2] })
+  ])
+);
+
+const MIRROR_MERGED_GEOMETRY = mergeGeometries([
+  bake(MIRROR_GEOMETRY, { position: [-0.72 * 1.18, 1, -0.78], rotation: [0, 0.28, 0] }),
+  bake(MIRROR_GEOMETRY, { position: [0.72 * 1.18, 1, -0.78], rotation: [0, -0.28, 0] })
+]);
+
+const HEADLIGHT_MERGED_GEOMETRY = mergeGeometries([
+  bake(HEADLIGHT_GEOMETRY, { position: [-0.32, 0.5, -2.88] }),
+  bake(HEADLIGHT_GEOMETRY, { position: [0.32, 0.5, -2.88] })
+]);
+
 function buildSpeedTrailTexture(color: string): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 64;
@@ -92,43 +167,31 @@ export function buildCarMesh(color: string): CarVisual {
     clearcoatRoughness: 0.15
   });
 
-  const tub = new THREE.Mesh(TUB_GEOMETRY, paint);
-  tub.rotation.x = Math.PI / 2;
-  tub.scale.set(1, 0.56, 1);
-  tub.position.set(0, 0.56, 0.15);
-  tub.castShadow = true;
-  group.add(tub);
+  const paintMergedGeometry = mergeGeometries([
+    bake(TUB_GEOMETRY, { position: [0, 0.56, 0.15], rotation: [Math.PI / 2, 0, 0], scale: [1, 0.56, 1] }),
+    bake(NOSE_GEOMETRY, { position: [0, 0.42, -2.05], rotation: [-Math.PI / 2, 0, 0], scale: [0.86, 1, 0.62] }),
+    bake(SIDEPOD_GEOMETRY, { position: [-0.62, 0.44, 0.35], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.85] }),
+    bake(SIDEPOD_GEOMETRY, { position: [0.62, 0.44, 0.35], rotation: [Math.PI / 2, 0, 0], scale: [1, 1, 0.85] })
+  ]);
+  const paintMesh = new THREE.Mesh(paintMergedGeometry, paint);
+  paintMesh.castShadow = true;
+  group.add(paintMesh);
 
-  const nose = new THREE.Mesh(NOSE_GEOMETRY, paint);
-  nose.rotation.x = -Math.PI / 2;
-  nose.scale.set(0.86, 1, 0.62);
-  nose.position.set(0, 0.42, -2.05);
-  nose.castShadow = true;
-  group.add(nose);
+  const carbonMesh = new THREE.Mesh(CARBON_MERGED_GEOMETRY, CARBON);
+  carbonMesh.castShadow = true;
+  group.add(carbonMesh);
 
-  for (const x of [-0.62, 0.62]) {
-    const sidepod = new THREE.Mesh(SIDEPOD_GEOMETRY, paint);
-    sidepod.rotation.x = Math.PI / 2;
-    sidepod.scale.set(1, 1, 0.85);
-    sidepod.position.set(x, 0.44, 0.35);
-    sidepod.castShadow = true;
-    group.add(sidepod);
-  }
+  const accentMesh = new THREE.Mesh(ACCENT_MERGED_GEOMETRY, ACCENT);
+  group.add(accentMesh);
 
-  for (const z of [-0.85, 1.15]) {
-    const line = new THREE.Mesh(CHARACTER_LINE_GEOMETRY, ACCENT);
-    line.position.set(0.51, 0.62, z);
-    group.add(line);
-    const lineOpposite = line.clone();
-    lineOpposite.position.x = -0.51;
-    group.add(lineOpposite);
-  }
+  const rimMesh = new THREE.Mesh(RIM_MERGED_GEOMETRY, RIM);
+  group.add(rimMesh);
 
-  const cockpit = new THREE.Mesh(COCKPIT_GEOMETRY, CARBON);
-  cockpit.rotation.x = Math.PI / 2;
-  cockpit.position.set(0, 0.92, -0.35);
-  cockpit.castShadow = true;
-  group.add(cockpit);
+  const mirrorMesh = new THREE.Mesh(MIRROR_MERGED_GEOMETRY, MIRROR);
+  group.add(mirrorMesh);
+
+  const headlightMesh = new THREE.Mesh(HEADLIGHT_MERGED_GEOMETRY, HEADLIGHT);
+  group.add(headlightMesh);
 
   const helmet = new THREE.Mesh(HELMET_GEOMETRY, HELMET);
   helmet.scale.set(0.92, 1, 0.96);
@@ -140,61 +203,6 @@ export function buildCarMesh(color: string): CarVisual {
   visor.position.set(0, 1.16, -0.66);
   group.add(visor);
 
-  const halo = new THREE.Mesh(HALO_GEOMETRY, CARBON);
-  halo.rotation.set(Math.PI / 2, 0, Math.PI * 0.82);
-  halo.position.set(0, 1.08, -0.28);
-  group.add(halo);
-  const haloStrut = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.36, 0.06), CARBON);
-  haloStrut.position.set(0, 0.92, -0.72);
-  group.add(haloStrut);
-
-  for (const x of [-0.72, 0.72]) {
-    const mirrorArm = new THREE.Mesh(MIRROR_ARM_GEOMETRY, CARBON);
-    mirrorArm.position.set(x, 0.98, -0.7);
-    mirrorArm.rotation.y = x > 0 ? -0.28 : 0.28;
-    group.add(mirrorArm);
-    const mirror = new THREE.Mesh(MIRROR_GEOMETRY, MIRROR);
-    mirror.position.set(x * 1.18, 1, -0.78);
-    mirror.rotation.y = mirrorArm.rotation.y;
-    group.add(mirror);
-  }
-
-  const frontWing = new THREE.Mesh(FRONT_WING_GEOMETRY, CARBON);
-  frontWing.position.set(0, 0.32, -2.85);
-  frontWing.castShadow = true;
-  group.add(frontWing);
-  const frontWingAccent = new THREE.Mesh(FRONT_WING_ACCENT_GEOMETRY, ACCENT);
-  frontWingAccent.position.set(0, 0.42, -3.04);
-  group.add(frontWingAccent);
-  for (const x of [-1.78, 1.78]) {
-    const endplate = new THREE.Mesh(FRONT_ENDPLATE_GEOMETRY, CARBON);
-    endplate.position.set(x, 0.38, -2.85);
-    group.add(endplate);
-  }
-
-  const rearWing = new THREE.Mesh(REAR_WING_GEOMETRY, CARBON);
-  rearWing.position.set(0, 1.14, 1.78);
-  rearWing.castShadow = true;
-  group.add(rearWing);
-  const rearWingAccent = new THREE.Mesh(REAR_WING_ACCENT_GEOMETRY, ACCENT);
-  rearWingAccent.position.set(0, 1.28, 1.54);
-  group.add(rearWingAccent);
-  for (const x of [-1.28, 1.28]) {
-    const endplate = new THREE.Mesh(REAR_ENDPLATE_GEOMETRY, CARBON);
-    endplate.position.set(x, 1.1, 1.78);
-    group.add(endplate);
-  }
-  const rearWingStrut = new THREE.Mesh(REAR_STRUT_GEOMETRY, CARBON);
-  rearWingStrut.position.set(0, 0.76, 1.68);
-  rearWingStrut.castShadow = true;
-  group.add(rearWingStrut);
-
-  for (const x of [-0.32, 0.32]) {
-    const headlight = new THREE.Mesh(HEADLIGHT_GEOMETRY, HEADLIGHT);
-    headlight.position.set(x, 0.5, -2.88);
-    group.add(headlight);
-  }
-
   const wheels: THREE.Mesh[] = [];
   const frontWheels: THREE.Mesh[] = [];
   for (const [x, z] of WHEEL_OFFSETS) {
@@ -205,21 +213,6 @@ export function buildCarMesh(color: string): CarVisual {
     wheels.push(wheel);
     if (z < 0) frontWheels.push(wheel);
     group.add(wheel);
-    const rim = new THREE.Mesh(RIM_GEOMETRY, RIM);
-    rim.rotation.z = Math.PI / 2;
-    rim.position.copy(wheel.position);
-    group.add(rim);
-    for (let spoke = 0; spoke < 3; spoke++) {
-      const spokeMesh = new THREE.Mesh(RIM_SPOKE_GEOMETRY, RIM);
-      spokeMesh.rotation.z = Math.PI / 2;
-      spokeMesh.rotation.x = (spoke / 3) * Math.PI;
-      spokeMesh.position.copy(wheel.position);
-      group.add(spokeMesh);
-    }
-    const groove = new THREE.Mesh(TIRE_GROOVE_GEOMETRY, CARBON);
-    groove.rotation.y = Math.PI / 2;
-    groove.position.copy(wheel.position);
-    group.add(groove);
   }
 
   const brakeLight = new THREE.Mesh(BRAKE_LIGHT_GEOMETRY, new THREE.MeshBasicMaterial({ color: "#ef4444", transparent: true, opacity: 0.2 }));
