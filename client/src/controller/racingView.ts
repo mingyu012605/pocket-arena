@@ -54,6 +54,13 @@ export function mountRacingView(
         <span class="controller-nickname"></span>
         <span class="controller-status" id="racing-conn-indicator">●</span>
       </header>
+      <p class="racing-player-badge" id="racing-player-badge"></p>
+      <ul class="racing-status-badges" id="racing-status-badges">
+        <li data-badge="connected">Connected</li>
+        <li data-badge="motion">Motion</li>
+        <li data-badge="calibrated">Calibrated</li>
+        <li data-badge="ready">Ready</li>
+      </ul>
       <p id="racing-state-copy" class="hero-copy"></p>
       <div id="racing-action-slot"></div>
       <div id="racing-calibration-slot"></div>
@@ -81,6 +88,7 @@ export function mountRacingView(
         <button class="btn btn-secondary" id="recalibrate-button" type="button">Recalibrate</button>
         <p class="safety-copy">Hold phone securely.</p>
       </div>
+      <p class="racing-synthetic-warning" id="racing-synthetic-warning" hidden>SYNTHETIC INPUT ACTIVE</p>
       <details class="racing-dev-diagnostics" id="racing-dev-diagnostics" hidden>
         <summary>Diagnostics</summary>
         <pre id="racing-dev-readout"></pre>
@@ -106,11 +114,16 @@ export function mountRacingView(
   const readyActionSlot = container.querySelector<HTMLDivElement>("#racing-ready-action")!;
   const readyHelpEl = container.querySelector<HTMLParagraphElement>("#racing-ready-help")!;
   const indicator = container.querySelector<HTMLSpanElement>("#racing-conn-indicator")!;
+  const playerBadge = container.querySelector<HTMLParagraphElement>("#racing-player-badge")!;
+  const statusBadges = container.querySelector<HTMLUListElement>("#racing-status-badges")!;
   const diagnostics = container.querySelector<HTMLDetailsElement>("#racing-dev-diagnostics")!;
+  const syntheticWarning = container.querySelector<HTMLParagraphElement>("#racing-synthetic-warning")!;
   const diagnosticsReadout = container.querySelector<HTMLPreElement>("#racing-dev-readout")!;
   const diagnosticsControls = container.querySelector<HTMLDivElement>("#racing-dev-controls")!;
 
   setText(nicknameEl, opts.nickname);
+  playerBadge.textContent = `Player ${opts.playerNumber}`;
+  playerBadge.style.setProperty("--player-color", opts.color);
   const motion = new MotionInputSource();
   const input = new RacingInputSource(opts.roundId);
   const devDiagnostics = isDevDiagnosticsEnabled();
@@ -139,6 +152,27 @@ export function mountRacingView(
 
   function isPreflightVerified(): boolean {
     return verification.left && verification.right && verification.throttle && verification.brake;
+  }
+
+  /** Clean, at-a-glance status for the normal (non-dev) phone screen - not the raw diagnostics panel. */
+  function updateStatusBadges(): void {
+    const state = motion.getState();
+    const motionEnabled = state !== "permission-required" && state !== "permission-denied" && state !== "unavailable" && state !== "insecure-context";
+    const calibrated = state === "ready" || motion.getDebugSnapshot().calibrated;
+    for (const li of statusBadges.querySelectorAll<HTMLLIElement>("[data-badge]")) {
+      const badge = li.dataset.badge;
+      const done =
+        badge === "connected"
+          ? getSocket().connected
+          : badge === "motion"
+            ? motionEnabled
+            : badge === "calibrated"
+              ? calibrated
+              : badge === "ready"
+                ? playerReady
+                : false;
+      li.classList.toggle("is-complete", done);
+    }
   }
 
   function updateDiagnostics(): void {
@@ -206,6 +240,7 @@ export function mountRacingView(
       playerReady = nextReady;
       if (readyButton) readyButton.textContent = playerReady ? "Cancel Ready" : "Ready";
       updateVerification(lastReading);
+      updateStatusBadges();
     } finally {
       readyBusy = false;
       if (readyButton) readyButton.disabled = !playerReady && !isPreflightVerified();
@@ -231,6 +266,12 @@ export function mountRacingView(
   }
 
   function sendDevReading(reading: MotionReading): void {
+    // Synthetic controls only exist at all behind ?dev=1 (see the `devDiagnostics`
+    // guard around where these buttons are created) and only ever fire from an
+    // explicit click here - never automatically. This banner makes that
+    // impossible to miss while it's happening, and clears itself is reset by a
+    // page reload since it's just in-memory state.
+    syntheticWarning.hidden = false;
     lastReading = reading;
     const roundId = syncRoundId();
     if (roundId) {
@@ -259,6 +300,7 @@ export function mountRacingView(
     calibrationSlot.innerHTML = "";
     readySlot.hidden = state !== "ready";
     if (opts.preflight && state !== "ready") clearPreflightReady();
+    updateStatusBadges();
 
     if (state === "permission-required") {
       actionSlot.appendChild(
@@ -379,8 +421,12 @@ export function mountRacingView(
       packetsSent += 1;
     }
     indicator.classList.add("offline");
+    updateStatusBadges();
   };
-  const onConnect = () => indicator.classList.remove("offline");
+  const onConnect = () => {
+    indicator.classList.remove("offline");
+    updateStatusBadges();
+  };
   const onBlur = () => {
     const roundId = syncRoundId();
     if (roundId) {
