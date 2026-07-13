@@ -79,6 +79,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private lookTarget = new THREE.Vector3();
   private cameraShake = 0;
   private cameraRoll = 0;
+  private readonly lastSkidSpawn = new Map<number, { x: number; z: number }>();
   private pixelRatio = 1;
   private targetPixelRatio = 1;
   private frameDeltas: number[] = [];
@@ -164,7 +165,12 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
-    this.effects = new RacingEffects(scene, Math.round(this.quality.particles * 0.3), Math.round(this.quality.particles * 0.4));
+    this.effects = new RacingEffects(
+      scene,
+      Math.round(this.quality.particles * 0.3),
+      Math.round(this.quality.particles * 0.4),
+      Math.round(this.quality.particles * 0.5)
+    );
     if (DEV_MODE) this.devHelpers = new RacingDevHelpers(scene);
     if (shouldShowRacingMetrics()) {
       this.metrics = new RacingMetricsOverlay({
@@ -228,6 +234,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.snapshotTimes = [];
     this.lastSnapshotAt = 0;
     this.finishedPlayers.clear();
+    this.lastSkidSpawn.clear();
   }
 
   render(_timestamp: number): void {
@@ -278,6 +285,15 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       if (DEV_MODE) this.devHelpers?.updateCarBounds(playerNumber, car.root);
       if (Math.abs(pos.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth && Math.abs(pos.speed) > 3) {
         this.effects?.spawnDust(x, z, Math.min(1, Math.abs(pos.speed) / 20));
+      }
+      if (Math.abs(pos.headingError) > 0.2 && pos.speed > 6) {
+        const last = this.lastSkidSpawn.get(playerNumber);
+        if (!last || Math.hypot(x - last.x, z - last.z) > 0.35) {
+          this.effects?.spawnSkid(x, z, heading);
+          this.lastSkidSpawn.set(playerNumber, { x, z });
+        }
+      } else {
+        this.lastSkidSpawn.delete(playerNumber);
       }
 
       otherCarPositions.push({ playerNumber, x, z });

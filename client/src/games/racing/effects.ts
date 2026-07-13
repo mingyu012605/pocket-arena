@@ -28,6 +28,18 @@ function makePool(count: number): PooledParticle[] {
   }));
 }
 
+interface SkidMark {
+  active: boolean;
+  x: number;
+  z: number;
+  heading: number;
+  life: number;
+  maxLife: number;
+}
+
+const SKID_FADE_WINDOW = 0.3;
+const SKID_Y_AXIS = new THREE.Vector3(0, 1, 0);
+
 /**
  * Pooled particle systems for speed/surface feedback. Both pools allocate
  * their InstancedMesh and particle records once; spawning reuses an
@@ -41,12 +53,15 @@ export class RacingEffects {
   private readonly burstMesh: THREE.InstancedMesh;
   private readonly burstParticles: PooledParticle[];
   private readonly burstColors: THREE.Color[];
+  private readonly skidMesh: THREE.InstancedMesh;
+  private readonly skidMarks: SkidMark[];
+  private skidCursor = 0;
   private readonly matrix = new THREE.Matrix4();
   private readonly zeroScale = new THREE.Vector3(0, 0, 0);
   private readonly quaternion = new THREE.Quaternion();
   private lastUpdateAt = 0;
 
-  constructor(scene: THREE.Scene, maxDust: number, maxBurst: number) {
+  constructor(scene: THREE.Scene, maxDust: number, maxBurst: number, maxSkid = 160) {
     this.group = new THREE.Group();
     this.group.name = "racing-effects";
     scene.add(this.group);
@@ -68,6 +83,37 @@ export class RacingEffects {
       this.burstMesh.setColorAt(i, this.burstColors[i % this.burstColors.length]!);
     }
     this.group.add(this.burstMesh);
+
+    // Skid marks lay flat on the track surface as a fixed-size ring buffer:
+    // spawning always overwrites the oldest slot rather than waiting for a
+    // free one, so a car cornering continuously naturally leaves a rolling
+    // trail behind it instead of running out of instances mid-corner.
+    const skidGeometry = new THREE.PlaneGeometry(0.42, 1.05).rotateX(-Math.PI / 2);
+    const skidMaterial = new THREE.MeshBasicMaterial({
+      color: "#15151a",
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    });
+    this.skidMesh = new THREE.InstancedMesh(skidGeometry, skidMaterial, Math.max(1, maxSkid));
+    this.skidMarks = Array.from({ length: Math.max(1, maxSkid) }, () => ({ active: false, x: 0, z: 0, heading: 0, life: 0, maxLife: 1 }));
+    for (let i = 0; i < this.skidMarks.length; i++) this.skidMesh.setMatrixAt(i, this.matrix.makeScale(0, 0, 0));
+    this.group.add(this.skidMesh);
+  }
+
+  /** Lays down one skid-mark segment at the given ground position, oriented along the car's heading. Call at most a few times per second per car - the caller is responsible for spacing/throttling spawns. */
+  spawnSkid(x: number, z: number, heading: number, maxLife = 4.5): void {
+    const slot = this.skidMarks[this.skidCursor]!;
+    this.skidCursor = (this.skidCursor + 1) % this.skidMarks.length;
+    slot.active = true;
+    slot.x = x;
+    slot.z = z;
+    slot.heading = heading;
+    slot.maxLife = maxLife;
+    slot.life = maxLife;
   }
 
   /** Off-track dust/rumble feedback. Safe to call every frame; internally throttled per spawn caller via `intensity`. */
@@ -114,6 +160,31 @@ export class RacingEffects {
 
     this.stepPool(this.dustParticles, this.dustMesh, dt, -2.2);
     this.stepPool(this.burstParticles, this.burstMesh, dt, -6);
+    this.stepSkidMarks(dt);
+  }
+
+  private stepSkidMarks(dt: number): void {
+    let dirty = false;
+    for (let i = 0; i < this.skidMarks.length; i++) {
+      const mark = this.skidMarks[i]!;
+      if (!mark.active) continue;
+      mark.life -= dt;
+      if (mark.life <= 0) {
+        mark.active = false;
+        this.skidMesh.setMatrixAt(i, this.matrix.makeScale(0, 0, 0));
+        dirty = true;
+        continue;
+      }
+      const t = mark.life / mark.maxLife;
+      const fade = t > SKID_FADE_WINDOW ? 1 : t / SKID_FADE_WINDOW;
+      this.quaternion.setFromAxisAngle(SKID_Y_AXIS, -mark.heading);
+      this.skidMesh.setMatrixAt(
+        i,
+        this.matrix.compose(new THREE.Vector3(mark.x, 0.015, mark.z), this.quaternion, new THREE.Vector3(1, 1, fade))
+      );
+      dirty = true;
+    }
+    if (dirty) this.skidMesh.instanceMatrix.needsUpdate = true;
   }
 
   private stepPool(particles: PooledParticle[], mesh: THREE.InstancedMesh, dt: number, gravity: number): void {
@@ -147,6 +218,8 @@ export class RacingEffects {
     (this.dustMesh.material as THREE.Material).dispose();
     this.burstMesh.geometry.dispose();
     (this.burstMesh.material as THREE.Material).dispose();
+    this.skidMesh.geometry.dispose();
+    (this.skidMesh.material as THREE.Material).dispose();
     scene.remove(this.group);
   }
 }
