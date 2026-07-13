@@ -103,6 +103,16 @@ function cloneWheel(source: THREE.Group, x: number, z: number, leftSide: boolean
   wheel.position.set(x, 0.5, z);
   wheel.scale.setScalar(1.55);
   wheel.rotation.z = leftSide ? Math.PI : 0;
+  // Wheels are small and dark - their own cast/receive shadow contributes
+  // negligible visible detail relative to the extra shadow-map draw calls
+  // it costs across 4 wheels x 4 cars. The chassis itself still casts/
+  // receives (inherited from prepareScene), keeping the car grounded.
+  wheel.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.castShadow = false;
+      object.receiveShadow = false;
+    }
+  });
   return wheel;
 }
 
