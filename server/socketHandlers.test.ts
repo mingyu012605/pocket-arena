@@ -5,7 +5,7 @@ import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { registerSocketHandlers } from "./socketHandlers";
 import { getRoom } from "./rooms";
 import { SOCKET_EVENTS } from "../shared/protocol";
-import type { Ack, ControllerJoinResponse, CreateRoomResponse } from "../shared/protocol";
+import type { Ack, ControllerAutoJoinResponse, ControllerJoinResponse, CreateRoomResponse } from "../shared/protocol";
 
 let httpServer: ReturnType<typeof createServer>;
 let port: number;
@@ -30,11 +30,120 @@ function emitAck<T>(socket: ClientSocket, event: string, payload: unknown): Prom
   return new Promise((resolve) => socket.emit(event, payload, resolve));
 }
 
-function tokenFromJoinUrl(joinUrl: string): string {
-  return new URL(joinUrl).searchParams.get("token")!;
-}
-
 describe("room lifecycle", () => {
+  it("creates universal QR join URLs without per-player token query params", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 2
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    expect(created.slots[0]!.joinUrl).toMatch(new RegExp(`/join/${created.roomId}$`));
+    expect(created.slots[1]!.joinUrl).toBe(created.slots[0]!.joinUrl);
+    expect(new URL(created.slots[0]!.joinUrl).searchParams.get("token")).toBeNull();
+    expect(created.slots[0]!.token).not.toBe(created.slots[1]!.token);
+
+    host.close();
+  });
+
+  it("auto-assigns universal QR joins in player order with controller metadata", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 2
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    const p2 = connect();
+    await Promise.all([new Promise<void>((resolve) => p1.on("connect", resolve)), new Promise<void>((resolve) => p2.on("connect", resolve))]);
+
+    const join1 = await emitAck<ControllerAutoJoinResponse>(p1, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: created.roomId });
+    const join2 = await emitAck<ControllerAutoJoinResponse>(p2, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: created.roomId });
+    expect(join1.ok).toBe(true);
+    expect(join2.ok).toBe(true);
+    if (!join1.ok || !join2.ok) return;
+    expect(join1.playerNumber).toBe(1);
+    expect(join2.playerNumber).toBe(2);
+    expect(join1.controllerType).toBe("motion-wheel");
+    expect(join1.playerColor).toBe("#22d3ee");
+    expect(join2.playerColor).toBe("#f97316");
+
+    host.close();
+    p1.close();
+    p2.close();
+  });
+
+  it("rejects universal QR joins when the room is full", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "controller-test",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    const p2 = connect();
+    await Promise.all([new Promise<void>((resolve) => p1.on("connect", resolve)), new Promise<void>((resolve) => p2.on("connect", resolve))]);
+    const join1 = await emitAck<ControllerAutoJoinResponse>(p1, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: created.roomId });
+    expect(join1.ok).toBe(true);
+    const join2 = await emitAck<ControllerAutoJoinResponse>(p2, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: created.roomId });
+    expect(join2.ok).toBe(false);
+    if (!join2.ok) expect(join2.error.code).toBe("room-full");
+
+    host.close();
+    p1.close();
+    p2.close();
+  });
+
+  it("restores the same player slot on universal reconnect without duplicating players", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "controller-test",
+      maxPlayers: 2
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    const join1 = await emitAck<ControllerAutoJoinResponse>(p1, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: created.roomId });
+    if (!join1.ok) throw new Error("setup failed");
+
+    const p1Again = connect();
+    await new Promise<void>((resolve) => p1Again.on("connect", resolve));
+    const reconnect = await emitAck<ControllerAutoJoinResponse>(p1Again, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, {
+      roomId: created.roomId,
+      controllerToken: join1.controllerToken
+    });
+    expect(reconnect.ok).toBe(true);
+    if (!reconnect.ok) return;
+    expect(reconnect.playerNumber).toBe(1);
+    const room = getRoom(created.roomId);
+    expect(room?.players.filter((p) => p.nickname !== null)).toHaveLength(1);
+
+    host.close();
+    p1.close();
+    p1Again.close();
+  });
+
+  it("rejects universal QR joins for a wrong room code", async () => {
+    const phone = connect();
+    await new Promise<void>((resolve) => phone.on("connect", resolve));
+
+    const join = await emitAck<ControllerAutoJoinResponse>(phone, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: "NOPE1" });
+    expect(join.ok).toBe(false);
+    if (!join.ok) expect(join.error.code).toBe("invalid-room");
+
+    phone.close();
+  });
+
   it("creates a room, joins two slots, and only allows start once every slot is ready", async () => {
     const host = connect();
     await new Promise<void>((resolve) => host.on("connect", resolve));
@@ -51,7 +160,7 @@ describe("room lifecycle", () => {
     const join1 = await emitAck<ControllerJoinResponse>(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     expect(join1.ok).toBe(true);
@@ -66,7 +175,7 @@ describe("room lifecycle", () => {
     const join2 = await emitAck<ControllerJoinResponse>(p2, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 2,
-      token: tokenFromJoinUrl(created.slots[1]!.joinUrl),
+      token: created.slots[1]!.token,
       nickname: "Bob"
     });
     expect(join2.ok).toBe(true);
@@ -88,7 +197,7 @@ describe("room lifecycle", () => {
       maxPlayers: 1
     });
     if (!created.ok) throw new Error("setup failed");
-    const token = tokenFromJoinUrl(created.slots[0]!.joinUrl);
+    const token = created.slots[0]!.token;
 
     const p1 = connect();
     await new Promise<void>((resolve) => p1.on("connect", resolve));
@@ -128,7 +237,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -160,7 +269,7 @@ describe("room lifecycle", () => {
       await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
         roomId: created.roomId,
         playerNumber: 1,
-        token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+        token: created.slots[0]!.token,
         nickname: "Alice"
       });
       await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -230,7 +339,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -272,7 +381,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -335,7 +444,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -368,7 +477,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -417,7 +526,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -461,7 +570,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -509,7 +618,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -551,7 +660,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -596,7 +705,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
@@ -636,7 +745,7 @@ describe("room lifecycle", () => {
     await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
       roomId: created.roomId,
       playerNumber: 1,
-      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      token: created.slots[0]!.token,
       nickname: "Alice"
     });
     await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });

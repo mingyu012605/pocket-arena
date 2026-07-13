@@ -15,10 +15,12 @@ function statusClass(player: PublicPlayer): string {
 export function createPlayerCard(player: PublicPlayer): HTMLElement {
   const card = document.createElement("div");
   card.className = `player-card status-${statusClass(player)}`;
+  card.style.setProperty("--player-color", player.color);
   card.innerHTML = `
     <span class="player-number">Player ${player.playerNumber}</span>
     <span class="player-nickname"></span>
     <span class="player-status">${statusLabel(player)}</span>
+    <span class="player-controller">${player.controllerType}</span>
   `;
   card.querySelector<HTMLSpanElement>(".player-nickname")!.textContent = player.nickname ?? "Waiting to scan...";
   return card;

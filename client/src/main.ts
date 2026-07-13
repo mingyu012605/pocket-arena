@@ -13,6 +13,7 @@ registerRoute("/", renderLandingPage);
 registerRoute("/host", renderHostGameSelectPage);
 registerRoute("/host/:gameId", renderHostPlayerCountPage);
 registerRoute("/host/lobby/:roomCode", renderHostLobbyPage);
+registerRoute("/join/:roomCode", renderJoinPage);
 registerRoute("/join/:roomCode/:playerNumber", renderJoinPage);
 registerRoute("/dev/motion-debug", renderMotionDebugPage);
 

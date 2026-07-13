@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { PLAYER_COLORS } from "../shared/protocol";
-import type { GameType, PublicPlayer, PublicRoomState } from "../shared/protocol";
+import type { ControllerType, GameType, PublicPlayer, PublicRoomState } from "../shared/protocol";
 import type { InternalPlayer, InternalRoom } from "./types";
 
 const ROOM_CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -42,6 +42,23 @@ function createPlayer(playerNumber: number): InternalPlayer {
   };
 }
 
+export function controllerTypeForGame(gameType: GameType): ControllerType {
+  switch (gameType) {
+    case "racing":
+      return "motion-wheel";
+    case "table-tennis":
+      return "motion-paddle";
+    case "bowling":
+      return "motion-throw";
+    case "tennis":
+      return "motion-swing";
+    case "rhythm-battle":
+      return "touch-motion";
+    case "controller-test":
+      return "button-controller";
+  }
+}
+
 export function createRoom(gameType: GameType, maxPlayers: number): InternalRoom {
   const id = generateRoomCode();
   const players: InternalPlayer[] = [];
@@ -80,13 +97,22 @@ export function findPlayer(room: InternalRoom, playerNumber: number): InternalPl
   return room.players.find((p) => p.playerNumber === playerNumber);
 }
 
+export function findPlayerByToken(room: InternalRoom, token: string): InternalPlayer | undefined {
+  return room.players.find((p) => p.token === token);
+}
+
+export function nextAvailablePlayer(room: InternalRoom): InternalPlayer | undefined {
+  return room.players.find((p) => !p.connected && p.nickname === null);
+}
+
 export function toPublicRoomState(room: InternalRoom): PublicRoomState {
   const players: PublicPlayer[] = room.players.map((p) => ({
     playerNumber: p.playerNumber,
     nickname: p.nickname,
     color: p.color,
     connected: p.connected,
-    ready: p.ready
+    ready: p.ready,
+    controllerType: controllerTypeForGame(room.gameType)
   }));
   return {
     id: room.id,

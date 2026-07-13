@@ -6,6 +6,14 @@ export type GameType =
   | "tennis"
   | "racing";
 
+export type ControllerType =
+  | "button-controller"
+  | "motion-wheel"
+  | "motion-paddle"
+  | "motion-throw"
+  | "motion-swing"
+  | "touch-motion";
+
 export type RoomStatus =
   | "lobby"
   | "countdown"
@@ -13,7 +21,7 @@ export type RoomStatus =
   | "host-disconnected"
   | "results";
 
-export const PLAYER_COLORS = ["#22d3ee", "#a855f7", "#fbbf24", "#34d399"] as const;
+export const PLAYER_COLORS = ["#22d3ee", "#f97316", "#22c55e", "#a855f7"] as const;
 
 export const MIN_PLAYERS = 1;
 export const MAX_PLAYERS = 4;
@@ -33,6 +41,7 @@ export interface PublicPlayer {
   color: string;
   connected: boolean;
   ready: boolean;
+  controllerType: ControllerType;
 }
 
 export interface PublicRoomState {
@@ -54,6 +63,8 @@ export interface ErrorPayload {
     | "invalid-token"
     | "slot-taken"
     | "already-connected"
+    | "room-full"
+    | "unsupported-game"
     | "not-host"
     | "not-ready"
     | "already-started";
@@ -70,6 +81,7 @@ export interface CreateRoomSlot {
   playerNumber: number;
   joinUrl: string;
   qrDataUrl: string;
+  token: string;
 }
 export interface CreateRoomResponse {
   roomId: string;
@@ -107,6 +119,22 @@ export interface ControllerJoinRequest {
 export interface ControllerJoinResponse {
   room: PublicRoomState;
   color: string;
+}
+
+export interface ControllerAutoJoinRequest {
+  roomId: string;
+  controllerToken?: string | null;
+  nickname?: string;
+}
+export interface ControllerAutoJoinResponse {
+  roomCode: string;
+  gameType: GameType;
+  controllerType: ControllerType;
+  playerNumber: number;
+  playerColor: string;
+  roomStatus: RoomStatus;
+  controllerToken: string;
+  room: PublicRoomState;
 }
 
 export interface PlayerReadyRequest {
@@ -177,6 +205,7 @@ export const SOCKET_EVENTS = {
   HOST_LEAVE_ROOM: "host:leave-room",
   CONTROLLER_VALIDATE_TOKEN: "controller:validate-token",
   CONTROLLER_JOIN: "controller:join",
+  CONTROLLER_JOIN_ROOM: "controller:join-room",
   CONTROLLER_LEAVE: "controller:leave",
   PLAYER_READY: "player:ready",
   GAME_START: "game:start",

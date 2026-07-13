@@ -7,6 +7,8 @@ import {
 } from "../shared/protocol";
 import type {
   Ack,
+  ControllerAutoJoinRequest,
+  ControllerAutoJoinResponse,
   ControllerJoinRequest,
   ControllerJoinResponse,
   CreateRoomRequest,
@@ -26,8 +28,11 @@ import {
   clearRoomTimers,
   createRoom,
   createToken,
+  controllerTypeForGame,
   findPlayer,
+  findPlayerByToken,
   getRoom,
+  nextAvailablePlayer,
   roomChannel,
   teardownRoom,
   toPublicRoomState
@@ -205,6 +210,52 @@ export function registerSocketHandlers(io: Server, port: number): void {
         }
         broadcastRoomState(io, room);
         ack({ ok: true, room: toPublicRoomState(room), color: player.color });
+      }
+    );
+
+    socket.on(
+      SOCKET_EVENTS.CONTROLLER_JOIN_ROOM,
+      (payload: ControllerAutoJoinRequest, ack: (res: Ack<ControllerAutoJoinResponse>) => void) => {
+        const room = getRoom(payload.roomId);
+        if (!room) return ack(errorAck("invalid-room", "This room no longer exists."));
+        const controllerType = controllerTypeForGame(room.gameType);
+        let player = payload.controllerToken ? findPlayerByToken(room, payload.controllerToken) : undefined;
+        const isReconnect = Boolean(player);
+
+        if (!player) {
+          player = nextAvailablePlayer(room);
+          if (!player) return ack(errorAck("room-full", "This room is full."));
+        }
+
+        if (player.connected && player.socketId && player.socketId !== socket.id && !isReconnect) {
+          return ack(errorAck("already-connected", "This player slot is already connected on another device."));
+        }
+        if (player.socketId && player.socketId !== socket.id) {
+          io.sockets.sockets.get(player.socketId)?.leave(roomChannel(room.id));
+        }
+
+        const nickname = payload.nickname?.trim().slice(0, 20) || player.nickname || `Player ${player.playerNumber}`;
+        player.nickname = nickname;
+        player.connected = true;
+        player.socketId = socket.id;
+        socket.data.session = { role: "controller", roomId: room.id, playerNumber: player.playerNumber };
+        socket.join(roomChannel(room.id));
+
+        if (isReconnect) {
+          io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.PLAYER_RECONNECTED, { playerNumber: player.playerNumber });
+        }
+        broadcastRoomState(io, room);
+        ack({
+          ok: true,
+          roomCode: room.id,
+          gameType: room.gameType,
+          controllerType,
+          playerNumber: player.playerNumber,
+          playerColor: player.color,
+          roomStatus: room.status,
+          controllerToken: player.token,
+          room: toPublicRoomState(room)
+        });
       }
     );
 

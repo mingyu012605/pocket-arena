@@ -4,7 +4,10 @@ import { SOCKET_EVENTS } from "../../../shared/protocol";
 import type {
   ControllerJoinRequest,
   ControllerJoinResponse,
+  ControllerAutoJoinRequest,
+  ControllerAutoJoinResponse,
   CountdownTickPayload,
+  GameType,
   PublicRoomState,
   ValidateTokenRequest,
   ValidateTokenResponse
@@ -19,9 +22,182 @@ function tokenKey(roomId: string, playerNumber: string): string {
   return `pocket-arena:player:${roomId}:${playerNumber}`;
 }
 
+function controllerSessionKey(roomId: string): string {
+  return `pocket-arena:controller-session:${roomId}`;
+}
+
+function controllerLabel(gameType: GameType): string {
+  if (gameType === "racing") return "Racing Wheel";
+  if (gameType === "table-tennis") return "Table Tennis Paddle";
+  if (gameType === "bowling") return "Bowling Throw";
+  if (gameType === "tennis") return "Tennis Swing";
+  if (gameType === "rhythm-battle") return "Rhythm Controller";
+  return "Button Controller";
+}
+
+function renderUniversalJoinPage(container: HTMLElement, roomId: string): CleanupFn {
+  container.innerHTML = `<section class="page-section centered join-page"><p>Connecting to room ${roomId}...</p></section>`;
+  const section = container.querySelector<HTMLElement>(".join-page")!;
+  const socket = getSocket();
+  let cancelled = false;
+  let controllerCleanup: CleanupFn | null = null;
+  let active: ControllerAutoJoinResponse | null = null;
+  let lastStatus: PublicRoomState["status"] | null = null;
+  let racingRoundId = "";
+
+  const mountPlaceholderReady = (room: PublicRoomState): void => {
+    if (!active) return;
+    const self = room.players.find((p) => p.playerNumber === active!.playerNumber);
+    section.classList.add("centered");
+    section.style.setProperty("--player-color", active.playerColor);
+    section.innerHTML = `
+      <p class="eyebrow">ROOM ${active.roomCode}</p>
+      <h1 class="glow-text">${controllerLabel(active.gameType)}</h1>
+      <p class="hero-copy">Player ${active.playerNumber} - ${active.controllerType}</p>
+      <div id="ready-slot"></div>
+      <p id="waiting-text" class="hero-copy" hidden>Waiting for host...</p>
+    `;
+    const waitingText = section.querySelector<HTMLParagraphElement>("#waiting-text")!;
+    const readySlot = section.querySelector<HTMLDivElement>("#ready-slot")!;
+    let ready = self?.ready ?? false;
+    waitingText.hidden = !ready;
+    const readyButton = createButton({
+      label: ready ? "Cancel Ready" : "Ready",
+      variant: "primary",
+      onClick: async () => {
+        ready = !ready;
+        readyButton.disabled = true;
+        try {
+          await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
+          readyButton.textContent = ready ? "Cancel Ready" : "Ready";
+          waitingText.hidden = !ready;
+        } finally {
+          readyButton.disabled = false;
+        }
+      }
+    });
+    readySlot.appendChild(readyButton);
+  };
+
+  const mountRacingReady = (room: PublicRoomState): void => {
+    if (!active) return;
+    const self = room.players.find((p) => p.playerNumber === active!.playerNumber);
+    section.classList.remove("centered");
+    section.style.setProperty("--player-color", active.playerColor);
+    section.innerHTML = `
+      <div class="countdown-overlay" id="phone-countdown"></div>
+      <div id="racing-preflight"></div>
+      <p id="waiting-text" class="hero-copy" hidden>Waiting for host...</p>
+    `;
+    const waitingText = section.querySelector<HTMLParagraphElement>("#waiting-text")!;
+    waitingText.hidden = !(self?.ready ?? false);
+    const mountEl = section.querySelector<HTMLElement>("#racing-preflight")!;
+    controllerCleanup = mountRacingView(mountEl, {
+      nickname: self?.nickname ?? `Player ${active.playerNumber}`,
+      color: active.playerColor,
+      roundId: racingRoundId,
+      getRoundId: () => racingRoundId,
+      playerNumber: active.playerNumber,
+      preflight: true,
+      initialReady: self?.ready ?? false,
+      onReadyChange: async (ready) => {
+        await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
+        waitingText.hidden = !ready;
+      }
+    });
+  };
+
+  function renderForRoom(room: PublicRoomState): void {
+    if (!active) return;
+    const self = room.players.find((p) => p.playerNumber === active!.playerNumber);
+    const isPlaying = room.status === "countdown" || room.status === "in-progress";
+    const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
+
+    if (room.gameType === "racing" && isPlaying && controllerCleanup) {
+      racingRoundId = room.roundId ?? "";
+      lastStatus = room.status;
+      return;
+    }
+    if (room.status === lastStatus || (isPlaying && wasPlaying)) {
+      lastStatus = room.status;
+      return;
+    }
+
+    controllerCleanup?.();
+    controllerCleanup = null;
+
+    if (room.status === "host-disconnected") {
+      section.classList.add("centered");
+      section.innerHTML = `<h1>Reconnecting to Host...</h1><p class="hero-copy">Your Player ${active.playerNumber} slot is saved.</p>`;
+    } else if (isPlaying) {
+      racingRoundId = room.roundId ?? "";
+      section.classList.remove("centered");
+      section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;
+      const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
+      controllerCleanup =
+        room.gameType === "racing"
+          ? mountRacingView(mountEl, {
+              nickname: self?.nickname ?? `Player ${active.playerNumber}`,
+              color: active.playerColor,
+              roundId: room.roundId ?? "",
+              playerNumber: active.playerNumber
+            })
+          : mountControllerView(mountEl, {
+              nickname: self?.nickname ?? `Player ${active.playerNumber}`,
+              color: active.playerColor,
+              roundId: room.roundId ?? ""
+            });
+    } else if (room.gameType === "racing") {
+      mountRacingReady(room);
+    } else {
+      mountPlaceholderReady(room);
+    }
+    lastStatus = room.status;
+  }
+
+  const onRoomState = (room: PublicRoomState) => renderForRoom(room);
+  const onCountdownTick = (payload: CountdownTickPayload) => {
+    const el = document.getElementById("phone-countdown");
+    if (!el) return;
+    el.textContent = String(payload.value).toUpperCase();
+    if (payload.value === "go") window.setTimeout(() => (el.textContent = ""), 650);
+  };
+  socket.on(SOCKET_EVENTS.ROOM_STATE, onRoomState);
+  socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
+
+  const savedToken = window.localStorage.getItem(controllerSessionKey(roomId));
+  emitWithAck<ControllerAutoJoinResponse>(SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, {
+    roomId,
+    controllerToken: savedToken
+  } satisfies ControllerAutoJoinRequest)
+    .then((joined) => {
+      if (cancelled) return;
+      active = joined;
+      window.localStorage.setItem(controllerSessionKey(roomId), joined.controllerToken);
+      racingRoundId = joined.room.roundId ?? "";
+      renderForRoom(joined.room);
+    })
+    .catch((err: { message?: string }) => {
+      if (cancelled) return;
+      window.localStorage.removeItem(controllerSessionKey(roomId));
+      section.classList.add("centered");
+      section.innerHTML = `<h1>Could not join room</h1><p class="hero-copy"></p>`;
+      section.querySelector<HTMLParagraphElement>(".hero-copy")!.textContent =
+        err.message ?? "Ask the host for a new QR code.";
+    });
+
+  return () => {
+    cancelled = true;
+    controllerCleanup?.();
+    socket.off(SOCKET_EVENTS.ROOM_STATE, onRoomState);
+    socket.off(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
+  };
+}
+
 export function renderJoinPage({ container, params, query }: RouteContext): CleanupFn | void {
   const roomId = params.roomCode!;
-  const playerNumber = params.playerNumber!;
+  const playerNumber = params.playerNumber;
+  if (!playerNumber) return renderUniversalJoinPage(container, roomId);
   const queryToken = query.get("token");
 
   if (queryToken) {

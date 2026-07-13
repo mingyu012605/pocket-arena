@@ -4,10 +4,10 @@ import type { InternalRoom } from "./types";
 
 export async function buildSlotQrData(room: InternalRoom, baseUrl: string): Promise<CreateRoomSlot[]> {
   const slots: CreateRoomSlot[] = [];
+  const joinUrl = `${baseUrl}/join/${room.id}`;
+  const qrDataUrl = await QRCode.toDataURL(joinUrl, { margin: 1, width: 256 });
   for (const player of room.players) {
-    const joinUrl = `${baseUrl}/join/${room.id}/${player.playerNumber}?token=${player.token}`;
-    const qrDataUrl = await QRCode.toDataURL(joinUrl, { margin: 1, width: 256 });
-    slots.push({ playerNumber: player.playerNumber, joinUrl, qrDataUrl });
+    slots.push({ playerNumber: player.playerNumber, joinUrl, qrDataUrl, token: player.token });
   }
   return slots;
 }
