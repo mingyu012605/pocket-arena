@@ -1,176 +1,309 @@
 import type { GameCatalogEntry } from "../games/catalog";
-import { createButton } from "./button";
+import type { GameType } from "../../../shared/protocol";
+import { createSportArtwork } from "./launcherArtwork";
+import { createControlBadge, createPlayerBadge, createStatusBadge } from "./launcherBadges";
+import { createPocketArenaLogo } from "./pocketArenaLogo";
 
-interface LauncherMeta {
-  eyebrow: string;
+export interface LauncherGameView {
+  id: GameType;
   title: string;
-  subtitle: string;
+  heroTitle: string;
+  heroAccent: string;
+  kicker: string;
+  description: string;
+  players: string;
   control: string;
-  status: string;
-  art: string;
+  status: "Available Now" | "Coming Soon";
+  playable: boolean;
+  artwork: GameType;
 }
 
-const META: Record<string, LauncherMeta> = {
+const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
   racing: {
-    eyebrow: "Featured Sport",
+    id: "racing",
     title: "Racing Rally",
-    subtitle: "Tilt, steer, and zoom together",
-    control: "Motion steering",
-    status: "Available now",
-    art: "formula"
-  },
-  "rhythm-battle": {
-    eyebrow: "Music Sport",
-    title: "Rhythm Battle",
-    subtitle: "Tap and move to the beat",
-    control: "Touch + motion",
-    status: "Coming soon",
-    art: "rhythm"
+    heroTitle: "Racing",
+    heroAccent: "Rally!",
+    kicker: "Featured Game",
+    description: "Tilt, steer, and zoom to the finish!",
+    players: "1-4 Players",
+    control: "Motion Steering",
+    status: "Available Now",
+    artwork: "racing"
   },
   "table-tennis": {
-    eyebrow: "Quick Rally",
+    id: "table-tennis",
     title: "Table Tennis",
-    subtitle: "Fast paddle reactions",
-    control: "Motion paddle",
-    status: "Coming soon",
-    art: "paddle"
+    heroTitle: "Table Tennis",
+    heroAccent: "Party!",
+    kicker: "Quick Rally",
+    description: "Quick swings and epic rallies!",
+    players: "2 Players",
+    control: "Motion Paddle",
+    status: "Coming Soon",
+    artwork: "table-tennis"
   },
   bowling: {
-    eyebrow: "Party Lane",
+    id: "bowling",
     title: "Bowling",
-    subtitle: "Swing for a strike",
-    control: "Motion throw",
-    status: "Coming soon",
-    art: "bowling"
+    heroTitle: "Bowling",
+    heroAccent: "Blast!",
+    kicker: "Party Lane",
+    description: "Strike up some friendly competition!",
+    players: "1-4 Players",
+    control: "Motion Throw",
+    status: "Coming Soon",
+    artwork: "bowling"
   },
   tennis: {
-    eyebrow: "Court Game",
+    id: "tennis",
     title: "Tennis",
-    subtitle: "Motion swing rallies",
-    control: "Motion swing",
-    status: "Coming soon",
-    art: "tennis"
+    heroTitle: "Tennis",
+    heroAccent: "Smash!",
+    kicker: "Court Game",
+    description: "Smash, volley, and score big!",
+    players: "2 Players",
+    control: "Motion Swing",
+    status: "Coming Soon",
+    artwork: "tennis"
+  },
+  "rhythm-battle": {
+    id: "rhythm-battle",
+    title: "Rhythm Battle",
+    heroTitle: "Rhythm",
+    heroAccent: "Battle!",
+    kicker: "Music Sport",
+    description: "Tap, move, and feel the beat!",
+    players: "2-4 Players",
+    control: "Touch + Motion",
+    status: "Coming Soon",
+    artwork: "rhythm-battle"
   },
   "controller-test": {
-    eyebrow: "Practice",
+    id: "controller-test",
     title: "Controller Test",
-    subtitle: "Try phone buttons",
-    control: "Touch controls",
-    status: "Available now",
-    art: "controller"
+    heroTitle: "Controller",
+    heroAccent: "Test!",
+    kicker: "Practice",
+    description: "Check your connection and get set!",
+    players: "1-4 Players",
+    control: "Touch Controls",
+    status: "Available Now",
+    artwork: "controller-test"
   }
 };
 
-function playersLabel(entry: GameCatalogEntry): string {
-  return entry.minPlayers === entry.maxPlayers ? `${entry.maxPlayers} Players` : `${entry.minPlayers}-${entry.maxPlayers} Players`;
-}
-
-function metaFor(entry: GameCatalogEntry): LauncherMeta {
-  return META[entry.id] ?? {
-    eyebrow: "Arena",
-    title: entry.title,
-    subtitle: entry.description,
-    control: "Phone controller",
-    status: entry.playable ? "Available now" : "Coming soon",
-    art: "controller"
+function createIcon(name: "home" | "games" | "play" | "settings" | "sound" | "signal" | "phone"): string {
+  const paths = {
+    home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M10 20v-6h4v6"/>',
+    games:
+      '<rect x="3.5" y="8" width="17" height="9.5" rx="4"/><path d="M8 12h4"/><path d="M10 10v4"/><circle cx="16" cy="12" r="1"/><circle cx="18.5" cy="14" r="1"/>',
+    play: '<path d="M8 5.5v13l11-6.5z"/>',
+    settings:
+      '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.8-1L14.4 3H9.6L9.2 6.1a7 7 0 0 0-1.8 1L5 6.1l-2 3.4L5 11a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.8 1l.4 3.1h4.8l.4-3.1a7 7 0 0 0 1.8-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"/>',
+    sound: '<path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16 9c1 1.7 1 4.3 0 6"/><path d="M18.5 7c2 2.7 2 7.3 0 10"/>',
+    signal: '<path d="M4 17h3"/><path d="M10 17h3V11h-3z"/><path d="M16 17h3V7h-3z"/>',
+    phone: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M11 18h2"/>'
   };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
 }
 
-function createArtwork(kind: string): HTMLDivElement {
-  const art = document.createElement("div");
-  art.className = `launcher-art launcher-art-${kind}`;
-  art.innerHTML = `
-    <span class="art-sun"></span>
-    <span class="art-field"></span>
-    <span class="art-orbit art-orbit-a"></span>
-    <span class="art-orbit art-orbit-b"></span>
-    <span class="art-shape art-shape-a"></span>
-    <span class="art-shape art-shape-b"></span>
-    <span class="art-shape art-shape-c"></span>
-  `;
-  return art;
+function playableMap(catalog: GameCatalogEntry[]): Map<GameType, boolean> {
+  return new Map(catalog.map((entry) => [entry.id, entry.playable]));
 }
 
-function createBadge(text: string, tone: "hot" | "cool" | "muted" = "cool"): HTMLSpanElement {
-  const badge = document.createElement("span");
-  badge.className = `launcher-badge launcher-badge-${tone}`;
-  badge.textContent = text;
-  return badge;
+export function createLauncherGameViews(catalog: GameCatalogEntry[]): LauncherGameView[] {
+  const playables = playableMap(catalog);
+  const order: GameType[] = ["racing", "table-tennis", "bowling", "tennis", "rhythm-battle", "controller-test"];
+  return order.map((id) => ({ ...GAME_INFO[id], playable: playables.get(id) ?? false }));
 }
 
 export function createGameLauncherHeader(): HTMLElement {
   const header = document.createElement("header");
-  header.className = "launcher-header";
-  header.innerHTML = `
-    <div>
-      <p class="launcher-kicker">Pocket Arena</p>
-      <h1>Turn your phone into a controller</h1>
-      <p class="launcher-tagline">Scan, swing, tilt, and play together on one screen.</p>
-    </div>
-    <div class="launcher-system">
-      <span class="launcher-live-dot"></span>
-      <span>Ready for local play</span>
-    </div>
+  header.className = "pa-header";
+  header.appendChild(createPocketArenaLogo());
+
+  const nav = document.createElement("nav");
+  nav.className = "pa-nav";
+  nav.setAttribute("aria-label", "Launcher navigation");
+  nav.innerHTML = `
+    <a class="is-active" href="/host" data-link>${createIcon("home")}Home</a>
+    <a href="/host" data-link>${createIcon("games")}Games</a>
+    <a href="#how-to-play">${createIcon("play")}How to Play</a>
+    <span class="is-soon">Challenges Soon</span>
   `;
+
+  const tools = document.createElement("div");
+  tools.className = "pa-header-tools";
+  tools.innerHTML = `
+    <span class="pa-connection"><i></i>${createIcon("signal")} Good connection</span>
+    <button type="button" aria-label="Settings">${createIcon("settings")}</button>
+    <button type="button" aria-label="Sound on">${createIcon("sound")}</button>
+    <span class="pa-avatar" aria-label="Phone controllers ready">${createIcon("phone")}</span>
+  `;
+
+  header.append(nav, tools);
   return header;
 }
 
-export function createFeaturedGameHero(entry: GameCatalogEntry, onPlay: () => void): HTMLElement {
-  const meta = metaFor(entry);
-  const hero = document.createElement("article");
-  hero.className = "game-card launcher-feature";
-  hero.appendChild(createArtwork(meta.art));
-
-  const content = document.createElement("div");
-  content.className = "launcher-feature-copy";
-  content.innerHTML = `
-    <p class="launcher-section-label">${meta.eyebrow}</p>
-    <h2>${meta.title}</h2>
-    <h3>${meta.subtitle}</h3>
-    <p>Use your phone like a motion controller in a bright arcade race built for quick living-room play.</p>
-  `;
-
-  const badges = document.createElement("div");
-  badges.className = "launcher-badges";
-  badges.append(createBadge(playersLabel(entry), "cool"), createBadge(meta.control, "cool"), createBadge(meta.status, "hot"));
-  content.appendChild(badges);
-
-  const action = createButton({ label: "Play Now", variant: "primary", onClick: onPlay });
-  action.classList.add("launcher-hero-action");
-  content.appendChild(action);
-  hero.appendChild(content);
-  return hero;
+export interface FeaturedCarouselResult {
+  element: HTMLElement;
+  cleanup: () => void;
 }
 
-export function createLauncherGameCard(entry: GameCatalogEntry, onPlay: () => void): HTMLElement {
-  const meta = metaFor(entry);
-  const card = document.createElement("article");
-  card.className = `game-card launcher-game-card${entry.playable ? " is-playable" : " is-locked"}`;
-  card.tabIndex = 0;
+export function createFeaturedCarousel(slides: LauncherGameView[], onPlay: (id: GameType) => void): FeaturedCarouselResult {
+  const hero = document.createElement("section");
+  hero.className = "pa-hero";
+  hero.setAttribute("aria-label", "Featured games");
 
-  const art = createArtwork(meta.art);
-  const statusTone = entry.playable ? (entry.id === "controller-test" ? "muted" : "hot") : "muted";
-  const status = createBadge(meta.status, statusTone);
-  status.classList.add("launcher-status-badge");
-
-  const body = document.createElement("div");
-  body.className = "launcher-game-card-body";
-  body.innerHTML = `
-    <p class="launcher-card-eyebrow">${meta.eyebrow}</p>
-    <h3>${meta.title}</h3>
-    <p>${meta.subtitle}</p>
-  `;
-
-  const facts = document.createElement("div");
-  facts.className = "launcher-card-facts";
-  facts.append(createBadge(playersLabel(entry), "cool"), createBadge(meta.control, "cool"));
-  body.appendChild(facts);
-
-  card.append(art, status, body);
-  if (entry.playable) {
-    const action = createButton({ label: "Play", variant: "secondary", onClick: onPlay });
-    action.classList.add("launcher-card-action");
-    card.appendChild(action);
+  const slidesToShow = slides.filter((slide) => ["table-tennis", "racing", "bowling"].includes(slide.id));
+  if (slidesToShow.length === 0) {
+    slidesToShow.push(...slides.slice(0, 1));
   }
+  let active = 0;
+  let hover = false;
+  let interval: number | undefined;
+
+  const render = (): void => {
+    const slide = slidesToShow[active];
+    if (!slide) return;
+    hero.innerHTML = `
+      <div class="pa-confetti" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+      <div class="pa-hero-copy">
+        <p class="pa-kicker">${slide.kicker}</p>
+        <h1><span>${slide.heroTitle}</span><em>${slide.heroAccent}</em></h1>
+        <p>${slide.description} Fast living-room sports for phones, friends, and one shared screen.</p>
+        <div class="pa-hero-badges"></div>
+        <div class="pa-hero-actions"></div>
+      </div>
+      <div class="pa-hero-art-shell"></div>
+      <div class="pa-hero-dots" role="tablist" aria-label="Featured game slides"></div>
+      <div class="pa-hero-wave" aria-hidden="true"></div>
+    `;
+
+    const badgeSlot = hero.querySelector<HTMLDivElement>(".pa-hero-badges")!;
+    badgeSlot.append(createPlayerBadge(slide.players), createControlBadge(slide.control), createStatusBadge(slide.status, slide.playable));
+
+    const actions = hero.querySelector<HTMLDivElement>(".pa-hero-actions")!;
+    const play = document.createElement("button");
+    play.className = "pa-play-button";
+    play.type = "button";
+    play.disabled = !slide.playable;
+    play.innerHTML = `${createIcon("play")} ${slide.playable ? "Play Now" : "Coming Soon"}`;
+    play.addEventListener("click", () => {
+      if (slide.playable) onPlay(slide.id);
+    });
+    actions.appendChild(play);
+
+    hero.querySelector<HTMLDivElement>(".pa-hero-art-shell")!.appendChild(createSportArtwork(slide.artwork, false));
+
+    const dots = hero.querySelector<HTMLDivElement>(".pa-hero-dots")!;
+    slidesToShow.forEach((item, index) => {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = index === active ? "is-active" : "";
+      dot.setAttribute("aria-label", `Show ${item.title}`);
+      dot.setAttribute("aria-selected", String(index === active));
+      dot.addEventListener("click", () => {
+        active = index;
+        render();
+      });
+      dots.appendChild(dot);
+    });
+  };
+
+  const canAnimate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (canAnimate) {
+    interval = window.setInterval(() => {
+      if (hover) return;
+      active = (active + 1) % slidesToShow.length;
+      render();
+    }, 7000);
+  }
+  hero.addEventListener("mouseenter", () => {
+    hover = true;
+  });
+  hero.addEventListener("mouseleave", () => {
+    hover = false;
+  });
+
+  render();
+  return {
+    element: hero,
+    cleanup: () => {
+      if (interval !== undefined) window.clearInterval(interval);
+    }
+  };
+}
+
+export function createLauncherGameCard(game: LauncherGameView, onPlay: (id: GameType) => void): HTMLElement {
+  const card = document.createElement("article");
+  card.className = `pa-game-card ${game.playable ? "is-playable" : "is-coming-soon"}`;
+  card.tabIndex = 0;
+  card.innerHTML = `
+    <div class="pa-card-art"></div>
+    <div class="pa-card-body">
+      <div class="pa-sport-icon" aria-hidden="true">${createIcon(game.id === "controller-test" ? "phone" : "games")}</div>
+      <p class="pa-card-kicker">${game.kicker}</p>
+      <h3>${game.title}</h3>
+      <p>${game.description}</p>
+      <div class="pa-card-badges"></div>
+      <div class="pa-card-actions"></div>
+    </div>
+  `;
+  const artSlot = card.querySelector<HTMLDivElement>(".pa-card-art")!;
+  artSlot.append(createSportArtwork(game.artwork, true), createStatusBadge(game.status, game.playable));
+
+  const badges = card.querySelector<HTMLDivElement>(".pa-card-badges")!;
+  badges.append(createPlayerBadge(game.players), createControlBadge(game.control));
+
+  if (game.playable) {
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "pa-card-play";
+    play.innerHTML = `${createIcon("play")}Play`;
+    play.addEventListener("click", () => onPlay(game.id));
+    card.querySelector<HTMLDivElement>(".pa-card-actions")!.appendChild(play);
+  }
+
+  card.addEventListener("keydown", (event) => {
+    if (!game.playable || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    onPlay(game.id);
+  });
   return card;
+}
+
+export function createGameGrid(games: LauncherGameView[], onPlay: (id: GameType) => void): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "pa-games-section";
+  section.innerHTML = `
+    <div class="pa-section-heading" id="how-to-play">
+      <span aria-hidden="true"></span>
+      <div>
+        <p>Choose a sport, scan a phone, and jump in.</p>
+        <h2>Pick a Game & Jump In!</h2>
+      </div>
+      <span aria-hidden="true"></span>
+    </div>
+    <div class="pa-game-row"></div>
+  `;
+  const row = section.querySelector<HTMLDivElement>(".pa-game-row")!;
+  games.forEach((game) => row.appendChild(createLauncherGameCard(game, onPlay)));
+  return section;
+}
+
+export function createLauncherStatusBar(): HTMLElement {
+  const bar = document.createElement("footer");
+  bar.className = "pa-status-bar";
+  bar.innerHTML = `
+    <span><i class="pa-ok-dot"></i>All systems go!</span>
+    <span>${createIcon("signal")}Good connection</span>
+    <span>${createIcon("phone")}Phone controllers ready</span>
+    <a href="#how-to-play">${createIcon("play")}How to Play</a>
+    <button type="button">${createIcon("settings")}Settings</button>
+  `;
+  return bar;
 }
