@@ -14,6 +14,7 @@ import { buildHarborEnvironment, buildTracksideDetails, buildSkyDome, buildConfe
 import { RacingInterpolationBuffer } from "./interpolation";
 import type { RacingCarFrame } from "./interpolation";
 import { RacingDevHelpers } from "./devHelpers";
+import { RacingEffects } from "./effects";
 
 type CameraMode = "chase" | "close" | "hood" | "spectator";
 
@@ -66,6 +67,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private container: HTMLElement | null = null;
   private metrics: RacingMetricsOverlay | null = null;
   private devHelpers: RacingDevHelpers | null = null;
+  private effects: RacingEffects | null = null;
+  private finishedPlayers = new Set<number>();
   private snapshotTimes: number[] = [];
   private lastSnapshotAt = 0;
   private readonly quality: RacingQualitySettings = getDefaultRacingQuality();
@@ -147,6 +150,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
+    this.effects = new RacingEffects(scene, Math.round(this.quality.particles * 0.3), Math.round(this.quality.particles * 0.4));
     if (DEV_MODE) this.devHelpers = new RacingDevHelpers(scene);
     if (shouldShowRacingMetrics()) {
       this.metrics = new RacingMetricsOverlay({
@@ -194,6 +198,11 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     );
     for (const player of state.players) {
       this.ensureCarVisual(player.playerNumber, player.color);
+      if (player.finished && !this.finishedPlayers.has(player.playerNumber)) {
+        this.finishedPlayers.add(player.playerNumber);
+        const { x, z } = computeRacingCarWorldTransform(player);
+        if (Number.isFinite(x) && Number.isFinite(z)) this.effects?.triggerFinishBurst(x, z);
+      }
     }
     this.interpolationBuffer.addSnapshot(now, players);
   }
@@ -204,6 +213,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.cameraInitialized = false;
     this.snapshotTimes = [];
     this.lastSnapshotAt = 0;
+    this.finishedPlayers.clear();
   }
 
   render(_timestamp: number): void {
@@ -246,6 +256,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         glowMaterial.opacity = 0.18 + Math.min(0.24, pos.speed / 140);
       }
       if (DEV_MODE) this.devHelpers?.updateCarBounds(playerNumber, car.root);
+      if (Math.abs(pos.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth && Math.abs(pos.speed) > 3) {
+        this.effects?.spawnDust(x, z, Math.min(1, Math.abs(pos.speed) / 20));
+      }
 
       otherCarPositions.push({ playerNumber, x, z });
       if (playerNumber === this.focusedPlayerNumber) focused = { x, z, heading, speed: pos.speed, progress: pos.progress, playerNumber };
@@ -298,6 +311,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       camera.updateProjectionMatrix();
     }
 
+    this.effects?.update(_timestamp);
     renderer.render(scene, camera);
     this.metrics?.update(_timestamp);
   }
@@ -466,6 +480,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.metrics = null;
     if (this.scene) {
       this.devHelpers?.dispose(this.scene);
+      this.effects?.dispose(this.scene);
       this.scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -475,6 +490,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       this.scene.clear();
     }
     this.devHelpers = null;
+    this.effects = null;
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
     this.scene = null;
@@ -483,6 +499,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.cars.clear();
     this.interpolationBuffer.reset();
     this.lastRoundId = null;
+    this.finishedPlayers.clear();
     this.snapshotTimes = [];
     this.lastSnapshotAt = 0;
     this.cameraInitialized = false;
