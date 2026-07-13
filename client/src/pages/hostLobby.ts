@@ -217,7 +217,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
 
     const status = document.createElement("section");
     status.className = "race-hud-panel race-hud-status";
-    status.textContent = state.raceStatus === "countdown" ? "Pocket Formula" : state.raceStatus === "finished" ? "Finish" : "Harbor City GP";
+    status.textContent = state.raceStatus === "countdown" ? "Rally Ready" : state.raceStatus === "finished" ? "Finish" : "Pocket Rally";
     hud.appendChild(status);
 
     const speed = document.createElement("section");

@@ -18,7 +18,7 @@ export function renderHostGameSelectPage({ container }: RouteContext): CleanupFn
           <section class="launcher-secondary">
             <div class="launcher-secondary-heading">
               <p class="launcher-section-label">More Games</p>
-              <span>Choose your next phone-controlled arena.</span>
+              <span>Choose a sport, scan a phone, and jump in.</span>
             </div>
             <div class="launcher-game-grid" id="game-grid"></div>
           </section>
@@ -36,7 +36,7 @@ export function renderHostGameSelectPage({ container }: RouteContext): CleanupFn
   }
 
   const grid = container.querySelector<HTMLDivElement>("#game-grid")!;
-  const secondaryOrder = ["rhythm-battle", "table-tennis", "bowling", "tennis", "controller-test"];
+  const secondaryOrder = ["racing", "table-tennis", "bowling", "tennis", "rhythm-battle", "controller-test"];
   for (const id of secondaryOrder) {
     const entry = GAME_CATALOG.find((item) => item.id === id);
     if (entry) grid.appendChild(createLauncherGameCard(entry, () => navigate(`/host/${entry.id}`)));

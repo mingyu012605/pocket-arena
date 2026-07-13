@@ -1076,6 +1076,306 @@
   font-size: 0.76rem;
 }
 
+/* Bright motion-sports launcher direction. */
+.launcher-page {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.92) 62%),
+    radial-gradient(circle at 12% 12%, rgba(250, 204, 21, 0.34), transparent 18rem),
+    radial-gradient(circle at 86% 16%, rgba(45, 212, 191, 0.34), transparent 22rem),
+    linear-gradient(180deg, #bfefff 0%, #eefcff 42%, #ffffff 100%);
+  color: #14304a;
+}
+.launcher-page::before {
+  background:
+    radial-gradient(circle at 8% 72%, rgba(251, 146, 60, 0.16), transparent 13rem),
+    repeating-linear-gradient(110deg, rgba(14, 165, 233, 0.08) 0 2px, transparent 2px 48px),
+    linear-gradient(180deg, transparent 0 46%, rgba(34, 197, 94, 0.08) 46% 100%);
+  mask-image: none;
+}
+.launcher-bg span {
+  filter: blur(2px);
+  opacity: 0.22;
+  border: 4px solid currentColor;
+  background: transparent;
+}
+.launcher-bg span:nth-child(1) {
+  color: #22c55e;
+}
+.launcher-bg span:nth-child(2) {
+  color: #38bdf8;
+}
+.launcher-bg span:nth-child(3) {
+  color: #fb7185;
+}
+.launcher-kicker,
+.launcher-section-label,
+.launcher-card-eyebrow {
+  color: #0d9488;
+  letter-spacing: 0.12em;
+}
+.launcher-header h1 {
+  color: #12304a;
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1;
+}
+.launcher-tagline {
+  margin: 0.4rem 0 0;
+  max-width: 38rem;
+  color: #48677f;
+  font-size: clamp(1rem, 1.7vw, 1.25rem);
+  font-weight: 650;
+}
+.launcher-system {
+  border-color: rgba(14, 165, 233, 0.24);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 36px rgba(14, 116, 144, 0.12);
+  color: #31546c;
+}
+.launcher-feature {
+  min-height: clamp(360px, 49vh, 540px);
+  border-color: rgba(14, 165, 233, 0.22);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 78% 18%, rgba(255, 255, 255, 0.92), transparent 10rem),
+    linear-gradient(145deg, #ffffff 0%, #e7fbff 38%, #d8f7dc 100%);
+  box-shadow: 0 24px 64px rgba(14, 116, 144, 0.16);
+}
+.launcher-feature::after {
+  content: "PLAY TOGETHER";
+  color: rgba(14, 148, 136, 0.09);
+}
+.launcher-feature-copy h2 {
+  color: #12304a;
+  text-transform: none;
+}
+.launcher-feature-copy h3 {
+  color: #f97316;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.launcher-feature-copy > p:not(.launcher-section-label) {
+  color: #405f76;
+}
+.launcher-badge {
+  border-color: rgba(14, 165, 233, 0.2);
+  background: rgba(255, 255, 255, 0.76);
+  color: #31546c;
+  box-shadow: 0 8px 20px rgba(14, 116, 144, 0.08);
+}
+.launcher-badge-hot {
+  border-color: rgba(249, 115, 22, 0.3);
+  background: #fff4de;
+  color: #c2410c;
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.14);
+}
+.launcher-badge-muted {
+  background: #f1f5f9;
+  color: #64748b;
+  opacity: 1;
+}
+.launcher-hero-action,
+.launcher-card-action {
+  border-radius: 999px;
+}
+.launcher-hero-action.btn-primary {
+  background: linear-gradient(135deg, #ff7a59, #facc15);
+  color: #3a2404;
+  box-shadow: 0 16px 34px rgba(249, 115, 22, 0.2);
+}
+.launcher-secondary-heading span,
+.launcher-game-card p {
+  color: #557188;
+}
+.launcher-game-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.launcher-game-card {
+  min-height: 278px;
+  border-color: rgba(14, 165, 233, 0.18);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 36px rgba(14, 116, 144, 0.11);
+}
+.launcher-game-card.is-locked {
+  filter: none;
+}
+.launcher-game-card:hover,
+.launcher-game-card:focus-visible,
+.launcher-feature:hover,
+.launcher-feature:focus-visible {
+  transform: translateY(-5px) scale(1.01);
+  border-color: rgba(45, 212, 191, 0.58);
+  box-shadow: 0 24px 52px rgba(14, 116, 144, 0.18);
+}
+.launcher-game-card h3 {
+  color: #12304a;
+}
+.launcher-game-card.is-playable .launcher-card-action {
+  border-color: rgba(14, 165, 233, 0.24);
+  background: #e0f7ff;
+  color: #036083;
+  box-shadow: none;
+}
+.launcher-art {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), transparent),
+    linear-gradient(135deg, #dff8ff, #e6fbe9);
+}
+.launcher-art::before {
+  inset: 8%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.24), transparent 64%);
+}
+.art-sun {
+  position: absolute;
+  right: 13%;
+  top: 14%;
+  width: 46px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #facc15;
+  box-shadow: 0 0 0 14px rgba(250, 204, 21, 0.16);
+}
+.art-field {
+  position: absolute;
+  left: -8%;
+  right: -8%;
+  bottom: -12%;
+  height: 42%;
+  border-radius: 50% 50% 0 0;
+  background: linear-gradient(180deg, #86efac, #22c55e);
+}
+.art-orbit-a {
+  border-color: rgba(14, 165, 233, 0.28);
+}
+.art-orbit-b {
+  background: rgba(255, 255, 255, 0.74);
+}
+.launcher-art-formula .art-orbit-a {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 8px #7dd3fc, 0 0 0 18px #fde68a;
+}
+.launcher-art-formula .art-orbit-b {
+  background: repeating-linear-gradient(90deg, #ffffff 0 22px, #38bdf8 22px 44px);
+}
+.launcher-art-formula .art-shape-a {
+  background: linear-gradient(90deg, #ff7a59, #facc15);
+  box-shadow: 0 18px 30px rgba(249, 115, 22, 0.2);
+}
+.launcher-art-formula .art-shape-b,
+.launcher-art-formula .art-shape-c {
+  background: #334155;
+}
+.launcher-art-formula .art-shape-c {
+  box-shadow: -86px 42px 0 10px #334155, 98px 20px 0 10px #334155;
+}
+.launcher-art-rhythm .art-shape-a,
+.launcher-art-rhythm .art-shape-b,
+.launcher-art-rhythm .art-shape-c {
+  background: linear-gradient(180deg, #fb7185, #38bdf8);
+}
+.launcher-art-paddle .art-shape-a,
+.launcher-art-tennis .art-shape-a {
+  background: #38bdf8;
+  box-shadow: 42px 34px 0 -10px #facc15;
+}
+.launcher-art-paddle .art-shape-b,
+.launcher-art-tennis .art-shape-b {
+  background: #ff7a59;
+}
+.launcher-art-bowling .art-shape-a {
+  background: radial-gradient(circle at 34% 28%, #ffffff 0 6px, transparent 7px), #38bdf8;
+}
+.launcher-art-bowling .art-shape-b {
+  background: linear-gradient(180deg, #ffffff, #fed7aa);
+  box-shadow: -22px 8px 0 -3px #ffffff, 22px 8px 0 -3px #ffffff;
+}
+.launcher-art-controller .art-shape-a {
+  background: linear-gradient(135deg, #ffffff, #bae6fd);
+  box-shadow: inset 0 0 0 3px rgba(14, 165, 233, 0.28), 0 12px 22px rgba(14, 116, 144, 0.14);
+}
+.launcher-art-controller .art-shape-b {
+  background: #0ea5e9;
+  box-shadow: 20px 0 0 #0ea5e9, 118px -8px 0 #fb7185, 140px 6px 0 #facc15;
+}
+.race-viewport {
+  background: #c7f0ff;
+}
+.race-hud-panel {
+  border-color: rgba(14, 165, 233, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 36px rgba(14, 116, 144, 0.14);
+  color: #12304a;
+}
+.racing-leaderboard-row {
+  border-color: rgba(14, 165, 233, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+  color: #12304a;
+}
+.racing-leaderboard-row.is-focused {
+  border-color: #0ea5e9;
+  color: #036083;
+}
+.racing-hud-title {
+  color: var(--player-color, #0ea5e9);
+}
+.race-speedometer span,
+.race-progress p {
+  color: #48677f;
+}
+.race-speedometer small {
+  color: #ea580c;
+}
+.race-progress::before {
+  background: rgba(14, 165, 233, 0.18);
+}
+.race-results-overlay {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.32));
+}
+.results-panel {
+  border-color: rgba(14, 165, 233, 0.22);
+  background: rgba(255, 255, 255, 0.9);
+  color: #12304a;
+}
+.results-list li {
+  background: rgba(224, 247, 255, 0.72);
+  border-color: rgba(14, 165, 233, 0.2);
+}
+.countdown-lights {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(14, 165, 233, 0.22);
+}
+.countdown-lights i {
+  background: #bae6fd;
+  box-shadow: inset 0 0 16px rgba(14, 116, 144, 0.24);
+}
+.countdown-lights i.is-active {
+  background: #fb7185;
+  box-shadow: 0 0 26px rgba(251, 113, 133, 0.55);
+}
+.countdown-lights.is-go {
+  color: #16a34a;
+  text-shadow: 0 0 26px rgba(34, 197, 94, 0.42);
+}
+
+@media (max-width: 1180px) {
+  .launcher-game-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .launcher-game-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5rem;
+  }
+  .launcher-game-card {
+    min-width: 230px;
+    scroll-snap-align: start;
+  }
+}
+
 @media (max-width: 760px) {
   .race-hud-leaderboard {
     width: 210px;

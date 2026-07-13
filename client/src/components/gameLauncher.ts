@@ -12,51 +12,51 @@ interface LauncherMeta {
 
 const META: Record<string, LauncherMeta> = {
   racing: {
-    eyebrow: "Featured",
-    title: "Pocket Formula",
-    subtitle: "Harbor City GP",
+    eyebrow: "Featured Sport",
+    title: "Racing Rally",
+    subtitle: "Tilt, steer, and zoom together",
     control: "Motion steering",
     status: "Available now",
     art: "formula"
   },
   "rhythm-battle": {
-    eyebrow: "Party",
+    eyebrow: "Music Sport",
     title: "Rhythm Battle",
-    subtitle: "Beat pressure arena",
+    subtitle: "Tap and move to the beat",
     control: "Touch + motion",
     status: "Coming soon",
     art: "rhythm"
   },
   "table-tennis": {
-    eyebrow: "Duel",
+    eyebrow: "Quick Rally",
     title: "Table Tennis",
-    subtitle: "Quick reaction rallies",
+    subtitle: "Fast paddle reactions",
     control: "Motion paddle",
     status: "Coming soon",
     art: "paddle"
   },
   bowling: {
-    eyebrow: "Precision",
+    eyebrow: "Party Lane",
     title: "Bowling",
-    subtitle: "Motion throw lanes",
+    subtitle: "Swing for a strike",
     control: "Motion throw",
     status: "Coming soon",
     art: "bowling"
   },
   tennis: {
-    eyebrow: "Duel",
+    eyebrow: "Court Game",
     title: "Tennis",
-    subtitle: "Full-court rallies",
+    subtitle: "Motion swing rallies",
     control: "Motion swing",
     status: "Coming soon",
     art: "tennis"
   },
   "controller-test": {
-    eyebrow: "Developer",
+    eyebrow: "Practice",
     title: "Controller Test",
-    subtitle: "Input proving ground",
+    subtitle: "Try phone buttons",
     control: "Touch controls",
-    status: "Developer mode",
+    status: "Available now",
     art: "controller"
   }
 };
@@ -80,6 +80,8 @@ function createArtwork(kind: string): HTMLDivElement {
   const art = document.createElement("div");
   art.className = `launcher-art launcher-art-${kind}`;
   art.innerHTML = `
+    <span class="art-sun"></span>
+    <span class="art-field"></span>
     <span class="art-orbit art-orbit-a"></span>
     <span class="art-orbit art-orbit-b"></span>
     <span class="art-shape art-shape-a"></span>
@@ -102,13 +104,12 @@ export function createGameLauncherHeader(): HTMLElement {
   header.innerHTML = `
     <div>
       <p class="launcher-kicker">Pocket Arena</p>
-      <h1>Turn Every Phone Into a Controller</h1>
+      <h1>Turn your phone into a controller</h1>
+      <p class="launcher-tagline">Scan, swing, tilt, and play together on one screen.</p>
     </div>
     <div class="launcher-system">
       <span class="launcher-live-dot"></span>
-      <span>Local Host Ready</span>
-      <button type="button" aria-label="Settings" title="Settings"></button>
-      <button type="button" aria-label="Sound" title="Sound"></button>
+      <span>Ready for local play</span>
     </div>
   `;
   return header;
@@ -126,7 +127,7 @@ export function createFeaturedGameHero(entry: GameCatalogEntry, onPlay: () => vo
     <p class="launcher-section-label">${meta.eyebrow}</p>
     <h2>${meta.title}</h2>
     <h3>${meta.subtitle}</h3>
-    <p>${entry.description}</p>
+    <p>Use your phone like a motion controller in a bright arcade race built for quick living-room play.</p>
   `;
 
   const badges = document.createElement("div");

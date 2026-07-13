@@ -60,15 +60,15 @@ function buildTrackTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#3a3f4b";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#e8ecf9";
+  ctx.fillStyle = "#f8fafc";
   ctx.fillRect(0, 0, 6, canvas.height);
   ctx.fillRect(canvas.width - 6, 0, 6, canvas.height);
-  ctx.fillStyle = "#fbbf24";
+  ctx.fillStyle = "#facc15";
   for (let y = 0; y < canvas.height; y += 32) {
     ctx.fillRect(canvas.width / 2 - 3, y, 6, 18);
   }
   ctx.globalAlpha = 0.22;
-  ctx.fillStyle = "#0f172a";
+  ctx.fillStyle = "#ffffff";
   for (let i = 0; i < 240; i++) {
     const x = Math.random() * canvas.width;
     const y = Math.random() * canvas.height;
@@ -89,7 +89,7 @@ function buildCheckerTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d")!;
   for (let x = 0; x < 8; x++) {
     for (let y = 0; y < 2; y++) {
-      ctx.fillStyle = (x + y) % 2 === 0 ? "#f8fafc" : "#05070c";
+      ctx.fillStyle = (x + y) % 2 === 0 ? "#ffffff" : "#0ea5e9";
       ctx.fillRect(x * 16, y * 16, 16, 16);
     }
   }
@@ -106,7 +106,7 @@ function buildCurbTexture(): THREE.CanvasTexture {
   canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
   for (let y = 0; y < canvas.height; y += 32) {
-    ctx.fillStyle = y % 64 === 0 ? "#ef4444" : "#f8fafc";
+    ctx.fillStyle = y % 64 === 0 ? "#fb7185" : "#ffffff";
     ctx.fillRect(0, y, canvas.width, 32);
   }
   const texture = new THREE.CanvasTexture(canvas);
@@ -154,21 +154,21 @@ function buildTrackGroup(): THREE.Group {
   const group = new THREE.Group();
   const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
   const roadMaterial = new THREE.MeshStandardMaterial({
-    color: "#343946",
+    color: "#596575",
     map: buildTrackTexture(),
     roughness: 0.86,
     metalness: 0.02,
     side: THREE.DoubleSide
   });
   const runoffMaterial = new THREE.MeshStandardMaterial({
-    color: "#6b7280",
+    color: "#a7f3d0",
     roughness: 0.92,
     metalness: 0.01,
     side: THREE.DoubleSide
   });
   const lineMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", side: THREE.DoubleSide });
   const curbMaterial = new THREE.MeshStandardMaterial({ map: buildCurbTexture(), roughness: 0.78, side: THREE.DoubleSide });
-  const barrierMaterial = new THREE.MeshStandardMaterial({ color: "#d8dee9", roughness: 0.55 });
+  const barrierMaterial = new THREE.MeshStandardMaterial({ color: "#fef3c7", roughness: 0.55 });
   const startGridMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
 
   group.add(buildRibbonMesh(-halfWidth - 5.2, halfWidth + 5.2, 0.012, runoffMaterial));
@@ -227,8 +227,8 @@ function buildTrackGroup(): THREE.Group {
   group.add(barriers);
 
   const gantry = new THREE.Group();
-  const gantryMaterial = new THREE.MeshStandardMaterial({ color: "#121826", roughness: 0.48, metalness: 0.2 });
-  const signMaterial = new THREE.MeshStandardMaterial({ color: "#0891b2", roughness: 0.35, metalness: 0.05 });
+  const gantryMaterial = new THREE.MeshStandardMaterial({ color: "#0ea5e9", roughness: 0.48, metalness: 0.08 });
+  const signMaterial = new THREE.MeshStandardMaterial({ color: "#f97316", roughness: 0.35, metalness: 0.03 });
   for (const x of [-halfWidth - 2.8, halfWidth + 2.8]) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 5.2, 0.35), gantryMaterial);
     post.position.set(x, 2.6, 0);
@@ -246,7 +246,7 @@ function buildTrackGroup(): THREE.Group {
 function buildCarMesh(color: string): CarVisual {
   const group = new THREE.Group();
   const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.08 });
-  const carbon = new THREE.MeshStandardMaterial({ color: "#090b10", roughness: 0.58, metalness: 0.12 });
+  const carbon = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.58, metalness: 0.08 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.85, 0.55, 3.35), paint);
   body.position.y = 0.62;
   body.castShadow = true;
@@ -306,7 +306,7 @@ function buildCarMesh(color: string): CarVisual {
   group.add(brakeLight);
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(1.65, 24),
-    new THREE.MeshBasicMaterial({ color: "#000000", transparent: true, opacity: 0.28, depthWrite: false })
+    new THREE.MeshBasicMaterial({ color: "#14532d", transparent: true, opacity: 0.18, depthWrite: false })
   );
   shadow.rotation.x = -Math.PI / 2;
   shadow.scale.set(1, 1.55, 1);
@@ -320,14 +320,14 @@ function buildHarborEnvironment(density: number): THREE.Group {
   const group = new THREE.Group();
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(360, 150),
-    new THREE.MeshStandardMaterial({ color: "#0ea5b7", roughness: 0.62, metalness: 0.04 })
+    new THREE.MeshStandardMaterial({ color: "#67e8f9", roughness: 0.62, metalness: 0.02 })
   );
   water.rotation.x = -Math.PI / 2;
   water.position.set(0, -0.035, 70);
   group.add(water);
 
-  const buildingMaterial = new THREE.MeshStandardMaterial({ color: "#9fb5c9", roughness: 0.7, metalness: 0.03 });
-  const windowMaterial = new THREE.MeshBasicMaterial({ color: "#dff6ff" });
+  const buildingMaterial = new THREE.MeshStandardMaterial({ color: "#bfdbfe", roughness: 0.7, metalness: 0.02 });
+  const windowMaterial = new THREE.MeshBasicMaterial({ color: "#fff7ed" });
   const count = Math.max(8, Math.round(22 * density));
   for (let i = 0; i < count; i++) {
     const height = 8 + ((i * 17) % 26);
@@ -342,8 +342,8 @@ function buildHarborEnvironment(density: number): THREE.Group {
     group.add(windows);
   }
 
-  const grandstandMaterial = new THREE.MeshStandardMaterial({ color: "#334155", roughness: 0.64 });
-  const crowdMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
+  const grandstandMaterial = new THREE.MeshStandardMaterial({ color: "#60a5fa", roughness: 0.64 });
+  const crowdMaterial = new THREE.MeshBasicMaterial({ color: "#fff7ed" });
   for (const side of [-1, 1]) {
     const stand = new THREE.Mesh(new THREE.BoxGeometry(38, 5, 7), grandstandMaterial);
     stand.position.set(side * 54, 2.5, -22);
@@ -356,8 +356,8 @@ function buildHarborEnvironment(density: number): THREE.Group {
     group.add(crowd);
   }
 
-  const boardMaterial = new THREE.MeshStandardMaterial({ color: "#f43f5e", roughness: 0.42 });
-  const poleMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.38, metalness: 0.25 });
+  const boardMaterial = new THREE.MeshStandardMaterial({ color: "#fb7185", roughness: 0.42 });
+  const poleMaterial = new THREE.MeshStandardMaterial({ color: "#0f766e", roughness: 0.38, metalness: 0.12 });
   for (let i = 0; i < Math.round(18 * density); i++) {
     const progress = (i / 18) * TEST_OVAL_TRACK.trackLength;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
@@ -374,8 +374,8 @@ function buildHarborEnvironment(density: number): THREE.Group {
     group.add(pole);
   }
 
-  const palmTrunkMaterial = new THREE.MeshStandardMaterial({ color: "#8b5a2b", roughness: 0.8 });
-  const palmLeafMaterial = new THREE.MeshStandardMaterial({ color: "#15803d", roughness: 0.82 });
+  const palmTrunkMaterial = new THREE.MeshStandardMaterial({ color: "#b45309", roughness: 0.8 });
+  const palmLeafMaterial = new THREE.MeshStandardMaterial({ color: "#22c55e", roughness: 0.82 });
   for (let i = 0; i < Math.round(16 * density); i++) {
     const x = -120 + i * 16;
     const z = i % 2 === 0 ? 34 : -228;
@@ -430,8 +430,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   mount(container: HTMLElement): void {
     this.container = container;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#9dccff");
-    scene.fog = new THREE.Fog("#9dccff", 90, 360);
+    scene.background = new THREE.Color("#bfefff");
+    scene.fog = new THREE.Fog("#bfefff", 120, 420);
 
     const { width, height } = this.containerSize();
     const camera = new THREE.PerspectiveCamera(66, width / height, 0.1, 2500);
@@ -463,7 +463,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(280, 280),
-      new THREE.MeshStandardMaterial({ color: "#3f7f3d", roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: "#7ddf78", roughness: 1 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, -0.02, -100);
