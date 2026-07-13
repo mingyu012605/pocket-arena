@@ -1,4 +1,5 @@
 ﻿import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { GameRenderer } from "../gameRenderer";
 import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
 import type { PublicRoomState, RacingGameStatePayload, RacingPlayerState } from "../../../../shared/protocol";
@@ -68,6 +69,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private metrics: RacingMetricsOverlay | null = null;
   private devHelpers: RacingDevHelpers | null = null;
   private effects: RacingEffects | null = null;
+  private environmentTexture: THREE.Texture | null = null;
   private finishedPlayers = new Set<number>();
   private snapshotTimes: number[] = [];
   private lastSnapshotAt = 0;
@@ -109,6 +111,17 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "game-canvas racing-canvas";
     container.appendChild(renderer.domElement);
+
+    // A procedural (asset-free) PBR environment map, so the car's clearcoat
+    // paint/glass have something to reflect. Without scene.environment set,
+    // MeshPhysicalMaterial has no specular highlight source beyond direct
+    // lights and reads flat even with high clearcoat/metalness values - this
+    // is a meaningful part of why the car still looked dull up close.
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const environmentTexture = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = environmentTexture;
+    pmremGenerator.dispose();
+    this.environmentTexture = environmentTexture;
 
     scene.add(new THREE.HemisphereLight("#f3fbff", "#36553d", 1.7));
     const sun = new THREE.DirectionalLight("#fff7df", 2.1);
@@ -481,6 +494,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (this.scene) {
       this.devHelpers?.dispose(this.scene);
       this.effects?.dispose(this.scene);
+      this.scene.environment = null;
       this.scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -489,6 +503,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       });
       this.scene.clear();
     }
+    this.environmentTexture?.dispose();
+    this.environmentTexture = null;
     this.devHelpers = null;
     this.effects = null;
     this.renderer?.dispose();
