@@ -240,14 +240,17 @@ export function buildTrackGroup(): THREE.Group {
   const barrierMaterial = new THREE.MeshStandardMaterial({ color: "#fff7cc", roughness: 0.48, metalness: 0.02 });
   const startGridMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
 
-  group.add(buildRibbonMesh(-halfWidth - 5.2, halfWidth + 5.2, LAYER_Y.runoff, runoffMaterial));
-  group.add(buildRibbonMesh(-halfWidth, halfWidth, LAYER_Y.road, roadMaterial));
+  const runoff = buildRibbonMesh(-halfWidth - 5.2, halfWidth + 5.2, LAYER_Y.runoff, runoffMaterial);
+  const road = buildRibbonMesh(-halfWidth, halfWidth, LAYER_Y.road, roadMaterial);
+  const curbRight = buildRibbonMesh(halfWidth, halfWidth + 1.05, LAYER_Y.curb, curbMaterial);
+  const curbLeft = buildRibbonMesh(-halfWidth - 1.05, -halfWidth, LAYER_Y.curb, curbMaterial);
+  for (const mesh of [runoff, road, curbRight, curbLeft]) mesh.receiveShadow = true;
+  group.add(runoff, road);
   group.add(buildRibbonMesh(halfWidth - 0.38, halfWidth - 0.16, LAYER_Y.edgeLine, lineMaterial));
   group.add(buildRibbonMesh(-halfWidth + 0.16, -halfWidth + 0.38, LAYER_Y.edgeLine, lineMaterial));
   group.add(buildRibbonMesh(halfWidth * 0.32, halfWidth * 0.32 + 0.12, LAYER_Y.laneGuide, laneGuideMaterial));
   group.add(buildRibbonMesh(-halfWidth * 0.32 - 0.12, -halfWidth * 0.32, LAYER_Y.laneGuide, laneGuideMaterial));
-  group.add(buildRibbonMesh(halfWidth, halfWidth + 1.05, LAYER_Y.curb, curbMaterial));
-  group.add(buildRibbonMesh(-halfWidth - 1.05, -halfWidth, LAYER_Y.curb, curbMaterial));
+  group.add(curbRight, curbLeft);
 
   const start = computeRacingCarWorldTransform({ progress: 0, lateralOffset: 0, headingError: 0 });
   const finish = new THREE.Mesh(

@@ -122,6 +122,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     sun.shadow.camera.right = 130;
     sun.shadow.camera.top = 80;
     sun.shadow.camera.bottom = -240;
+    sun.shadow.bias = -0.0015;
+    sun.shadow.normalBias = 0.4;
     scene.add(sun);
     const rimLight = new THREE.DirectionalLight("#8be8ff", 0.85);
     rimLight.position.set(-80, 55, -120);
