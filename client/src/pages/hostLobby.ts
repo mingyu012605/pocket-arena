@@ -177,6 +177,18 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     }
     if (generation !== gameViewGeneration || !renderer) return;
     renderer.mount(gameSectionEl);
+    if (racingRendererControls && focusedRacingPlayer !== null) {
+      // A GAME_STATE event can arrive (and resolve focusedRacingPlayer) while
+      // this function is still awaiting the dynamic import above, when
+      // racingRendererControls was still null - that earlier
+      // `racingRendererControls?.setFocusedPlayer(...)` call silently no-ops,
+      // and because the caller only sets focus "if null", it never retries.
+      // The renderer's camera then permanently falls back to following the
+      // race leader (a bot, once any are moving) instead of the human -
+      // exactly the "car drives itself" symptom. Now that the renderer
+      // definitely exists, push whatever focus was already determined.
+      racingRendererControls.setFocusedPlayer(focusedRacingPlayer);
+    }
     if (racingRendererControls && lastRacingState && lastRacingState.roundId === room.roundId) {
       // Only replay buffered state from the room's current round. Racing state
       // from a prior round (still sitting in lastRacingState right after a
