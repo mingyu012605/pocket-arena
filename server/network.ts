@@ -57,6 +57,29 @@ function firstHeader(value: HeaderValue): string | null {
   return raw?.split(",")[0]?.trim() || null;
 }
 
+function isLocalOrPrivateHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  return (
+    lower === "localhost" ||
+    lower === "127.0.0.1" ||
+    lower === "::1" ||
+    lower.startsWith("192.168.") ||
+    lower.startsWith("10.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(lower)
+  );
+}
+
+function shouldPreferForwardedHttps(origin: string | null, forwarded: string | null): boolean {
+  if (!origin || !forwarded) return false;
+  try {
+    const originUrl = new URL(origin);
+    const forwardedUrl = new URL(forwarded);
+    return forwardedUrl.protocol === "https:" && (originUrl.protocol !== "https:" || isLocalOrPrivateHost(originUrl.hostname));
+  } catch {
+    return false;
+  }
+}
+
 export function resolvePublicBaseUrl(options: {
   requestOrigin?: string | null;
   forwardedProto?: HeaderValue;
@@ -69,14 +92,16 @@ export function resolvePublicBaseUrl(options: {
   if (override) return override;
 
   const origin = normalizeBaseUrl(options.requestOrigin);
-  if (origin) return origin;
 
   const forwardedProto = firstHeader(options.forwardedProto);
   const forwardedHost = firstHeader(options.forwardedHost);
+  let fromProxy: string | null = null;
   if (forwardedProto && forwardedHost) {
-    const fromProxy = normalizeBaseUrl(`${forwardedProto}://${forwardedHost}`);
-    if (fromProxy) return fromProxy;
+    fromProxy = normalizeBaseUrl(`${forwardedProto}://${forwardedHost}`);
   }
+  if (shouldPreferForwardedHttps(origin, fromProxy)) return fromProxy!;
+  if (origin) return origin;
+  if (fromProxy) return fromProxy;
 
   const host = firstHeader(options.host);
   if (host) {

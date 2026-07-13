@@ -41,6 +41,32 @@ describe("resolvePublicBaseUrl", () => {
     );
   });
 
+  it("keeps a published HTTPS browser origin even when proxy headers are present", async () => {
+    const { resolvePublicBaseUrl } = await import("./network");
+
+    expect(
+      resolvePublicBaseUrl({
+        requestOrigin: "https://pocketarena.app",
+        forwardedProto: "https",
+        forwardedHost: "internal-proxy.example",
+        fallbackPort: 3000
+      })
+    ).toBe("https://pocketarena.app");
+  });
+
+  it("uses forwarded HTTPS instead of accidental localhost QR origins", async () => {
+    const { resolvePublicBaseUrl } = await import("./network");
+
+    expect(
+      resolvePublicBaseUrl({
+        requestOrigin: "http://localhost:3000",
+        forwardedProto: "https",
+        forwardedHost: "demo.trycloudflare.com",
+        fallbackPort: 3000
+      })
+    ).toBe("https://demo.trycloudflare.com");
+  });
+
   it("falls back to reverse proxy headers when no origin is available", async () => {
     const { resolvePublicBaseUrl } = await import("./network");
 
