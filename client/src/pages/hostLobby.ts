@@ -12,6 +12,10 @@ import { ControllerTestRenderer } from "../games/controller-test/renderer";
 import { TEST_OVAL_TRACK } from "../../../shared/racingTrack";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../../shared/protocol";
 import type { RacingRenderer } from "../games/racing/renderer";
+import { RacingAudio } from "../games/racing/audio";
+
+const RACING_MAX_SPEED_ESTIMATE = 42;
+const RACING_AUDIO_MUTE_KEY = "pocket-arena:racingAudioMuted";
 
 type MountedRenderer = ControllerTestRenderer | RacingRenderer;
 
@@ -54,6 +58,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     variant: "primary",
     disabled: true,
     onClick: async () => {
+      racingAudio.start();
       try {
         await emitWithAck(SOCKET_EVENTS.GAME_START, {});
       } catch (err) {
@@ -92,7 +97,10 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   let lastRacingSnapshotAt = 0;
   let activeRafLoops = 0;
   let socketGameStateListeners = 0;
+  let lastRaceStatus: RacingGameStatePayload["raceStatus"] | null = null;
   const devMode = new URLSearchParams(window.location.search).get("dev") === "1";
+  const racingAudio = new RacingAudio();
+  racingAudio.setMuted(localStorage.getItem(RACING_AUDIO_MUTE_KEY) === "1");
 
   function publishRacingDebugCounters(): void {
     window.__pocketArenaRacingDebug = {
@@ -177,6 +185,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     renderer?.destroy();
     renderer = null;
     racingRendererControls = null;
+    racingAudio.update({ speed: 0, maxSpeed: RACING_MAX_SPEED_ESTIMATE, offTrack: false, steeringMagnitude: 0, braking: false });
     pageSectionEl.classList.remove("is-game-active");
     gameSectionEl.classList.remove("race-viewport");
     gameSectionEl.hidden = true;
@@ -303,8 +312,21 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         onClick: () => {
           if (racingRendererControls) {
             racingCameraMode = racingRendererControls.cycleCameraMode();
+            racingAudio.playUiClick();
             updateRacingHud(state);
           }
+        }
+      })
+    );
+    controls.appendChild(
+      createButton({
+        label: racingAudio.isMuted() ? "Sound: Off" : "Sound: On",
+        variant: "secondary",
+        onClick: () => {
+          racingAudio.setMuted(!racingAudio.isMuted());
+          localStorage.setItem(RACING_AUDIO_MUTE_KEY, racingAudio.isMuted() ? "1" : "0");
+          if (!racingAudio.isMuted()) racingAudio.playUiClick();
+          updateRacingHud(state);
         }
       })
     );
@@ -313,6 +335,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         label: "End",
         variant: "danger",
         onClick: async () => {
+          racingAudio.playUiClick();
           await emitWithAck(SOCKET_EVENTS.GAME_END, {});
         }
       })
@@ -371,6 +394,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         label: "Rematch",
         variant: "primary",
         onClick: async () => {
+          racingAudio.start();
+          racingAudio.playUiClick();
           await emitWithAck(SOCKET_EVENTS.GAME_END, {});
         }
       })
@@ -480,6 +505,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
           .join("")}</div>`;
       }
     }
+    if (payload.value === "go") racingAudio.playCountdownGo();
+    else racingAudio.playCountdownTick();
   };
   const onGameState = (payload: GameStatePayload) => {
     if (payload.gameType === "controller-test" && renderer instanceof ControllerTestRenderer) {
@@ -494,6 +521,19 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       }
       if (racingRendererControls) racingRendererControls.applyState(payload);
       updateRacingHud(payload);
+
+      if (payload.raceStatus === "finished" && lastRaceStatus !== "finished") racingAudio.playFinish();
+      lastRaceStatus = payload.raceStatus;
+      const focusedCar = payload.players.find((player) => player.playerNumber === focusedRacingPlayer);
+      if (focusedCar) {
+        racingAudio.update({
+          speed: focusedCar.speed,
+          maxSpeed: RACING_MAX_SPEED_ESTIMATE,
+          offTrack: Math.abs(focusedCar.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth,
+          steeringMagnitude: Math.abs(focusedCar.steering ?? 0),
+          braking: (focusedCar.brake ?? 0) > 0.1
+        });
+      }
     }
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
@@ -511,5 +551,6 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     socketGameStateListeners = Math.max(0, socketGameStateListeners - 1);
     publishRacingDebugCounters();
     stopGameView();
+    racingAudio.destroy();
   };
 }
