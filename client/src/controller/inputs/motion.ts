@@ -35,9 +35,9 @@ export interface MotionDebugSnapshot {
 
 const LANDSCAPE_ANGLES = new Set([90, 270]);
 
-const STEERING_DEAD_ZONE_DEG = 5;
+const STEERING_DEAD_ZONE_DEG = 8;
 const STEERING_MAX_TILT_DEG = 35;
-const THROTTLE_DEAD_ZONE_DEG = 5;
+const THROTTLE_DEAD_ZONE_DEG = 8;
 const THROTTLE_MAX_TILT_DEG = 30;
 const SMOOTHING_FACTOR = 0.35;
 const SENSOR_TIMEOUT_MS = 3000;

@@ -118,6 +118,9 @@ export function mountRacingView(
   let lastSendAt = 0;
   let packetsSent = 0;
   let serverSpeed = 0;
+  let serverSteering = 0;
+  let serverThrottle = 0;
+  let serverBrake = 0;
   let verification: VerificationState = { left: false, right: false, throttle: false, brake: false };
   let playerReady = opts.initialReady ?? false;
   let readyBusy = false;
@@ -168,7 +171,10 @@ export function mountRacingView(
       `lastSendMsAgo: ${lastSendAt === 0 ? "never" : Math.round(performance.now() - lastSendAt)}`,
       `socket: ${getSocket().connected ? "connected" : "disconnected"}`,
       `playerNumber: ${opts.playerNumber}`,
-      `serverSpeedKmh: ${Math.round(serverSpeed * 3.6)}`
+      `serverSpeedKmh: ${Math.round(serverSpeed * 3.6)}`,
+      `serverSteering: ${serverSteering.toFixed(3)}`,
+      `serverThrottle: ${serverThrottle.toFixed(3)}`,
+      `serverBrake: ${serverBrake.toFixed(3)}`
     ].join("\n");
   }
 
@@ -349,7 +355,10 @@ export function mountRacingView(
     const self = payload.players.find((p) => p.playerNumber === opts.playerNumber);
     if (self) {
       serverSpeed = self.speed;
-      speedEl.textContent = `Speed: ${Math.round(self.speed * 3.6)} km/h`;
+      serverSteering = self.steering ?? 0;
+      serverThrottle = self.throttle ?? 0;
+      serverBrake = self.brake ?? 0;
+      speedEl.textContent = `Speed: ${Math.round(self.speed * 3.6)} km/h | Server steer ${Math.round(serverSteering * 100)}%`;
       updateDiagnostics();
     }
   };

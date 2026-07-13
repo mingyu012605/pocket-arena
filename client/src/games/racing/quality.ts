@@ -1,6 +1,6 @@
 export type RacingQualityPreset = "low" | "medium" | "high";
 
-export const DEFAULT_RACING_QUALITY: RacingQualityPreset = "high";
+export const DEFAULT_RACING_QUALITY: RacingQualityPreset = "medium";
 
 export interface RacingQualitySettings {
   preset: RacingQualityPreset;
@@ -9,12 +9,14 @@ export interface RacingQualitySettings {
   shadowMapSize: number;
   environmentDensity: number;
   particles: number;
+  adaptivePixelRatio: boolean;
 }
 
 export function getDefaultRacingQuality(): RacingQualitySettings {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("quality") ?? window.localStorage.getItem("pocket-arena:racingQuality");
-  const preset: RacingQualityPreset = requested === "low" || requested === "high" ? requested : DEFAULT_RACING_QUALITY;
+  const preset: RacingQualityPreset =
+    requested === "low" || requested === "medium" || requested === "high" ? requested : DEFAULT_RACING_QUALITY;
   if (preset === "low") {
     return {
       preset,
@@ -22,25 +24,28 @@ export function getDefaultRacingQuality(): RacingQualitySettings {
       shadows: false,
       shadowMapSize: 512,
       environmentDensity: 0.45,
-      particles: 80
+      particles: 80,
+      adaptivePixelRatio: true
     };
   }
   if (preset === "high") {
     return {
       preset,
-      maxPixelRatio: 1.75,
+      maxPixelRatio: 1.65,
       shadows: true,
-      shadowMapSize: 2048,
-      environmentDensity: 1.25,
-      particles: 640
+      shadowMapSize: 1536,
+      environmentDensity: 1.18,
+      particles: 520,
+      adaptivePixelRatio: true
     };
   }
   return {
     preset,
-    maxPixelRatio: 1.25,
+    maxPixelRatio: 1.35,
     shadows: true,
     shadowMapSize: 1024,
-    environmentDensity: 0.72,
-    particles: 220
+    environmentDensity: 0.9,
+    particles: 300,
+    adaptivePixelRatio: true
   };
 }

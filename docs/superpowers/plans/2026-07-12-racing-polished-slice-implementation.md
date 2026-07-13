@@ -1,8 +1,138 @@
 # Pocket Formula - Harbor City GP Polished Slice Implementation Plan
 
 Date: 2026-07-12
-Status: Draft for review before implementation
+Status: Resumed - see Resumption Audit below
 Spec: `docs/superpowers/specs/2026-07-12-racing-polished-vertical-slice-design.md`
+
+## Resumption Audit (2026-07-12, later session)
+
+This plan was drafted and then partially implemented across a working tree
+that was never checkpointed with the per-task commits this plan requires.
+Before continuing, the working tree was audited task-by-task against the
+requirements below. Findings:
+
+- **Task 1 (Baseline/metrics)**: code done (`metrics.ts`, `quality.ts`,
+  `?dev=1` gating, `destroy()` cleanup all present and correct). Baseline
+  capture deliverable was missing and has now been captured fresh under
+  `artifacts/racing-quality-pass/` with a real GPU (Intel Arc, not
+  SwiftShader software rendering): **60.8 FPS at High preset, 4 cars,
+  1366x768, 303 draw calls, 37k triangles**. Draw calls already exceed this
+  plan's own High budget (250) - flagged for Task 14. FPS itself is healthy;
+  earlier same-day artifacts showing 5-8 FPS were software-rendering
+  artifacts from a headless/no-GPU capture, not a real regression.
+- **Task 2 (Code splitting)**: done and already committed prior to this
+  session (`hostLobby.ts` dynamic-imports the renderer; commit history
+  includes "Verify Racing slice and split renderer chunk").
+- **Task 3 (Asset pipeline/art bible)**: not started. No art-bible doc, no
+  `assets/` directory.
+- **Task 4 (Car model)**: functionally substantial (body/nose/cockpit/wings/
+  wheels/mirrors/brake light/speed trail/underglow all exist in
+  `renderer.ts`'s `buildCarMesh`, with speed-based wheel spin and steering
+  animation already wired in `render()`), but **not yet split into
+  `cars.ts`** and, per a fresh screenshot, **reads as a flat indistinct
+  blob from chase distance** - this fails the plan's and the user's bar and
+  needs real silhouette/readability work, not just code organization.
+- **Task 5 (Track surface)**: functionally substantial (asphalt ribbon,
+  edge lines, curbs, start grid, finish line, runoff, barriers, gantry all
+  exist), not yet split into `track.ts`. Needs visual review for seams/UV
+  stretching under real driving, not just a fresh eye on a screenshot.
+- **Task 6 (Environment)**: functionally substantial (harbor water, skyline
+  buildings, grandstands with crowd textures, palm trees, light poles,
+  sponsor boards, sky dome, confetti field all exist), not yet split into
+  `environment.ts`. Missing: marshals/trackside characters, real fencing
+  distinct from barriers. Palm tree placement is mechanically regular
+  (fixed 16-unit spacing) and reads as repetitive.
+- **Task 7 (Lighting/tone)**: substantial (hemisphere + directional sun +
+  rim light, ACES tone mapping, exposure 1.18, shadow toggle via quality
+  preset). Needs tuning pass alongside car/environment fixes, not a
+  from-scratch build.
+- **Task 8 (Camera system)**: chase/close/hood/spectator modes exist with
+  basic lerp damping and speed-based FOV/shake, but a fresh code read found
+  concrete, unfixed bugs - see "Task 8 expanded scope" below. This is
+  where this session's root-cause investigation landed and is the next
+  task to execute in full.
+- **Task 9 (HUD)**: built inline in `hostLobby.ts` (`updateRacingHud`), not
+  extracted to `hud.ts`. Has leaderboard/position/speed/status; needs audit
+  against the full requirement list (countdown lights, off-track warning,
+  connection-stale warning) plus the dev-looking "Input" debug panel
+  currently visible in normal (non-dev) gameplay per the fresh screenshot -
+  that must be gated behind `?dev=1` or restyled as a real HUD element.
+- **Task 10 (Audio)**: not started. No `audio.ts`, no Web Audio usage found.
+- **Task 11 (Effects)**: partially present inline (speed trail, underglow,
+  confetti field) but no object-pooled tire smoke/off-track dust/skid marks
+  and no `effects.ts` module. Mostly not started.
+- **Task 12 (AI opponents)**: done. Server already fills the grid to 4 cars
+  with reserved player numbers (101+, `BOT_PLAYER_START`), and
+  `applyBotInput` gives bots real autonomous throttle/brake/steering
+  (cruise speed, lane targeting, wave variation) - the design decision this
+  task calls out was already made and implemented. Client already renders
+  bot cars via `ensureCarVisual` with bot color/name fallback.
+- **Task 13 (Collisions)**: not started. No car-to-car overlap/separation
+  logic in `stepPhysics`/`stepCar`.
+- **Task 14 (Quality presets/optimization)**: presets exist
+  (`quality.ts`: Low/Medium/High with pixel ratio, shadows, environment
+  density, particle count) and adaptive pixel ratio runs in the render
+  loop, but draw-call/triangle budgets are not yet met (see Task 1 finding)
+  and no dedicated optimization pass (instancing audit, material/geometry
+  sharing audit) has happened.
+- **Task 15 (Physical phone/production verification)**: not started (final
+  gate, unblocked by everything above).
+
+Net effect: this session resumes at **Task 3** (quick, mostly
+documentation), then **Task 4/5/6** (finish + modularize + fix the car
+readability problem), continuing straight through the remaining tasks in
+order. Each task from here on gets its own commit as originally specified,
+including retroactively committing the already-correct parts of Tasks 1/2/4/
+5/6/7/8/12/14 as those tasks are closed out, so history reflects real
+checkpoints going forward.
+
+## Task 8 Expanded Scope - Camera System and Network Interpolation
+
+A fresh code read (this session) found concrete, previously-undocumented
+bugs that belong in Task 8 because they are camera- and motion-smoothness
+issues at heart. These are additive to Task 8's original requirements below,
+not a replacement:
+
+1. **Lap-wrap interpolation bug** - `RacingRenderer.interpolate()`
+   (`renderer.ts`) linearly blends `progress`/`lateralOffset` between
+   snapshots with no modulo-aware shortest-path logic. Every lap, when
+   `progress` wraps from near `trackLength` back to `0`, the car visually
+   sweeps backward across the entire track for one interpolation window.
+   Fix: extract the snapshot buffer and interpolation math into a new pure,
+   DOM/WebGL-free module `client/src/games/racing/interpolation.ts` with a
+   wrap-aware shortest-delta helper, fully unit-testable.
+2. **Renderer/snapshot buffer survives rematch, host state does not reset
+   it** - `hostLobby.ts`'s `renderRoom()` only tears down/remounts
+   `RacingRenderer` when `isPlaying` flips false-to-true or true-to-false;
+   going from `results` straight into the next `countdown` never triggers
+   that, so the same renderer instance (and its 6-slot snapshot buffer)
+   survives the rematch and collides with the new race's `progress = 0`
+   snapshots. `lastRacingState` is also never cleared. Fix: track the
+   already-existing `roundId` (present on `PublicRoomState` and
+   `RacingGameStatePayload` today, just unused for this) and call a new
+   `renderer.resetInterpolation()` plus clear `lastRacingState` whenever it
+   changes.
+3. **No camera collision avoidance** - chase camera is a fixed world-space
+   offset with no raycast/clamp against barrier or car geometry; hood mode
+   places the camera inside the car's own cockpit/helmet mesh (offset 1.6
+   units vs. a nose that extends ~3.2 units at the current body scale).
+   Fix: correct the hood offset math and add a raycast-based clamp pulling
+   the chase camera back inside the barrier ring.
+4. **Extrapolation isn't gated on input staleness** - the renderer always
+   extrapolates up to 70ms regardless of whether the server-side input for
+   that car actually went stale. Fix: surface the server's existing
+   `lastInputAt`/timeout as an additive `RacingPlayerState` field so the
+   client can gate extrapolation on real staleness rather than guessing.
+5. **No dev-mode visual debug helpers** - `metrics.ts` is text-only today;
+   add, behind `?dev=1` only, a camera-frustum helper, per-car bounding-box
+   wireframes, and a marker showing the raw server sample point vs. the
+   interpolated render point.
+
+Required tests (added to Task 8's verification): heading/progress
+interpolation across the wrap boundary, delayed snapshots, duplicate
+snapshots, out-of-order snapshots, stale-input neutralization, and
+`resetInterpolation()` behavior for rematch/reconnect - all against the new
+pure `interpolation.ts` module, no WebGL context required.
 
 ## Goal
 

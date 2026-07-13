@@ -14,6 +14,9 @@ export interface ControllerTestGameState {
   players: Map<number, ControllerTestPhysics>;
 }
 export interface RacingCarState {
+  isBot?: boolean;
+  displayName?: string;
+  color?: string;
   progress: number;
   lateralOffset: number;
   headingError: number;

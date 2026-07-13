@@ -43,6 +43,12 @@ describe("stepCar", () => {
     expect(Math.abs(car.lateralOffset)).toBeGreaterThan(0);
   });
 
+  it("neutral steering does not keep pushing the car sideways", () => {
+    const car = makeCar({ speed: 24, lateralOffset: 2, headingError: 0.55, steering: 0 });
+    for (let i = 0; i < 60; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeCloseTo(2, 1);
+  });
+
   it("slows down when off track", () => {
     const onTrack = makeCar({ speed: RACING.maxSpeed, lateralOffset: 0 });
     const offTrack = makeCar({ speed: RACING.maxSpeed, lateralOffset: TEST_OVAL_TRACK.trackHalfWidth + 1 });
@@ -51,10 +57,29 @@ describe("stepCar", () => {
     expect(offTrack.speed).toBeLessThan(onTrack.speed);
   });
 
+  it("gently recovers a slow off-track car toward the road edge", () => {
+    const car = makeCar({ speed: 2, lateralOffset: TEST_OVAL_TRACK.trackHalfWidth * 1.4 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth * 1.4);
+  });
+
   it("coasts to a stop with no throttle or brake", () => {
     const car = makeCar({ speed: 10 });
     for (let i = 0; i < 300; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(car.speed).toBe(0);
+  });
+
+  it("re-centers heading when steering returns to neutral", () => {
+    const car = makeCar({ speed: 20, headingError: 0.7, steering: 0 });
+    for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(Math.abs(car.headingError)).toBeLessThan(0.12);
+  });
+
+  it("tilting backward applies reverse after braking to a stop", () => {
+    const car = makeCar({ brake: 1, speed: 0 });
+    for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.speed).toBeLessThan(0);
+    expect(Math.abs(car.speed)).toBeLessThanOrEqual(RACING.maxReverseSpeed);
   });
 
   it("clamps speed to RACING.maxSpeed", () => {
@@ -91,6 +116,16 @@ function fakeIo(emits: FakeEmit[] = []): Server {
 }
 
 describe("stepPhysics", () => {
+  it("adds AI rivals to fill a four-car racing grid", () => {
+    const room = createRoom("racing", 1);
+    const gameState = createRacingGameState(room);
+
+    expect(gameState.cars.size).toBe(4);
+    expect(gameState.cars.get(101)?.isBot).toBe(true);
+    expect(gameState.cars.get(102)?.displayName).toBeTruthy();
+    expect(gameState.cars.get(103)?.color).toBeTruthy();
+  });
+
   it("ranks cars by authoritative progress", () => {
     const room = createRoom("racing", 2);
     const gameState = createRacingGameState(room);
@@ -147,14 +182,17 @@ describe("checkRaceCompletion", () => {
     const gameState = createRacingGameState(room);
     room.gameState = gameState;
     gameState.startedAt = Date.now() - 1000;
-    gameState.cars.get(1)!.finished = true;
-    gameState.cars.get(1)!.finishTime = 1000;
+    for (const [playerNumber, car] of gameState.cars) {
+      car.finished = true;
+      car.finishTime = playerNumber === 1 ? 1000 : 2000 + playerNumber;
+    }
 
     const finished = checkRaceCompletion(fakeIo(), room, Date.now());
 
     expect(finished).toBe(true);
     expect(room.status).toBe("results");
-    expect(gameState.finishOrder).toEqual([1]);
+    expect(gameState.finishOrder[0]).toBe(1);
+    expect(gameState.finishOrder).toHaveLength(4);
   });
 
   it("records finish order by finish time, not finish-line overshoot", () => {
@@ -164,10 +202,14 @@ describe("checkRaceCompletion", () => {
     room.gameState = gameState;
     Object.assign(gameState.cars.get(1)!, { finished: true, finishTime: 5000, progress: 700 });
     Object.assign(gameState.cars.get(2)!, { finished: true, finishTime: 4000, progress: 650 });
+    for (const [playerNumber, car] of gameState.cars) {
+      if (playerNumber <= 2) continue;
+      Object.assign(car, { finished: true, finishTime: 7000 + playerNumber, progress: 300 });
+    }
 
     checkRaceCompletion(fakeIo(), room, Date.now());
 
-    expect(gameState.finishOrder).toEqual([2, 1]);
+    expect(gameState.finishOrder.slice(0, 2)).toEqual([2, 1]);
     expect(gameState.cars.get(2)!.rank).toBe(1);
     expect(gameState.cars.get(1)!.rank).toBe(2);
   });
@@ -199,6 +241,7 @@ describe("checkRaceCompletion", () => {
     const car2 = gameState.cars.get(2)!;
     expect(car2.finished).toBe(true);
     expect(car2.finishTime).toBeNull();
+    expect(gameState.cars.get(101)!.finished).toBe(true);
     expect(room.status).toBe("results");
   });
 
@@ -208,8 +251,10 @@ describe("checkRaceCompletion", () => {
     room.roundId = "round-1";
     const gameState = createRacingGameState(room);
     room.gameState = gameState;
-    gameState.cars.get(1)!.finished = true;
-    gameState.cars.get(1)!.finishTime = 1234;
+    for (const [playerNumber, car] of gameState.cars) {
+      car.finished = true;
+      car.finishTime = playerNumber === 1 ? 1234 : 2400 + playerNumber;
+    }
     const emits: FakeEmit[] = [];
 
     checkRaceCompletion(fakeIo(emits), room, Date.now());
@@ -219,6 +264,7 @@ describe("checkRaceCompletion", () => {
     const payload = gameStateEmit!.payload as RacingGameStatePayload;
     expect(payload.raceStatus).toBe("finished");
     expect(payload.players[0]!.finishTime).toBe(1234);
+    expect(payload.players.some((player) => player.isBot)).toBe(true);
   });
 
   it("does not rewrite finish order after results have already been recorded", () => {

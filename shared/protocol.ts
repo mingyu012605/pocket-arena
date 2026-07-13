@@ -173,10 +173,16 @@ export interface ControllerTestGameStatePayload {
 
 export interface RacingPlayerState {
   playerNumber: number;
+  displayName?: string;
+  color?: string;
+  isBot?: boolean;
   progress: number;
   lateralOffset: number;
   headingError: number;
   speed: number;
+  steering?: number;
+  throttle?: number;
+  brake?: number;
   rank: number;
   lap: number;
   finished: boolean;

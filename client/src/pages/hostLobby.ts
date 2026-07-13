@@ -181,7 +181,17 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   }
 
   function playerLabel(playerNumber: number): string {
-    return lastRoom.players.find((player) => player.playerNumber === playerNumber)?.nickname ?? `Player ${playerNumber}`;
+    const latestRacingPlayer = lastRacingState?.players.find((player) => player.playerNumber === playerNumber);
+    return latestRacingPlayer?.displayName ?? lastRoom.players.find((player) => player.playerNumber === playerNumber)?.nickname ?? `Player ${playerNumber}`;
+  }
+
+  function racingPlayerColor(player: RacingPlayerState): string {
+    return player.color ?? lastRoom.players.find((roomPlayer) => roomPlayer.playerNumber === player.playerNumber)?.color ?? "#22d3ee";
+  }
+
+  function defaultRacingFocus(state: RacingGameStatePayload): number | null {
+    const human = state.players.find((player) => !player.isBot && lastRoom.players.some((roomPlayer) => roomPlayer.playerNumber === player.playerNumber));
+    return human?.playerNumber ?? state.players[0]?.playerNumber ?? null;
   }
 
   function updateRacingHud(state: RacingGameStatePayload): void {
@@ -191,13 +201,16 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     const hud = gameSectionEl.querySelector<HTMLDivElement>("#racing-hud");
     if (!hud) return;
     const ranked = [...state.players].sort((a, b) => a.rank - b.rank);
+    if (focusedRacingPlayer === null || !state.players.some((player) => player.playerNumber === focusedRacingPlayer)) {
+      focusedRacingPlayer = defaultRacingFocus(state);
+      racingRendererControls?.setFocusedPlayer(focusedRacingPlayer);
+    }
     const leader = ranked[0] ?? null;
     const focused = ranked.find((player) => player.playerNumber === focusedRacingPlayer) ?? leader;
     hud.hidden = ranked.length === 0;
     hud.innerHTML = "";
     if (!focused) return;
-    const roomPlayer = lastRoom.players.find((player) => player.playerNumber === focused.playerNumber);
-    const color = roomPlayer?.color ?? "#22d3ee";
+    const color = racingPlayerColor(focused);
     const progressPercent = Math.min(100, Math.max(0, (focused.progress / TEST_OVAL_TRACK.trackLength) * 100));
 
     const summary = document.createElement("section");
@@ -238,7 +251,15 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
 
     const speed = document.createElement("section");
     speed.className = "race-hud-panel race-speedometer";
-    speed.innerHTML = `<strong>${Math.round(focused.speed * 3.6)}</strong><span>km/h</span><small>${Math.abs(focused.lateralOffset) > 6 ? "OFF TRACK" : "THROTTLE"}</small>`;
+    const focusedMode =
+      Math.abs(focused.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth
+        ? "OFF TRACK"
+        : focused.speed < -0.5
+          ? "REVERSE"
+          : focused.speed < 1
+            ? "IDLE"
+            : "DRIVE";
+    speed.innerHTML = `<strong>${Math.abs(Math.round(focused.speed * 3.6))}</strong><span>km/h</span><small>${focusedMode}</small>`;
     hud.appendChild(speed);
 
     const progress = document.createElement("section");
@@ -246,6 +267,16 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     progress.innerHTML = `<span style="--player-color:${color}"></span><p>${playerLabel(focused.playerNumber)}</p>`;
     progress.querySelector<HTMLSpanElement>("span")!.style.width = `${progressPercent}%`;
     hud.appendChild(progress);
+
+    const inputPanel = document.createElement("section");
+    inputPanel.className = "race-hud-panel race-input-monitor";
+    inputPanel.innerHTML = [
+      `<b>Input</b>`,
+      `<span>Steer ${Math.round((focused.steering ?? 0) * 100)}%</span>`,
+      `<span>Gas ${Math.round((focused.throttle ?? 0) * 100)}%</span>`,
+      `<span>Back ${Math.round((focused.brake ?? 0) * 100)}%</span>`
+    ].join("");
+    hud.appendChild(inputPanel);
 
     const controls = document.createElement("section");
     controls.className = "race-hud-panel race-controls";
@@ -393,7 +424,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       const wrapper = document.createElement("div");
       wrapper.className = "lobby-slot";
       wrapper.style.setProperty("--player-color", player.color);
-      if (slot) wrapper.appendChild(createQrCard(slot.playerNumber, slot.qrDataUrl, player.color));
+      if (slot) wrapper.appendChild(createQrCard(slot.playerNumber, slot.qrDataUrl, slot.joinUrl, player.color));
       wrapper.appendChild(createPlayerCard(player));
       gridEl.appendChild(wrapper);
     }
@@ -441,6 +472,10 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       lastRacingState = payload;
       racingSnapshotCount += 1;
       lastRacingSnapshotAt = performance.now();
+      if (focusedRacingPlayer === null) {
+        focusedRacingPlayer = defaultRacingFocus(payload);
+        racingRendererControls?.setFocusedPlayer(focusedRacingPlayer);
+      }
       if (racingRendererControls) racingRendererControls.applyState(payload);
       updateRacingHud(payload);
     }

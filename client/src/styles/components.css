@@ -175,6 +175,14 @@
   background: white;
   padding: 0.5rem;
 }
+.qr-card-url {
+  margin: 0.55rem auto 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
 .player-card {
   display: flex;
   flex-direction: column;
@@ -426,6 +434,22 @@
   margin: 0;
   color: #cbd5e1;
   font-size: 0.78rem;
+}
+.race-input-monitor {
+  left: 1rem;
+  bottom: 4.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 150px;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.78rem;
+}
+.race-input-monitor b {
+  color: #f8fafc;
+}
+.race-input-monitor span {
+  color: #bae6fd;
 }
 .race-controls {
   top: 1rem;
@@ -1869,6 +1893,9 @@
   box-shadow: 0 16px 34px rgba(18, 103, 207, .12);
   outline: none;
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.pa-game-card.is-playable {
+  cursor: pointer;
 }
 .pa-game-card:hover,
 .pa-game-card:focus-visible {

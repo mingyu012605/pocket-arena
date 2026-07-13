@@ -32,6 +32,7 @@ describe("applyDeadZoneAndClamp", () => {
   it("returns 0 inside the dead zone", () => {
     expect(applyDeadZoneAndClamp(3, 5, 35)).toBe(0);
     expect(applyDeadZoneAndClamp(-4, 5, 35)).toBe(0);
+    expect(applyDeadZoneAndClamp(7, 8, 35)).toBe(0);
   });
   it("maps the dead-zone-to-max range linearly to 0..1", () => {
     expect(applyDeadZoneAndClamp(20, 5, 35)).toBeCloseTo(0.5, 5);

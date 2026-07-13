@@ -125,4 +125,4 @@ export function centerlineTangentAngle(track: TrackDefinition, progress: number)
   return Math.atan2(ahead.x - behind.x, -(ahead.z - behind.z));
 }
 
-export const TEST_OVAL_TRACK = createTrack("test-oval", TEST_OVAL_WAYPOINTS, 6);
+export const TEST_OVAL_TRACK = createTrack("test-oval", TEST_OVAL_WAYPOINTS, 16);

@@ -7,26 +7,62 @@ import { roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";
 
 export const DEFAULT_TRACK_ID = "test-oval";
+const RACING_GRID_SIZE = 4;
+const BOT_PLAYER_START = 101;
+const BOT_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15"] as const;
+const BOT_NAMES = ["Turbo Kim", "Pixel Rae", "Nitro Jun", "Apex Mina"] as const;
+
+function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
+  return {
+    progress: 0,
+    lateralOffset: 0,
+    headingError: 0,
+    speed: 0,
+    yawRate: 0,
+    steering: 0,
+    throttle: 0,
+    brake: 0,
+    lastInputAt: Date.now(),
+    lastSequence: -1,
+    rank: 1,
+    lap: 1,
+    finished: false,
+    finishTime: null,
+    ...overrides
+  };
+}
+
+function isBotPlayerNumber(playerNumber: number): boolean {
+  return playerNumber >= BOT_PLAYER_START;
+}
 
 export function createRacingGameState(room: InternalRoom): RacingGameState {
   const cars = new Map<number, RacingCarState>();
-  for (const player of room.players) {
-    cars.set(player.playerNumber, {
-      progress: 0,
-      lateralOffset: 0,
-      headingError: 0,
-      speed: 0,
-      yawRate: 0,
-      steering: 0,
-      throttle: 0,
-      brake: 0,
-      lastInputAt: Date.now(),
-      lastSequence: -1,
-      rank: player.playerNumber,
-      lap: 1,
-      finished: false,
-      finishTime: null
-    });
+  const laneSpacing = Math.min(4.2, TEST_OVAL_TRACK.trackHalfWidth / 2.2);
+  room.players.forEach((player, index) => {
+    const lateralOffset = room.players.length === 1 ? 0 : (index - (RACING_GRID_SIZE - 1) / 2) * laneSpacing;
+    cars.set(
+      player.playerNumber,
+      makeCarState({
+        lateralOffset,
+        rank: player.playerNumber
+      })
+    );
+  });
+  const botCount = Math.max(0, RACING_GRID_SIZE - room.players.length);
+  const botLaneOffsets = [-laneSpacing, laneSpacing, laneSpacing * 2, -laneSpacing * 2];
+  for (let i = 0; i < botCount; i++) {
+    const botNumber = BOT_PLAYER_START + i;
+    cars.set(
+      botNumber,
+      makeCarState({
+        isBot: true,
+        displayName: BOT_NAMES[i] ?? `CPU ${i + 1}`,
+        color: BOT_COLORS[i % BOT_COLORS.length],
+        lateralOffset: botLaneOffsets[i] ?? 0,
+        rank: room.players.length + i + 1
+      })
+    );
   }
   return {
     gameType: "racing",
@@ -40,7 +76,7 @@ export function createRacingGameState(room: InternalRoom): RacingGameState {
 }
 
 const PHYSICS_STEP = 1 / 60;
-const BROADCAST_EVERY_N_STEPS = 3; // 60 / 3 = 20Hz
+const BROADCAST_EVERY_N_STEPS = 2; // 60 / 2 = 30Hz
 const MAX_STEPS_PER_CALLBACK = 5;
 const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
@@ -48,13 +84,17 @@ const MAX_HEADING_ERROR = Math.PI * (80 / 180);
 const RACE_SAFETY_TIMEOUT_MS = 180_000;
 
 export const RACING = {
-  trackHalfWidth: 6,
+  trackHalfWidth: 16,
   maxSpeed: 42,
+  maxReverseSpeed: 13,
   acceleration: 14,
   brakeForce: 22,
+  reverseAcceleration: 11,
   coastDrag: 5,
-  steeringResponsiveness: 2.4,
-  yawDamping: 3.0,
+  steeringResponsiveness: 4.4,
+  yawDamping: 4.2,
+  headingCentering: 5.8,
+  lateralResponsiveness: 0.78,
   offTrackSlowFactor: 0.55
 } as const;
 
@@ -70,31 +110,54 @@ function applyInputTimeout(car: RacingCarState, now: number): void {
   }
 }
 
+function applyBotInput(playerNumber: number, car: RacingCarState): void {
+  const botIndex = Math.max(0, playerNumber - BOT_PLAYER_START);
+  const cruiseSpeed = 30 + botIndex * 1.8;
+  const wave = Math.sin(car.progress * 0.035 + botIndex * 1.7) * 0.2;
+  const laneTarget = ((botIndex % 3) - 1) * (TEST_OVAL_TRACK.trackHalfWidth * 0.34);
+  car.throttle = car.speed < cruiseSpeed ? 0.78 + botIndex * 0.035 : 0.28;
+  car.brake = car.speed > cruiseSpeed + 5 ? 0.18 : 0;
+  car.steering = Math.max(-0.55, Math.min(0.55, wave + (laneTarget - car.lateralOffset) * 0.075));
+  car.lastInputAt = Date.now();
+}
+
 export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
-  car.yawRate += (car.steering * RACING.steeringResponsiveness - car.yawRate * RACING.yawDamping) * dt;
+  const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
+  const targetHeading = steering * Math.PI * 0.28;
+  car.yawRate += (targetHeading - car.headingError) * RACING.steeringResponsiveness * dt;
+  car.yawRate -= car.yawRate * RACING.yawDamping * dt;
   car.headingError += car.yawRate * dt;
+  if (steering === 0) car.headingError += (0 - car.headingError) * Math.min(1, RACING.headingCentering * dt);
   car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
 
   if (car.throttle > 0) {
-    car.speed += car.throttle * RACING.acceleration * dt;
+    const force = car.speed < 0 ? RACING.brakeForce : RACING.acceleration;
+    car.speed += car.throttle * force * dt;
   } else if (car.brake > 0) {
-    car.speed -= car.brake * RACING.brakeForce * dt;
+    const force = car.speed > 0.5 ? RACING.brakeForce : RACING.reverseAcceleration;
+    car.speed -= car.brake * force * dt;
   } else {
-    car.speed -= RACING.coastDrag * dt;
+    if (car.speed > 0) car.speed = Math.max(0, car.speed - RACING.coastDrag * dt);
+    else if (car.speed < 0) car.speed = Math.min(0, car.speed + RACING.coastDrag * dt);
   }
-  car.speed = Math.max(0, Math.min(RACING.maxSpeed, car.speed));
+  car.speed = Math.max(-RACING.maxReverseSpeed, Math.min(RACING.maxSpeed, car.speed));
 
-  car.progress += car.speed * Math.cos(car.headingError) * dt;
-  car.lateralOffset += car.speed * Math.sin(car.headingError) * dt;
+  car.progress += car.speed * dt;
+  const lateralSpeed = steering * Math.max(8, Math.abs(car.speed)) * RACING.lateralResponsiveness;
+  car.lateralOffset += lateralSpeed * dt;
 
   const maxOffset = track.trackHalfWidth * 1.6;
   car.lateralOffset = Math.max(-maxOffset, Math.min(maxOffset, car.lateralOffset));
   if (Math.abs(car.lateralOffset) > track.trackHalfWidth) {
     car.speed *= RACING.offTrackSlowFactor;
+    if (Math.abs(car.speed) < 5) {
+      const edge = Math.sign(car.lateralOffset) * track.trackHalfWidth * 0.92;
+      car.lateralOffset += (edge - car.lateralOffset) * Math.min(1, dt * 1.8);
+    }
   }
 
-  if (car.progress < 0) car.progress += track.trackLength;
-  if (car.progress >= track.trackLength && !car.finished) {
+  if (car.progress < 0) car.progress = 0;
+  if (car.progress >= track.trackLength && car.speed > 0 && !car.finished) {
     car.finished = true;
   }
 }
@@ -111,9 +174,10 @@ export function stepPhysics(room: InternalRoom, dt: number): void {
   const track = trackFor(room);
   const now = Date.now();
   const startedAt = room.gameState.startedAt ?? now;
-  for (const car of room.gameState.cars.values()) {
+  for (const [playerNumber, car] of room.gameState.cars) {
     if (car.finished) continue;
-    applyInputTimeout(car, now);
+    if (car.isBot || isBotPlayerNumber(playerNumber)) applyBotInput(playerNumber, car);
+    else applyInputTimeout(car, now);
     stepCar(track, car, dt);
     if (car.finished) car.finishTime = now - startedAt;
   }
@@ -163,10 +227,16 @@ export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
   const players: RacingPlayerState[] = gameState
     ? [...gameState.cars.entries()].map(([playerNumber, car]) => ({
         playerNumber,
+        displayName: car.displayName,
+        color: car.color,
+        isBot: car.isBot,
         progress: car.progress,
         lateralOffset: car.lateralOffset,
         headingError: car.headingError,
         speed: car.speed,
+        steering: car.steering,
+        throttle: car.throttle,
+        brake: car.brake,
         rank: car.rank,
         lap: car.lap,
         finished: car.finished,
