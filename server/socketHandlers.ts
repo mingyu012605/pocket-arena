@@ -109,6 +109,11 @@ function runCountdown(io: Server, room: InternalRoom): void {
 
 export function registerSocketHandlers(io: Server, port: number): void {
   io.on("connection", (socket: AppSocket) => {
+    // Set by the client only when its own page URL has ?dev=1 (see
+    // client/src/networking/socket.ts) - never implies anything about
+    // production URLs, and only affects this one socket's own console
+    // logging, not gameplay.
+    const racingInputDevLogEnabled = socket.handshake.query.dev === "1";
     socket.on(
       SOCKET_EVENTS.HOST_CREATE_ROOM,
       async (payload: CreateRoomRequest, ack: (res: Ack<CreateRoomResponse>) => void) => {
@@ -368,20 +373,61 @@ export function registerSocketHandlers(io: Server, port: number): void {
     });
 
     socket.on(SOCKET_EVENTS.RACING_INPUT, (payload: RacingInputPayload) => {
+      // Ownership is always resolved from the authenticated socket session,
+      // never from the packet payload - a packet cannot claim to control a
+      // different player's/slot's car than the one this socket authenticated
+      // as when it joined.
       const session = socket.data.session;
-      if (!session || session.role !== "controller") return;
+      const reject = (reason: string): void => {
+        if (!racingInputDevLogEnabled) return;
+        console.warn("[racing:input] rejected", {
+          reason,
+          socketId: socket.id,
+          session,
+          roundId: payload?.roundId,
+          sequence: payload?.sequence,
+          steering: payload?.steering,
+          throttle: payload?.throttle,
+          brake: payload?.brake,
+          receivedAt: Date.now()
+        });
+      };
+      if (!session || session.role !== "controller") return reject("unauthenticated-socket");
       const room = getRoom(session.roomId);
-      if (!room || (room.status !== "in-progress" && room.status !== "countdown") || room.roundId !== payload.roundId) {
-        return;
-      }
-      if (room.gameState?.gameType !== "racing") return;
+      if (!room) return reject("room-not-found");
+      if (room.status !== "in-progress" && room.status !== "countdown") return reject("room-not-racing");
+      if (room.roundId !== payload.roundId) return reject("wrong-round-id");
+      if (room.gameState?.gameType !== "racing") return reject("wrong-game-type");
       const car = room.gameState.cars.get(session.playerNumber);
-      if (!car || payload.sequence <= car.lastSequence) return;
+      if (!car) return reject("player-slot-not-found");
+      if (car.finished) return reject("player-already-finished");
+      if (payload.sequence <= car.lastSequence) return reject("stale-or-duplicate-sequence");
+      if (
+        !Number.isFinite(payload.steering) ||
+        !Number.isFinite(payload.throttle) ||
+        !Number.isFinite(payload.brake)
+      ) {
+        return reject("invalid-values");
+      }
       car.lastSequence = payload.sequence;
       car.lastInputAt = Date.now();
       car.steering = Math.max(-1, Math.min(1, payload.steering));
       car.throttle = Math.max(0, Math.min(1, payload.throttle));
       car.brake = Math.max(0, Math.min(1, payload.brake));
+      if (racingInputDevLogEnabled) {
+        console.log("[racing:input] accepted", {
+          socketId: socket.id,
+          playerNumber: session.playerNumber,
+          nickname: findPlayer(room, session.playerNumber)?.nickname,
+          roomId: room.id,
+          roundId: payload.roundId,
+          sequence: payload.sequence,
+          steering: car.steering,
+          throttle: car.throttle,
+          brake: car.brake,
+          receivedAt: car.lastInputAt
+        });
+      }
     });
 
     socket.on("disconnect", () => {
