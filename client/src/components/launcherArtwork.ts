@@ -2,6 +2,20 @@ import type { GameType } from "../../../shared/protocol";
 
 type ArtworkKind = GameType | "hero-table-tennis" | "hero-racing" | "hero-bowling";
 
+const artworkUrls: Record<GameType, string> = {
+  racing: new URL("../assets/launcher/card-racing.webp", import.meta.url).href,
+  "table-tennis": new URL("../assets/launcher/card-table-tennis.webp", import.meta.url).href,
+  bowling: new URL("../assets/launcher/card-bowling.webp", import.meta.url).href,
+  tennis: new URL("../assets/launcher/card-tennis.webp", import.meta.url).href,
+  "rhythm-battle": new URL("../assets/launcher/card-rhythm-battle.webp", import.meta.url).href,
+  "controller-test": new URL("../assets/launcher/card-controller-test.webp", import.meta.url).href
+};
+
+const heroArtworkUrls: Partial<Record<ArtworkKind, string>> = {
+  "hero-table-tennis": new URL("../assets/launcher/hero-table-tennis.webp", import.meta.url).href,
+  "table-tennis": new URL("../assets/launcher/hero-table-tennis.webp", import.meta.url).href
+};
+
 function stadiumBackground(id: string): string {
   return `
     <defs>
@@ -199,6 +213,17 @@ function controllerArtwork(): string {
 export function createSportArtwork(kind: ArtworkKind, compact = false): HTMLDivElement {
   const art = document.createElement("div");
   art.className = `pa-art ${compact ? "is-compact" : "is-hero"} pa-art-${kind}`;
+  const src = compact ? artworkUrls[kind as GameType] : heroArtworkUrls[kind] ?? artworkUrls[kind as GameType];
+  if (src) {
+    const img = document.createElement("img");
+    img.className = "pa-art-img";
+    img.src = src;
+    img.alt = "";
+    img.decoding = "async";
+    img.loading = "eager";
+    art.appendChild(img);
+    return art;
+  }
   const hero = !compact;
   if (kind === "racing" || kind === "hero-racing") art.innerHTML = racingArtwork(hero);
   else if (kind === "table-tennis" || kind === "hero-table-tennis") art.innerHTML = tableTennisArtwork(hero);
