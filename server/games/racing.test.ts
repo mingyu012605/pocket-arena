@@ -64,6 +64,16 @@ describe("stepCar", () => {
     expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth * 1.4);
   });
 
+  it("blocks cars at the side barrier without launching or arbitrary full stops", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 24, lateralOffset: barrierLimit + 3, steering: 1 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThanOrEqual(barrierLimit);
+    expect(car.speed).toBeGreaterThan(15);
+    expect(car.speed).toBeLessThan(24);
+    expect(car.lastCollisionAt).toBeGreaterThan(0);
+  });
+
   it("coasts to a stop with no throttle or brake", () => {
     const car = makeCar({ speed: 10 });
     for (let i = 0; i < 300; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);

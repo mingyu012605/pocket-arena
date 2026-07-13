@@ -16,6 +16,8 @@ import { RacingInterpolationBuffer } from "./interpolation";
 import type { RacingCarFrame } from "./interpolation";
 import { RacingDevHelpers } from "./devHelpers";
 import { RacingEffects } from "./effects";
+import { buildImportedCarVisual, buildImportedTrackLandmark, loadRacingAssetLibrary } from "./assetScene";
+import type { RacingAssetLibrary } from "./assetScene";
 
 type CameraMode = "chase" | "close" | "hood" | "spectator";
 
@@ -27,8 +29,8 @@ const SNAPSHOT_HZ_WINDOW_MS = 5000;
 const FRAME_BUDGET_MS = 1000 / 55;
 const PIXEL_RATIO_STEP = 0.12;
 const BOT_FALLBACK_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15", "#38bdf8"];
-/** Keep the chase/close camera inside the barrier ring (barriers sit at halfWidth + 2.2). */
-const CAMERA_TRACK_MARGIN = TEST_OVAL_TRACK.trackHalfWidth + 1.6;
+/** Keep the chase/close camera inside the barrier ring (barriers sit at halfWidth + 2.6). */
+const CAMERA_TRACK_MARGIN = TEST_OVAL_TRACK.trackHalfWidth + 2;
 /** Minimum clearance the hood/close camera keeps from any car it isn't following, so it can't end up inside another car's tub/cockpit geometry. */
 const CAMERA_CAR_CLEARANCE = 2.6;
 const DEV_MODE = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dev") === "1";
@@ -62,7 +64,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private renderer: THREE.WebGLRenderer | null = null;
   private cars = new Map<number, CarVisual>();
   private colors = new Map<number, string>();
-  private readonly interpolationBuffer = new RacingInterpolationBuffer(TEST_OVAL_TRACK.trackLength, TEST_OVAL_TRACK.trackHalfWidth * 1.6);
+  private readonly interpolationBuffer = new RacingInterpolationBuffer(TEST_OVAL_TRACK.trackLength, TEST_OVAL_TRACK.trackHalfWidth + 2.1);
   private lastRoundId: string | null = null;
   private focusedPlayerNumber: number | null = null;
   private container: HTMLElement | null = null;
@@ -85,6 +87,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private frameDeltas: number[] = [];
   private lastFrameAt = 0;
   private lastQualityAdjustAt = 0;
+  private assetLibrary: RacingAssetLibrary | null = null;
+  private assetLoadCancelled = false;
+  private importedTrackLandmark: THREE.Group | null = null;
+  private assetLoadState: "loading" | "ready" | "fallback" = "loading";
 
   constructor(room: PublicRoomState) {
     for (const player of room.players) this.colors.set(player.playerNumber, player.color);
@@ -92,6 +98,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
 
   mount(container: HTMLElement): void {
     racingLifecycleStats.rendererInstances += 1;
+    this.assetLoadCancelled = false;
     this.container = container;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#b9f2ff");
@@ -161,6 +168,24 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       scene.add(car.root);
       this.cars.set(playerNumber, car);
     }
+
+    this.assetLoadState = "loading";
+    loadRacingAssetLibrary()
+      .then((library) => {
+        if (this.assetLoadCancelled || this.scene !== scene) return;
+        this.assetLibrary = library;
+        this.assetLoadState = "ready";
+        this.importedTrackLandmark = buildImportedTrackLandmark(library);
+        scene.add(this.importedTrackLandmark);
+        for (const [playerNumber, car] of this.cars) {
+          this.applyImportedCarVisual(playerNumber, car);
+        }
+      })
+      .catch((err: unknown) => {
+        if (this.assetLoadCancelled || this.scene !== scene) return;
+        this.assetLoadState = "fallback";
+        if (DEV_MODE) console.warn("Racing asset load failed; using procedural fallback", err);
+      });
 
     this.scene = scene;
     this.camera = camera;
@@ -413,6 +438,11 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.focusedPlayerNumber = playerNumber;
   }
 
+  /** "loading" while the imported car/track-landmark GLBs are still in flight, "ready" once they're in the scene, "fallback" if loading failed and the procedural car/scene are being used permanently for this mount. */
+  getAssetLoadState(): "loading" | "ready" | "fallback" {
+    return this.assetLoadState;
+  }
+
   cycleCameraMode(): CameraMode {
     const current = CAMERA_MODES.indexOf(this.cameraMode);
     this.cameraMode = CAMERA_MODES[(current + 1) % CAMERA_MODES.length]!;
@@ -494,9 +524,22 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (!scene) return;
     const fallback = BOT_FALLBACK_COLORS[Math.abs(playerNumber) % BOT_FALLBACK_COLORS.length] ?? "#f97316";
     const car = buildCarMesh(this.colors.get(playerNumber) ?? fallback);
+    this.applyImportedCarVisual(playerNumber, car);
     car.root.visible = false;
     scene.add(car.root);
     this.cars.set(playerNumber, car);
+  }
+
+  private applyImportedCarVisual(playerNumber: number, car: CarVisual): void {
+    if (!this.assetLibrary || car.importedRoot) return;
+    const color = this.colors.get(playerNumber) ?? BOT_FALLBACK_COLORS[Math.abs(playerNumber) % BOT_FALLBACK_COLORS.length] ?? "#f97316";
+    const imported = buildImportedCarVisual(this.assetLibrary, color);
+    imported.root.position.y = -0.2;
+    car.body.visible = false;
+    car.root.add(imported.root);
+    car.importedRoot = imported.root;
+    car.wheels = imported.wheels;
+    car.frontWheels = imported.frontWheels;
   }
 
   private snapshotHz(): number {
@@ -540,6 +583,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.environmentTexture = null;
     this.devHelpers = null;
     this.effects = null;
+    this.assetLoadCancelled = true;
+    this.assetLibrary = null;
+    this.importedTrackLandmark = null;
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
     this.scene = null;

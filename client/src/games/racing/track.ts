@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
 import { computeRacingCarWorldTransform } from "./carTransform";
+import asphaltNormalUrl from "@pmndrs/assets/normals/0004.webp";
+import curbNormalUrl from "@pmndrs/assets/normals/0012.webp";
+import terrainDetailUrl from "@pmndrs/assets/textures/cloud.webp";
 
 const TRACK_SAMPLES = 320;
 
@@ -20,6 +23,16 @@ const LAYER_Y = {
   finish: 0.08,
   startGrid: 0.09
 };
+
+function loadRepeatTexture(url: string, repeatX: number, repeatY: number, colorSpace?: THREE.ColorSpace): THREE.Texture {
+  const texture = new THREE.TextureLoader().load(url);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = 12;
+  if (colorSpace) texture.colorSpace = colorSpace;
+  return texture;
+}
 
 export function buildTrackTexture(): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
@@ -223,24 +236,33 @@ export function buildTrackGroup(): THREE.Group {
   const roadMaterial = new THREE.MeshStandardMaterial({
     color: "#596575",
     map: buildTrackTexture(),
-    roughness: 0.72,
+    normalMap: loadRepeatTexture(asphaltNormalUrl, 2, 42),
+    normalScale: new THREE.Vector2(0.42, 0.42),
+    roughness: 0.86,
     metalness: 0.02,
     side: THREE.DoubleSide
   });
   const runoffMaterial = new THREE.MeshStandardMaterial({
-    color: "#a7f3d0",
+    color: "#7bdd88",
     map: buildGrassTexture(),
+    alphaMap: loadRepeatTexture(terrainDetailUrl, 18, 18, THREE.SRGBColorSpace),
     roughness: 0.92,
     metalness: 0.01,
     side: THREE.DoubleSide
   });
   const lineMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", side: THREE.DoubleSide });
   const laneGuideMaterial = new THREE.MeshBasicMaterial({ color: "#bae6fd", transparent: true, opacity: 0.72, side: THREE.DoubleSide });
-  const curbMaterial = new THREE.MeshStandardMaterial({ map: buildCurbTexture(), roughness: 0.78, side: THREE.DoubleSide });
+  const curbMaterial = new THREE.MeshStandardMaterial({
+    map: buildCurbTexture(),
+    normalMap: loadRepeatTexture(curbNormalUrl, 1, 36),
+    normalScale: new THREE.Vector2(0.28, 0.28),
+    roughness: 0.78,
+    side: THREE.DoubleSide
+  });
   const barrierMaterial = new THREE.MeshStandardMaterial({ color: "#fff7cc", roughness: 0.48, metalness: 0.02 });
   const startGridMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
 
-  const runoff = buildRibbonMesh(-halfWidth - 5.2, halfWidth + 5.2, LAYER_Y.runoff, runoffMaterial);
+  const runoff = buildRibbonMesh(-halfWidth - 8.5, halfWidth + 8.5, LAYER_Y.runoff, runoffMaterial);
   const road = buildRibbonMesh(-halfWidth, halfWidth, LAYER_Y.road, roadMaterial);
   const curbRight = buildRibbonMesh(halfWidth, halfWidth + 1.05, LAYER_Y.curb, curbMaterial);
   const curbLeft = buildRibbonMesh(-halfWidth - 1.05, -halfWidth, LAYER_Y.curb, curbMaterial);
@@ -277,7 +299,7 @@ export function buildTrackGroup(): THREE.Group {
   }
 
   const barrierGeometry = new THREE.BoxGeometry(1.4, 1.2, 0.28);
-  const barrierCountPerSide = 52;
+  const barrierCountPerSide = 78;
   const barriers = new THREE.InstancedMesh(barrierGeometry, barrierMaterial, barrierCountPerSide * 2);
   const matrix = new THREE.Matrix4();
   let index = 0;
@@ -288,7 +310,7 @@ export function buildTrackGroup(): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     for (const side of [-1, 1]) {
-      const offset = side * (halfWidth + 2.2);
+      const offset = side * (halfWidth + 2.6);
       matrix.compose(
         new THREE.Vector3(center.x + nx * offset, 0.62, center.z + nz * offset),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
@@ -301,7 +323,7 @@ export function buildTrackGroup(): THREE.Group {
   group.add(barriers);
 
   const archMaterial = new THREE.MeshStandardMaterial({ color: "#38bdf8", roughness: 0.36, metalness: 0.12, emissive: "#0ea5e9", emissiveIntensity: 0.12 });
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 6; i++) {
     const progress = (i / 8) * TEST_OVAL_TRACK.trackLength + 18;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
     const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
@@ -311,7 +333,11 @@ export function buildTrackGroup(): THREE.Group {
     const top = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 6, 0.24, 0.32), archMaterial);
     left.position.set(-halfWidth - 2.8, 2.1, 0);
     right.position.set(halfWidth + 2.8, 2.1, 0);
-    top.position.set(0, 4.25, 0);
+    top.position.set(0, 6.4, 0);
+    left.position.y = 3.2;
+    right.position.y = 3.2;
+    left.scale.y = 1.52;
+    right.scale.y = 1.52;
     arch.add(left, right, top);
     arch.position.set(center.x, 0, center.z);
     arch.rotation.y = -angle;

@@ -6,7 +6,7 @@ import type { TrackDefinition } from "../../shared/racingTrack";
 import { roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";
 
-export const DEFAULT_TRACK_ID = "test-oval";
+export const DEFAULT_TRACK_ID = TEST_OVAL_TRACK.id;
 const RACING_GRID_SIZE = 4;
 const BOT_PLAYER_START = 101;
 const BOT_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15"] as const;
@@ -91,7 +91,7 @@ const COLLISION_SPEED_FACTOR = 0.82;
 const COLLISION_FEEDBACK_WINDOW_MS = 220;
 
 export const RACING = {
-  trackHalfWidth: 16,
+  trackHalfWidth: TEST_OVAL_TRACK.trackHalfWidth,
   maxSpeed: 42,
   maxReverseSpeed: 13,
   acceleration: 14,
@@ -102,7 +102,9 @@ export const RACING = {
   yawDamping: 4.2,
   headingCentering: 5.8,
   lateralResponsiveness: 0.78,
-  offTrackSlowFactor: 0.55
+  offTrackSlowFactor: 0.94,
+  barrierOffset: 2.1,
+  barrierSpeedRetention: 0.82
 } as const;
 
 function trackFor(_room: InternalRoom): TrackDefinition {
@@ -153,13 +155,23 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   const lateralSpeed = steering * Math.max(8, Math.abs(car.speed)) * RACING.lateralResponsiveness;
   car.lateralOffset += lateralSpeed * dt;
 
-  const maxOffset = track.trackHalfWidth * 1.6;
-  car.lateralOffset = Math.max(-maxOffset, Math.min(maxOffset, car.lateralOffset));
+  const barrierLimit = track.trackHalfWidth + RACING.barrierOffset;
+  if (Math.abs(car.lateralOffset) > barrierLimit) {
+    const side = Math.sign(car.lateralOffset);
+    car.lateralOffset = side * barrierLimit;
+    car.speed *= RACING.barrierSpeedRetention;
+    car.yawRate += -side * Math.max(0.5, Math.abs(car.speed) * 0.035);
+    car.headingError += -side * 0.045;
+    car.lastCollisionAt = Date.now();
+  }
   if (Math.abs(car.lateralOffset) > track.trackHalfWidth) {
     car.speed *= RACING.offTrackSlowFactor;
     if (Math.abs(car.speed) < 5) {
       const edge = Math.sign(car.lateralOffset) * track.trackHalfWidth * 0.92;
-      car.lateralOffset += (edge - car.lateralOffset) * Math.min(1, dt * 1.8);
+      car.lateralOffset += (edge - car.lateralOffset) * Math.min(1, dt * 2.4);
+    } else {
+      const edge = Math.sign(car.lateralOffset) * track.trackHalfWidth * 0.98;
+      car.lateralOffset += (edge - car.lateralOffset) * Math.min(1, dt * 0.85);
     }
   }
 

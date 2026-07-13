@@ -3,12 +3,14 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 export interface CarVisual {
   root: THREE.Group;
-  wheels: THREE.Mesh[];
-  frontWheels: THREE.Mesh[];
+  body: THREE.Group;
+  wheels: THREE.Object3D[];
+  frontWheels: THREE.Object3D[];
   brakeLight: THREE.Mesh;
   speedTrail: THREE.Mesh;
   underglow: THREE.Mesh;
   marker: THREE.Mesh;
+  importedRoot?: THREE.Group;
 }
 
 const CARBON = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.42, metalness: 0.18 });
@@ -159,6 +161,8 @@ function buildSpeedTrailTexture(color: string): THREE.CanvasTexture {
  */
 export function buildCarMesh(color: string): CarVisual {
   const group = new THREE.Group();
+  const body = new THREE.Group();
+  group.add(body);
   const paint = new THREE.MeshPhysicalMaterial({
     color,
     roughness: 0.2,
@@ -175,33 +179,33 @@ export function buildCarMesh(color: string): CarVisual {
   ]);
   const paintMesh = new THREE.Mesh(paintMergedGeometry, paint);
   paintMesh.castShadow = true;
-  group.add(paintMesh);
+  body.add(paintMesh);
 
   const carbonMesh = new THREE.Mesh(CARBON_MERGED_GEOMETRY, CARBON);
   carbonMesh.castShadow = true;
-  group.add(carbonMesh);
+  body.add(carbonMesh);
 
   const accentMesh = new THREE.Mesh(ACCENT_MERGED_GEOMETRY, ACCENT);
-  group.add(accentMesh);
+  body.add(accentMesh);
 
   const rimMesh = new THREE.Mesh(RIM_MERGED_GEOMETRY, RIM);
-  group.add(rimMesh);
+  body.add(rimMesh);
 
   const mirrorMesh = new THREE.Mesh(MIRROR_MERGED_GEOMETRY, MIRROR);
-  group.add(mirrorMesh);
+  body.add(mirrorMesh);
 
   const headlightMesh = new THREE.Mesh(HEADLIGHT_MERGED_GEOMETRY, HEADLIGHT);
-  group.add(headlightMesh);
+  body.add(headlightMesh);
 
   const helmet = new THREE.Mesh(HELMET_GEOMETRY, HELMET);
   helmet.scale.set(0.92, 1, 0.96);
   helmet.position.set(0, 1.14, -0.4);
-  group.add(helmet);
+  body.add(helmet);
 
   const visor = new THREE.Mesh(VISOR_GEOMETRY, VISOR);
   visor.scale.set(1, 0.4, 0.5);
   visor.position.set(0, 1.16, -0.66);
-  group.add(visor);
+  body.add(visor);
 
   const wheels: THREE.Mesh[] = [];
   const frontWheels: THREE.Mesh[] = [];
@@ -212,7 +216,7 @@ export function buildCarMesh(color: string): CarVisual {
     wheel.castShadow = true;
     wheels.push(wheel);
     if (z < 0) frontWheels.push(wheel);
-    group.add(wheel);
+    body.add(wheel);
   }
 
   const brakeLight = new THREE.Mesh(BRAKE_LIGHT_GEOMETRY, new THREE.MeshBasicMaterial({ color: "#ef4444", transparent: true, opacity: 0.2 }));
@@ -256,5 +260,5 @@ export function buildCarMesh(color: string): CarVisual {
   group.add(marker);
 
   group.scale.setScalar(1.7);
-  return { root: group, wheels, frontWheels, brakeLight, speedTrail, underglow, marker };
+  return { root: group, body, wheels, frontWheels, brakeLight, speedTrail, underglow, marker };
 }

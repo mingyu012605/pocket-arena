@@ -176,6 +176,7 @@ function buildFencing(density: number): THREE.InstancedMesh {
 
 export function buildHarborEnvironment(density: number): THREE.Group {
   const group = new THREE.Group();
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
   const water = new THREE.Mesh(
     new THREE.PlaneGeometry(360, 150),
     new THREE.MeshStandardMaterial({ color: "#38bdf8", roughness: 0.48, metalness: 0.08, emissive: "#0ea5e9", emissiveIntensity: 0.08 })
@@ -203,7 +204,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
   const grandstandMaterial = new THREE.MeshStandardMaterial({ color: "#2563eb", roughness: 0.48, metalness: 0.08 });
   for (const side of [-1, 1]) {
     const stand = new THREE.Mesh(new THREE.BoxGeometry(38, 5, 7), grandstandMaterial);
-    stand.position.set(side * 54, 2.5, -22);
+    stand.position.set(side * (halfWidth + 48), 2.5, -24);
     stand.rotation.y = side * 0.28;
     stand.castShadow = true;
     group.add(stand);
@@ -211,7 +212,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
       new THREE.PlaneGeometry(36, 7.2),
       new THREE.MeshBasicMaterial({ map: buildCrowdTexture(side > 0 ? 1 : 2), side: THREE.DoubleSide })
     );
-    crowd.position.set(side * 54, 6.5, -18.3);
+    crowd.position.set(side * (halfWidth + 48), 6.5, -18.3);
     crowd.rotation.y = stand.rotation.y;
     group.add(crowd);
   }
@@ -240,7 +241,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     }
   }
   foregroundStand.add(fans);
-  foregroundStand.position.set(48, 0, -28);
+  foregroundStand.position.set(halfWidth + 78, 0, -42);
   foregroundStand.rotation.y = -0.48;
   const foregroundCrowd = new THREE.Mesh(
     new THREE.PlaneGeometry(43, 10),
@@ -253,8 +254,8 @@ export function buildHarborEnvironment(density: number): THREE.Group {
 
   const megaStandMaterial = new THREE.MeshStandardMaterial({ color: "#1e40af", roughness: 0.45, metalness: 0.12 });
   for (const [x, z, rotationY, seed] of [
-    [-88, -70, 0.42, 11],
-    [88, -120, -0.42, 13]
+    [-(halfWidth + 82), -78, 0.42, 11],
+    [halfWidth + 92, -132, -0.42, 13]
   ] as const) {
     const stand = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(58, 12, 16), megaStandMaterial);
@@ -285,7 +286,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
     const board = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.35, 0.16), boardMaterial);
-    board.position.set(center.x + nx * side * 11, 1.35, center.z + nz * side * 11);
+    board.position.set(center.x + nx * side * (halfWidth + 10), 1.35, center.z + nz * side * (halfWidth + 10));
     board.rotation.y = -angle;
     group.add(board);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.2, 8), poleMaterial);
