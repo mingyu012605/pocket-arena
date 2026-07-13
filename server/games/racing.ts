@@ -224,6 +224,7 @@ export function checkRaceCompletion(io: Server, room: InternalRoom, now: number)
 
 export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
   const gameState = room.gameState?.gameType === "racing" ? room.gameState : null;
+  const now = Date.now();
   const players: RacingPlayerState[] = gameState
     ? [...gameState.cars.entries()].map(([playerNumber, car]) => ({
         playerNumber,
@@ -237,6 +238,7 @@ export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
         steering: car.steering,
         throttle: car.throttle,
         brake: car.brake,
+        inputStale: !car.isBot && now - car.lastInputAt > INPUT_TIMEOUT_MS,
         rank: car.rank,
         lap: car.lap,
         finished: car.finished,

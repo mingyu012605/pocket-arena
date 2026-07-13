@@ -149,7 +149,11 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     }
     if (generation !== gameViewGeneration || !renderer) return;
     renderer.mount(gameSectionEl);
-    if (racingRendererControls && lastRacingState) {
+    if (racingRendererControls && lastRacingState && lastRacingState.roundId === room.roundId) {
+      // Only replay buffered state from the room's current round. Racing state
+      // from a prior round (still sitting in lastRacingState right after a
+      // fresh mount/reconnect) would otherwise flash the old race's car
+      // positions for a frame before the first live update arrives.
       racingRendererControls.applyState(lastRacingState);
       updateRacingHud(lastRacingState);
     }

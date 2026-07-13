@@ -1,6 +1,6 @@
 ﻿import * as THREE from "three";
 import type { GameRenderer } from "../gameRenderer";
-import { TEST_OVAL_TRACK } from "../../../../shared/racingTrack";
+import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
 import type { PublicRoomState, RacingGameStatePayload, RacingPlayerState } from "../../../../shared/protocol";
 import { RacingMetricsOverlay, shouldShowRacingMetrics } from "./metrics";
 import type { RacingLifecycleStats } from "./metrics";
@@ -11,25 +11,12 @@ import type { CarVisual } from "./cars";
 import { buildTrackGroup } from "./track";
 import { computeRacingCarWorldTransform } from "./carTransform";
 import { buildHarborEnvironment, buildTracksideDetails, buildSkyDome, buildConfettiField } from "./environment";
-
-interface CarFrame {
-  progress: number;
-  lateralOffset: number;
-  headingError: number;
-  speed: number;
-  rank: number;
-}
+import { RacingInterpolationBuffer } from "./interpolation";
+import type { RacingCarFrame } from "./interpolation";
+import { RacingDevHelpers } from "./devHelpers";
 
 type CameraMode = "chase" | "close" | "hood" | "spectator";
 
-interface Snapshot {
-  time: number;
-  players: Map<number, CarFrame>;
-}
-
-const RENDER_DELAY_MS = 85;
-const MAX_EXTRAPOLATE_MS = 70;
-const MAX_SNAPSHOTS = 6;
 const CAMERA_DISTANCE = 12;
 const CAMERA_HEIGHT = 5.8;
 const CAMERA_LOOK_AHEAD = 10;
@@ -38,6 +25,11 @@ const SNAPSHOT_HZ_WINDOW_MS = 5000;
 const FRAME_BUDGET_MS = 1000 / 55;
 const PIXEL_RATIO_STEP = 0.12;
 const BOT_FALLBACK_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15", "#38bdf8"];
+/** Keep the chase/close camera inside the barrier ring (barriers sit at halfWidth + 2.2). */
+const CAMERA_TRACK_MARGIN = TEST_OVAL_TRACK.trackHalfWidth + 1.6;
+/** Minimum clearance the hood/close camera keeps from any car it isn't following, so it can't end up inside another car's tub/cockpit geometry. */
+const CAMERA_CAR_CLEARANCE = 2.6;
+const DEV_MODE = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dev") === "1";
 
 const racingLifecycleStats = {
   rendererInstances: 0,
@@ -68,10 +60,12 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private renderer: THREE.WebGLRenderer | null = null;
   private cars = new Map<number, CarVisual>();
   private colors = new Map<number, string>();
-  private snapshots: Snapshot[] = [];
+  private readonly interpolationBuffer = new RacingInterpolationBuffer(TEST_OVAL_TRACK.trackLength, TEST_OVAL_TRACK.trackHalfWidth * 1.6);
+  private lastRoundId: string | null = null;
   private focusedPlayerNumber: number | null = null;
   private container: HTMLElement | null = null;
   private metrics: RacingMetricsOverlay | null = null;
+  private devHelpers: RacingDevHelpers | null = null;
   private snapshotTimes: number[] = [];
   private lastSnapshotAt = 0;
   private readonly quality: RacingQualitySettings = getDefaultRacingQuality();
@@ -153,6 +147,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
+    if (DEV_MODE) this.devHelpers = new RacingDevHelpers(scene);
     if (shouldShowRacingMetrics()) {
       this.metrics = new RacingMetricsOverlay({
         container,
@@ -169,13 +164,22 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   }
 
   applyState(state: RacingGameStatePayload): void {
+    if (state.roundId !== this.lastRoundId) {
+      // A new race started without this renderer being torn down and
+      // remounted (results -> countdown doesn't remount). Without this, the
+      // old race's high-progress snapshots would blend against the new
+      // race's progress=0 snapshots and the car would visibly sweep
+      // backward across the whole track for one interpolation window.
+      this.resetInterpolation();
+      this.lastRoundId = state.roundId;
+    }
     const now = performance.now();
     this.lastSnapshotAt = now;
     this.snapshotTimes.push(now);
     while (this.snapshotTimes.length > 0 && now - this.snapshotTimes[0]! > SNAPSHOT_HZ_WINDOW_MS) {
       this.snapshotTimes.shift();
     }
-    const players = new Map<number, CarFrame>(
+    const players = new Map<number, RacingCarFrame>(
       state.players.map((p: RacingPlayerState) => [
         p.playerNumber,
         {
@@ -183,15 +187,23 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
           lateralOffset: p.lateralOffset,
           headingError: p.headingError,
           speed: p.speed,
-          rank: p.rank
+          rank: p.rank,
+          stale: p.inputStale ?? false
         }
       ])
     );
     for (const player of state.players) {
       this.ensureCarVisual(player.playerNumber, player.color);
     }
-    this.snapshots.push({ time: now, players });
-    if (this.snapshots.length > MAX_SNAPSHOTS) this.snapshots.shift();
+    this.interpolationBuffer.addSnapshot(now, players);
+  }
+
+  /** Clears buffered snapshots and camera continuity state. Called automatically on round change; also safe to call explicitly on reconnect. */
+  resetInterpolation(): void {
+    this.interpolationBuffer.reset();
+    this.cameraInitialized = false;
+    this.snapshotTimes = [];
+    this.lastSnapshotAt = 0;
   }
 
   render(_timestamp: number): void {
@@ -199,20 +211,22 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (!scene || !camera || !renderer) return;
     this.updateRenderBudget(_timestamp);
 
-    const positions = this.interpolate();
-    let focused: { x: number; z: number; heading: number; speed: number } | null = null;
-    let leader: { x: number; z: number; heading: number; speed: number; rank: number } | null = null;
+    const positions = this.interpolationBuffer.interpolate(performance.now());
+    let focused: { x: number; z: number; heading: number; speed: number; progress: number; playerNumber: number } | null = null;
+    let leader: { x: number; z: number; heading: number; speed: number; rank: number; progress: number; playerNumber: number } | null = null;
+    const otherCarPositions: Array<{ playerNumber: number; x: number; z: number }> = [];
 
     for (const [playerNumber, car] of this.cars) {
       const pos = positions.get(playerNumber);
       car.root.visible = Boolean(pos);
-      if (!pos) continue;
+      if (!pos) {
+        this.devHelpers?.removeCarBounds(playerNumber);
+        continue;
+      }
 
       const { x, z, heading } = computeRacingCarWorldTransform(pos);
       if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(heading)) {
-        if (new URLSearchParams(window.location.search).get("dev") === "1") {
-          console.warn("Invalid Racing car transform", { playerNumber, pos, x, z, heading });
-        }
+        if (DEV_MODE) console.warn("Invalid Racing car transform", { playerNumber, pos, x, z, heading });
         continue;
       }
       car.root.position.set(x, 0, z);
@@ -231,9 +245,22 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       if (glowMaterial instanceof THREE.MeshBasicMaterial) {
         glowMaterial.opacity = 0.18 + Math.min(0.24, pos.speed / 140);
       }
+      if (DEV_MODE) this.devHelpers?.updateCarBounds(playerNumber, car.root);
 
-      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, heading, speed: pos.speed };
-      if (!leader || pos.rank < leader.rank) leader = { x, z, heading, speed: pos.speed, rank: pos.rank };
+      otherCarPositions.push({ playerNumber, x, z });
+      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, heading, speed: pos.speed, progress: pos.progress, playerNumber };
+      if (!leader || pos.rank < leader.rank) leader = { x, z, heading, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber };
+    }
+
+    if (DEV_MODE) {
+      const focusedPlayer = this.focusedPlayerNumber;
+      const rawFrame = focusedPlayer !== null ? this.interpolationBuffer.latestRawFrame(focusedPlayer) : undefined;
+      if (rawFrame) {
+        const raw = computeRacingCarWorldTransform(rawFrame);
+        this.devHelpers?.showSamplePoint(raw.x, 0.4, raw.z);
+      } else {
+        this.devHelpers?.hideSamplePoint();
+      }
     }
 
     const target = focused ?? leader;
@@ -249,6 +276,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         config.height + Math.min(3, target.speed * 0.06) + shakeY,
         config.spectator ? target.z + 34 : behindZ
       );
+      if (!config.spectator) {
+        this.clampCameraToTrack(desired, target.progress, config.distance);
+        this.pushCameraClearOfOtherCars(desired, target.playerNumber, otherCarPositions);
+      }
       if (!this.cameraInitialized) {
         camera.position.copy(desired);
         this.lookTarget.set(target.x, 1.6, target.z);
@@ -271,6 +302,53 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.metrics?.update(_timestamp);
   }
 
+  /**
+   * The chase/close camera trails the car by a fixed world-space offset
+   * along the car's own heading. On a sharp corner the track curves away
+   * underneath that trailing point faster than the car turns, so the
+   * "behind" point can land outside the track surface - past the barrier
+   * ring - even though the car itself is still comfortably on track. This
+   * approximates the camera's own nearest centerline reference (using the
+   * chase distance as a progress offset, which is accurate enough since
+   * the distance is small relative to how sharply this track curves) and
+   * pulls the desired position back inside the barrier margin if needed.
+   */
+  private clampCameraToTrack(desired: THREE.Vector3, targetProgress: number, distance: number): void {
+    const refProgress = targetProgress - distance;
+    const center = centerlinePoint(TEST_OVAL_TRACK, refProgress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, refProgress);
+    const perpX = Math.cos(angle);
+    const perpZ = Math.sin(angle);
+    const forwardX = -Math.sin(angle);
+    const forwardZ = Math.cos(angle);
+    const dx = desired.x - center.x;
+    const dz = desired.z - center.z;
+    const lateral = dx * perpX + dz * perpZ;
+    if (Math.abs(lateral) <= CAMERA_TRACK_MARGIN) return;
+    const along = dx * forwardX + dz * forwardZ;
+    const clampedLateral = Math.sign(lateral) * CAMERA_TRACK_MARGIN;
+    desired.x = center.x + perpX * clampedLateral + forwardX * along;
+    desired.z = center.z + perpZ * clampedLateral + forwardZ * along;
+  }
+
+  /** Prevents the hood/close camera from ending up inside another car's tub/cockpit geometry when cars are bunched together (start grid, close racing). */
+  private pushCameraClearOfOtherCars(
+    desired: THREE.Vector3,
+    targetPlayerNumber: number,
+    otherCarPositions: Array<{ playerNumber: number; x: number; z: number }>
+  ): void {
+    for (const other of otherCarPositions) {
+      if (other.playerNumber === targetPlayerNumber) continue;
+      const dx = desired.x - other.x;
+      const dz = desired.z - other.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist >= CAMERA_CAR_CLEARANCE || dist < 1e-4) continue;
+      const push = CAMERA_CAR_CLEARANCE - dist;
+      desired.x += (dx / dist) * push;
+      desired.z += (dz / dist) * push;
+    }
+  }
+
   setFocusedPlayer(playerNumber: number | null): void {
     this.focusedPlayerNumber = playerNumber;
   }
@@ -278,7 +356,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   cycleCameraMode(): CameraMode {
     const current = CAMERA_MODES.indexOf(this.cameraMode);
     this.cameraMode = CAMERA_MODES[(current + 1) % CAMERA_MODES.length]!;
-    this.cameraInitialized = false;
+    // Deliberately does not reset cameraInitialized: leaving it true means the
+    // next frame's lerp eases into the new mode's desired position/FOV over
+    // several frames instead of hard-cutting the camera there instantly.
     return this.cameraMode;
   }
 
@@ -291,49 +371,6 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (this.cameraMode === "hood") return { distance: -1.6, height: 1.55, lookHeight: 1.15, fov: 76, damping: 0.34, spectator: false };
     if (this.cameraMode === "spectator") return { distance: 0, height: 24 + speed * 0.03, lookHeight: 1.8, fov: 58, damping: 0.08, spectator: true };
     return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.55, fov: 70, damping: 0.18, spectator: false };
-  }
-
-  private interpolate(): Map<number, CarFrame> {
-    if (this.snapshots.length === 0) return new Map();
-    if (this.snapshots.length === 1) return this.snapshots[0]!.players;
-    const renderTime = performance.now() - RENDER_DELAY_MS;
-    let prev = this.snapshots[0]!;
-    let next = this.snapshots[this.snapshots.length - 1]!;
-    for (let i = 1; i < this.snapshots.length; i++) {
-      const candidate = this.snapshots[i]!;
-      if (candidate.time >= renderTime) {
-        prev = this.snapshots[i - 1] ?? prev;
-        next = candidate;
-        break;
-      }
-    }
-    if (renderTime > next.time && this.snapshots.length >= 2) {
-      prev = this.snapshots[this.snapshots.length - 2]!;
-      next = this.snapshots[this.snapshots.length - 1]!;
-    }
-    const span = next.time - prev.time || 1;
-    const rawT = (renderTime - prev.time) / span;
-    const t = Math.min(1, Math.max(0, rawT));
-    const extrapolateSeconds = rawT > 1 ? Math.min(MAX_EXTRAPOLATE_MS, renderTime - next.time) / 1000 : 0;
-    const result = new Map<number, CarFrame>();
-
-    for (const [playerNumber, nextFrame] of next.players) {
-      const prevFrame = prev.players.get(playerNumber) ?? nextFrame;
-      const frame = {
-        progress: prevFrame.progress + (nextFrame.progress - prevFrame.progress) * t,
-        lateralOffset: prevFrame.lateralOffset + (nextFrame.lateralOffset - prevFrame.lateralOffset) * t,
-        headingError: prevFrame.headingError + (nextFrame.headingError - prevFrame.headingError) * t,
-        speed: prevFrame.speed + (nextFrame.speed - prevFrame.speed) * t,
-        rank: nextFrame.rank
-      };
-      if (extrapolateSeconds > 0 && Math.abs(frame.speed) > 0.01) {
-        frame.progress += frame.speed * Math.cos(frame.headingError) * extrapolateSeconds;
-        frame.lateralOffset += frame.speed * Math.sin(frame.headingError) * extrapolateSeconds;
-        frame.lateralOffset = Math.max(-TEST_OVAL_TRACK.trackHalfWidth * 1.6, Math.min(TEST_OVAL_TRACK.trackHalfWidth * 1.6, frame.lateralOffset));
-      }
-      result.set(playerNumber, frame);
-    }
-    return result;
   }
 
   private containerSize(): { width: number; height: number } {
@@ -428,6 +465,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.metrics?.destroy();
     this.metrics = null;
     if (this.scene) {
+      this.devHelpers?.dispose(this.scene);
       this.scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
@@ -436,13 +474,15 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       });
       this.scene.clear();
     }
+    this.devHelpers = null;
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
     this.scene = null;
     this.camera = null;
     this.renderer = null;
     this.cars.clear();
-    this.snapshots = [];
+    this.interpolationBuffer.reset();
+    this.lastRoundId = null;
     this.snapshotTimes = [];
     this.lastSnapshotAt = 0;
     this.cameraInitialized = false;
