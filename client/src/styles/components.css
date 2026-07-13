@@ -434,6 +434,15 @@
   gap: 0.5rem;
   padding: 0.55rem;
 }
+.race-host-diagnostics {
+  right: 1rem;
+  bottom: 5.8rem;
+  max-width: min(680px, calc(100% - 2rem));
+  padding: 0.55rem 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  color: #dbeafe;
+}
 .race-results-overlay {
   position: absolute;
   inset: 0;
@@ -1054,6 +1063,17 @@
   font-size: 0.78rem;
   line-height: 1.35;
   color: #dbeafe;
+}
+.racing-dev-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+.racing-dev-controls .btn {
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.76rem;
 }
 
 @media (max-width: 760px) {

@@ -354,6 +354,147 @@ describe("room lifecycle", () => {
     p1.close();
   }, 8000);
 
+  it("racing throttle packets after GO increase authoritative speed/progress and emitted state", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    for (let sequence = 1; sequence <= 12; sequence++) {
+      p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 0, throttle: 1, brake: 0, sequence, roundId });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+
+    const payload = await new Promise<{
+      gameType: "racing";
+      players: Array<{ speed: number; progress: number }>;
+    }>((resolve) => host.once(SOCKET_EVENTS.GAME_STATE, resolve));
+    const room = getRoom(created.roomId);
+    if (room?.gameState?.gameType !== "racing") throw new Error("expected racing game state");
+    const car = room.gameState.cars.get(1)!;
+    expect(car.speed).toBeGreaterThan(0);
+    expect(car.progress).toBeGreaterThan(0);
+    expect(payload.players[0]!.speed).toBeGreaterThan(0);
+    expect(payload.players[0]!.progress).toBeGreaterThan(0);
+
+    host.close();
+    p1.close();
+  }, 10000);
+
+  it("racing steering packets after GO change authoritative heading", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 3200));
+    for (let sequence = 1; sequence <= 16; sequence++) {
+      p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 1, throttle: 1, brake: 0, sequence, roundId });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+
+    const room = getRoom(created.roomId);
+    if (room?.gameState?.gameType !== "racing") throw new Error("expected racing game state");
+    const car = room.gameState.cars.get(1)!;
+    expect(car.speed).toBeGreaterThan(0);
+    expect(car.headingError).toBeGreaterThan(0);
+    expect(car.lateralOffset).toBeGreaterThan(0);
+
+    host.close();
+    p1.close();
+  }, 10000);
+
+  it("racing rematch creates a fresh sequence window", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1
+    });
+    if (!created.ok) throw new Error("setup failed");
+
+    const p1 = connect();
+    await new Promise<void>((resolve) => p1.on("connect", resolve));
+    await emitAck(p1, SOCKET_EVENTS.CONTROLLER_JOIN, {
+      roomId: created.roomId,
+      playerNumber: 1,
+      token: tokenFromJoinUrl(created.slots[0]!.joinUrl),
+      nickname: "Alice"
+    });
+    await emitAck(p1, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    let roundId: string | null = null;
+    host.on(SOCKET_EVENTS.ROOM_STATE, (room: { roundId: string | null }) => {
+      if (room.roundId) roundId = room.roundId;
+    });
+    let started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 0, throttle: 1, brake: 0, sequence: 25, roundId });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const ended = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_END, {});
+    expect(ended.ok).toBe(true);
+
+    roundId = null;
+    started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+    expect(roundId).not.toBeNull();
+    p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 0.25, throttle: 0.5, brake: 0, sequence: 1, roundId });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const room = getRoom(created.roomId);
+    if (room?.gameState?.gameType !== "racing") throw new Error("expected racing game state");
+    const car = room.gameState.cars.get(1)!;
+    expect(car.lastSequence).toBe(1);
+    expect(car.throttle).toBe(0.5);
+
+    host.close();
+    p1.close();
+  }, 10000);
+
   it("resets racing input when a controller disconnects", async () => {
     const host = connect();
     await new Promise<void>((resolve) => host.on("connect", resolve));

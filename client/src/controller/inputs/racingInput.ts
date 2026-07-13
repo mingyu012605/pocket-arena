@@ -31,4 +31,8 @@ export class RacingInputSource {
   getSequence(): number {
     return this.sequence;
   }
+
+  getRoundId(): string {
+    return this.roundId;
+  }
 }

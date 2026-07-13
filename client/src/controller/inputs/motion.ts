@@ -21,6 +21,18 @@ interface NormalizedAxes {
   pitch: number;    // degrees, raw "tilt" axis before calibration
 }
 
+export interface MotionDebugSnapshot {
+  rawAlpha: number | null;
+  rawBeta: number | null;
+  rawGamma: number | null;
+  normalizedRotation: number;
+  normalizedPitch: number;
+  lastEventAt: number;
+  orientationAngle: number;
+  permissionResult: "not-requested" | "granted" | "denied" | "implicit";
+  calibrated: boolean;
+}
+
 const LANDSCAPE_ANGLES = new Set([90, 270]);
 
 const STEERING_DEAD_ZONE_DEG = 5;
@@ -84,7 +96,11 @@ export class MotionInputSource {
   private throttleSign: 1 | -1 = 1;
   private lastRawRotation = 0;
   private lastRawPitch = 0;
+  private lastAlpha: number | null = null;
+  private lastBeta: number | null = null;
+  private lastGamma: number | null = null;
   private lastEventAt = 0;
+  private permissionResult: MotionDebugSnapshot["permissionResult"] = "not-requested";
   private smoothedSteering = 0;
   private smoothedSigned = 0;
   private sensorTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -106,6 +122,20 @@ export class MotionInputSource {
 
   getCalibrationStep(): CalibrationStep {
     return this.calibrationStep;
+  }
+
+  getDebugSnapshot(): MotionDebugSnapshot {
+    return {
+      rawAlpha: this.lastAlpha,
+      rawBeta: this.lastBeta,
+      rawGamma: this.lastGamma,
+      normalizedRotation: this.lastRawRotation,
+      normalizedPitch: this.lastRawPitch,
+      lastEventAt: this.lastEventAt,
+      orientationAngle: this.orientationAngle(),
+      permissionResult: this.permissionResult,
+      calibrated: this.calibrationStep === "done"
+    };
   }
 
   onStateChange(listener: (state: MotionState) => void): () => void {
@@ -132,15 +162,20 @@ export class MotionInputSource {
     try {
       if (typeof orientationCtor.requestPermission === "function") {
         const result = await orientationCtor.requestPermission();
+        this.permissionResult = result;
         if (result !== "granted") {
           this.setState("permission-denied");
           return;
         }
+      } else {
+        this.permissionResult = "implicit";
       }
       if (motionCtor && typeof motionCtor.requestPermission === "function") {
-        await motionCtor.requestPermission();
+        const result = await motionCtor.requestPermission();
+        if (result === "denied") this.permissionResult = "denied";
       }
     } catch {
+      this.permissionResult = "denied";
       this.setState("permission-denied");
       return;
     }
@@ -186,6 +221,9 @@ export class MotionInputSource {
 
   private handleOrientation = (event: DeviceOrientationEvent): void => {
     if (event.beta === null || event.gamma === null) return;
+    this.lastAlpha = event.alpha;
+    this.lastBeta = event.beta;
+    this.lastGamma = event.gamma;
     const { rotation, pitch } = normalizeAxes(event.beta, event.gamma, this.orientationAngle());
     this.lastRawRotation = rotation;
     this.lastRawPitch = pitch;

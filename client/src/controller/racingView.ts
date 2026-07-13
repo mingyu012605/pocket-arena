@@ -55,6 +55,7 @@ export function mountRacingView(
       <details class="racing-dev-diagnostics" id="racing-dev-diagnostics" hidden>
         <summary>Diagnostics</summary>
         <pre id="racing-dev-readout"></pre>
+        <div class="racing-dev-controls" id="racing-dev-controls"></div>
       </details>
     </div>
   `;
@@ -75,6 +76,7 @@ export function mountRacingView(
   const indicator = container.querySelector<HTMLSpanElement>("#racing-conn-indicator")!;
   const diagnostics = container.querySelector<HTMLDetailsElement>("#racing-dev-diagnostics")!;
   const diagnosticsReadout = container.querySelector<HTMLPreElement>("#racing-dev-readout")!;
+  const diagnosticsControls = container.querySelector<HTMLDivElement>("#racing-dev-controls")!;
 
   setText(nicknameEl, opts.nickname);
   const motion = new MotionInputSource();
@@ -82,26 +84,52 @@ export function mountRacingView(
   const devDiagnostics = isDevDiagnosticsEnabled();
   let lastReading: MotionReading = { steering: 0, throttle: 0, brake: 0 };
   let lastSendAt = 0;
+  let packetsSent = 0;
   let serverSpeed = 0;
   if (devDiagnostics) diagnostics.hidden = false;
 
   function updateDiagnostics(): void {
     if (!devDiagnostics) return;
     const orientation = screen.orientation as ScreenOrientation | undefined;
+    const debug = motion.getDebugSnapshot();
     diagnosticsReadout.textContent = [
       `secureContext: ${window.isSecureContext}`,
       `motionState: ${motion.getState()}`,
+      `permission: ${debug.permissionResult}`,
       `landscape: ${window.innerWidth > window.innerHeight}`,
       `orientationAngle: ${orientation?.angle ?? "unknown"}`,
+      `landscapeMode: ${debug.orientationAngle === 270 ? "landscape-right" : debug.orientationAngle === 90 ? "landscape-left" : "unknown"}`,
       `calibration: ${motion.getCalibrationStep()}`,
+      `calibrated: ${debug.calibrated}`,
+      `rawAlpha: ${debug.rawAlpha ?? "null"}`,
+      `rawBeta: ${debug.rawBeta ?? "null"}`,
+      `rawGamma: ${debug.rawGamma ?? "null"}`,
+      `normalizedRotation: ${debug.normalizedRotation.toFixed(2)}`,
+      `normalizedPitch: ${debug.normalizedPitch.toFixed(2)}`,
+      `sensorAgeMs: ${debug.lastEventAt === 0 ? "never" : Date.now() - debug.lastEventAt}`,
       `steering: ${lastReading.steering.toFixed(3)}`,
       `throttle: ${lastReading.throttle.toFixed(3)}`,
       `brake: ${lastReading.brake.toFixed(3)}`,
+      `roundId: ${input.getRoundId()}`,
       `sequence: ${input.getSequence()}`,
+      `packetsSent: ${packetsSent}`,
       `lastSendMsAgo: ${lastSendAt === 0 ? "never" : Math.round(performance.now() - lastSendAt)}`,
       `socket: ${getSocket().connected ? "connected" : "disconnected"}`,
+      `playerNumber: ${opts.playerNumber}`,
       `serverSpeedKmh: ${Math.round(serverSpeed * 3.6)}`
     ].join("\n");
+  }
+
+  function sendDevReading(reading: MotionReading): void {
+    lastReading = reading;
+    input.send(reading);
+    packetsSent += 1;
+    lastSendAt = performance.now();
+    wheelRimEl.style.setProperty("--steer", String(reading.steering));
+    throttleBar.value = reading.throttle;
+    brakeBar.value = reading.brake;
+    steeringReadout.textContent = `Steering ${Math.round(reading.steering * 100)}%`;
+    updateDiagnostics();
   }
 
   function appendCalibrationButton(label: string, body: string, onClick: () => void): void {
@@ -161,6 +189,7 @@ export function mountRacingView(
   const offReading = motion.onReading((reading: MotionReading) => {
     lastReading = reading;
     input.send(reading);
+    packetsSent += 1;
     lastSendAt = performance.now();
     wheelRimEl.style.setProperty("--steer", String(reading.steering));
     throttleBar.value = reading.throttle;
@@ -171,9 +200,25 @@ export function mountRacingView(
 
   const onRecalibrate = () => {
     input.sendNeutral();
+    packetsSent += 1;
     motion.recalibrate();
   };
   recalibrateButton.addEventListener("click", onRecalibrate);
+
+  if (devDiagnostics) {
+    const syntheticControls: Array<[string, MotionReading]> = [
+      ["Throttle 1", { steering: 0, throttle: 1, brake: 0 }],
+      ["Brake 1", { steering: 0, throttle: 0, brake: 1 }],
+      ["Steer -1", { steering: -1, throttle: 0.5, brake: 0 }],
+      ["Steer 1", { steering: 1, throttle: 0.5, brake: 0 }],
+      ["Neutral", { steering: 0, throttle: 0, brake: 0 }]
+    ];
+    for (const [label, reading] of syntheticControls) {
+      const button = createButton({ label, variant: "secondary", onClick: () => sendDevReading(reading) });
+      button.type = "button";
+      diagnosticsControls.appendChild(button);
+    }
+  }
 
   const socket = getSocket();
   const onGameState = (payload: GameStatePayload) => {
@@ -189,17 +234,20 @@ export function mountRacingView(
 
   const onDisconnect = () => {
     input.sendNeutral();
+    packetsSent += 1;
     indicator.classList.add("offline");
   };
   const onConnect = () => indicator.classList.remove("offline");
   const onBlur = () => {
     input.sendNeutral();
+    packetsSent += 1;
     lastSendAt = performance.now();
     updateDiagnostics();
   };
   const onVisibility = () => {
     if (document.hidden) {
       input.sendNeutral();
+      packetsSent += 1;
       lastSendAt = performance.now();
       updateDiagnostics();
     }
@@ -222,6 +270,7 @@ export function mountRacingView(
     window.removeEventListener("blur", onBlur);
     document.removeEventListener("visibilitychange", onVisibility);
     input.sendNeutral();
+    packetsSent += 1;
     motion.destroy();
   };
 }

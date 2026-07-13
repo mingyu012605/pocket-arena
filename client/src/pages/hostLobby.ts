@@ -88,6 +88,9 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   let racingCameraMode = "chase";
   let racingRendererControls: RacingRenderer | null = null;
   let lastRacingHudAt = 0;
+  let racingSnapshotCount = 0;
+  let lastRacingSnapshotAt = 0;
+  const devMode = new URLSearchParams(window.location.search).get("dev") === "1";
 
   function renderLobbyFooter(): void {
     footerEl.innerHTML = "";
@@ -252,6 +255,20 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       })
     );
     hud.appendChild(controls);
+
+    if (devMode) {
+      const diagnostics = document.createElement("section");
+      diagnostics.className = "race-hud-panel race-host-diagnostics";
+      diagnostics.textContent = [
+        `snapshots ${racingSnapshotCount}`,
+        `age ${lastRacingSnapshotAt === 0 ? "n/a" : `${Math.round(performance.now() - lastRacingSnapshotAt)}ms`}`,
+        `speed ${focused.speed.toFixed(2)}`,
+        `progress ${focused.progress.toFixed(2)}`,
+        `offset ${focused.lateralOffset.toFixed(2)}`,
+        `heading ${focused.headingError.toFixed(3)}`
+      ].join(" | ");
+      hud.appendChild(diagnostics);
+    }
   }
 
   function renderResultsScreen(room: PublicRoomState): void {
@@ -406,6 +423,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       renderer.applyState(payload);
     } else if (payload.gameType === "racing") {
       lastRacingState = payload;
+      racingSnapshotCount += 1;
+      lastRacingSnapshotAt = performance.now();
       if (racingRendererControls) racingRendererControls.applyState(payload);
       updateRacingHud(payload);
     }
