@@ -3,6 +3,7 @@ import type { GameRenderer } from "../gameRenderer";
 import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
 import type { PublicRoomState, RacingGameStatePayload, RacingPlayerState } from "../../../../shared/protocol";
 import { RacingMetricsOverlay, shouldShowRacingMetrics } from "./metrics";
+import type { RacingLifecycleStats } from "./metrics";
 import { getDefaultRacingQuality } from "./quality";
 import type { RacingQualitySettings } from "./quality";
 
@@ -40,6 +41,20 @@ const CAMERA_DISTANCE = 12;
 const CAMERA_HEIGHT = 5.8;
 const CAMERA_LOOK_AHEAD = 10;
 const CAMERA_MODES: CameraMode[] = ["chase", "close", "hood", "spectator"];
+const SNAPSHOT_HZ_WINDOW_MS = 5000;
+
+const racingLifecycleStats = {
+  rendererInstances: 0,
+  resizeListeners: 0
+};
+
+function readHostLifecycleStats(): Pick<RacingLifecycleStats, "rafLoops" | "socketGameStateListeners"> {
+  const debug = window.__pocketArenaRacingDebug ?? {};
+  return {
+    rafLoops: debug.rafLoops ?? 0,
+    socketGameStateListeners: debug.socketGameStateListeners ?? 0
+  };
+}
 
 export function computeRacingCarWorldTransform(frame: Pick<CarFrame, "progress" | "lateralOffset" | "headingError">): WorldCarTransform {
   const center = centerlinePoint(TEST_OVAL_TRACK, frame.progress);
@@ -417,6 +432,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private focusedPlayerNumber: number | null = null;
   private container: HTMLElement | null = null;
   private metrics: RacingMetricsOverlay | null = null;
+  private snapshotTimes: number[] = [];
+  private lastSnapshotAt = 0;
   private readonly quality: RacingQualitySettings = getDefaultRacingQuality();
   private cameraInitialized = false;
   private cameraMode: CameraMode = "chase";
@@ -428,6 +445,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   }
 
   mount(container: HTMLElement): void {
+    racingLifecycleStats.rendererInstances += 1;
     this.container = container;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#bfefff");
@@ -485,13 +503,23 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         container,
         renderer,
         getActiveCars: () => this.activeCarCount(),
-        getQualityPreset: () => this.quality.preset
+        getQualityPreset: () => this.quality.preset,
+        getSnapshotHz: () => this.snapshotHz(),
+        getLatestSnapshotAgeMs: () => this.latestSnapshotAgeMs(),
+        getLifecycleStats: () => this.lifecycleStats()
       });
     }
     window.addEventListener("resize", this.handleResize);
+    racingLifecycleStats.resizeListeners += 1;
   }
 
   applyState(state: RacingGameStatePayload): void {
+    const now = performance.now();
+    this.lastSnapshotAt = now;
+    this.snapshotTimes.push(now);
+    while (this.snapshotTimes.length > 0 && now - this.snapshotTimes[0]! > SNAPSHOT_HZ_WINDOW_MS) {
+      this.snapshotTimes.shift();
+    }
     const players = new Map<number, CarFrame>(
       state.players.map((p: RacingPlayerState) => [
         p.playerNumber,
@@ -504,7 +532,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         }
       ])
     );
-    this.snapshots.push({ time: performance.now(), players });
+    this.snapshots.push({ time: now, players });
     if (this.snapshots.length > 2) this.snapshots.shift();
   }
 
@@ -641,8 +669,29 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     return count;
   }
 
+  private snapshotHz(): number {
+    if (this.snapshotTimes.length < 2) return 0;
+    const span = this.snapshotTimes[this.snapshotTimes.length - 1]! - this.snapshotTimes[0]!;
+    return span > 0 ? ((this.snapshotTimes.length - 1) * 1000) / span : 0;
+  }
+
+  private latestSnapshotAgeMs(): number | null {
+    return this.lastSnapshotAt === 0 ? null : performance.now() - this.lastSnapshotAt;
+  }
+
+  private lifecycleStats(): RacingLifecycleStats {
+    const hostStats = readHostLifecycleStats();
+    return {
+      rendererInstances: racingLifecycleStats.rendererInstances,
+      resizeListeners: racingLifecycleStats.resizeListeners,
+      rafLoops: hostStats.rafLoops,
+      socketGameStateListeners: hostStats.socketGameStateListeners
+    };
+  }
+
   destroy(): void {
     window.removeEventListener("resize", this.handleResize);
+    racingLifecycleStats.resizeListeners = Math.max(0, racingLifecycleStats.resizeListeners - 1);
     this.metrics?.destroy();
     this.metrics = null;
     if (this.scene) {
@@ -661,7 +710,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.renderer = null;
     this.cars.clear();
     this.snapshots = [];
+    this.snapshotTimes = [];
+    this.lastSnapshotAt = 0;
     this.cameraInitialized = false;
     this.container = null;
+    racingLifecycleStats.rendererInstances = Math.max(0, racingLifecycleStats.rendererInstances - 1);
   }
 }

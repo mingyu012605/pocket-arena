@@ -90,7 +90,17 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   let lastRacingHudAt = 0;
   let racingSnapshotCount = 0;
   let lastRacingSnapshotAt = 0;
+  let activeRafLoops = 0;
+  let socketGameStateListeners = 0;
   const devMode = new URLSearchParams(window.location.search).get("dev") === "1";
+
+  function publishRacingDebugCounters(): void {
+    window.__pocketArenaRacingDebug = {
+      ...(window.__pocketArenaRacingDebug ?? {}),
+      rafLoops: activeRafLoops,
+      socketGameStateListeners
+    };
+  }
 
   function renderLobbyFooter(): void {
     footerEl.innerHTML = "";
@@ -148,11 +158,17 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       rafHandle = requestAnimationFrame(loop);
     };
     rafHandle = requestAnimationFrame(loop);
+    activeRafLoops += 1;
+    publishRacingDebugCounters();
   }
 
   function stopGameView(): void {
     gameViewGeneration += 1;
-    if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+    if (rafHandle !== null) {
+      cancelAnimationFrame(rafHandle);
+      activeRafLoops = Math.max(0, activeRafLoops - 1);
+      publishRacingDebugCounters();
+    }
     rafHandle = null;
     renderer?.destroy();
     renderer = null;
@@ -431,6 +447,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);
+  socketGameStateListeners += 1;
+  publishRacingDebugCounters();
   socket.on(SOCKET_EVENTS.ROOM_STATE, onRoomState);
   socket.on(SOCKET_EVENTS.ROOM_CLOSED, onRoomClosed);
 
@@ -439,6 +457,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     socket.off(SOCKET_EVENTS.ROOM_CLOSED, onRoomClosed);
     socket.off(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
     socket.off(SOCKET_EVENTS.GAME_STATE, onGameState);
+    socketGameStateListeners = Math.max(0, socketGameStateListeners - 1);
+    publishRacingDebugCounters();
     stopGameView();
   };
 }
