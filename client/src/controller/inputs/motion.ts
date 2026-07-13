@@ -34,6 +34,14 @@ export interface MotionDebugSnapshot {
 }
 
 const LANDSCAPE_ANGLES = new Set([90, 270]);
+const CALIBRATION_STORAGE_KEY = "pocket-arena:racingCalibration";
+
+interface StoredCalibration {
+  neutralRotation: number;
+  neutralPitch: number;
+  steeringSign: 1 | -1;
+  throttleSign: 1 | -1;
+}
 
 const STEERING_DEAD_ZONE_DEG = 8;
 const STEERING_MAX_TILT_DEG = 35;
@@ -186,11 +194,63 @@ export class MotionInputSource {
   }
 
   private checkLandscape(): void {
-    if (this.isLandscape()) {
-      this.setState("await-calibration");
-      this.calibrationStep = "center";
-    } else {
+    if (!this.isLandscape()) {
       this.setState("await-landscape");
+      return;
+    }
+    // Recalibrating every rematch is real friction: the room returns to its
+    // lobby (and this controller view remounts) between races even though
+    // the player is still holding the phone exactly as they calibrated it a
+    // few seconds earlier. Restore that instead of re-running center/tilt-
+    // right/tilt-forward every time - only motion permission itself (a real
+    // per-page-load gesture requirement) still gates re-entry.
+    const stored = this.loadPersistedCalibration();
+    if (stored) {
+      this.neutralRotation = stored.neutralRotation;
+      this.neutralPitch = stored.neutralPitch;
+      this.steeringSign = stored.steeringSign;
+      this.throttleSign = stored.throttleSign;
+      this.calibrationStep = "done";
+      this.smoothedSteering = 0;
+      this.smoothedSigned = 0;
+      this.setState("ready");
+      this.startReadingLoop();
+      return;
+    }
+    this.setState("await-calibration");
+    this.calibrationStep = "center";
+  }
+
+  private persistCalibration(): void {
+    try {
+      const data: StoredCalibration = {
+        neutralRotation: this.neutralRotation,
+        neutralPitch: this.neutralPitch,
+        steeringSign: this.steeringSign,
+        throttleSign: this.throttleSign
+      };
+      window.sessionStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // sessionStorage unavailable (private browsing, quota) - calibration just won't persist.
+    }
+  }
+
+  private loadPersistedCalibration(): StoredCalibration | null {
+    try {
+      const raw = window.sessionStorage.getItem(CALIBRATION_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<StoredCalibration>;
+      if (
+        typeof parsed.neutralRotation !== "number" ||
+        typeof parsed.neutralPitch !== "number" ||
+        (parsed.steeringSign !== 1 && parsed.steeringSign !== -1) ||
+        (parsed.throttleSign !== 1 && parsed.throttleSign !== -1)
+      ) {
+        return null;
+      }
+      return parsed as StoredCalibration;
+    } catch {
+      return null;
     }
   }
 
@@ -264,6 +324,7 @@ export class MotionInputSource {
     this.clearSensorTimeout();
     this.smoothedSteering = 0;
     this.smoothedSigned = 0;
+    this.persistCalibration();
     this.setState("ready");
     this.startReadingLoop();
   }
