@@ -43,6 +43,10 @@ interface StoredCalibration {
   throttleSign: 1 | -1;
 }
 
+interface MotionInputOptions {
+  restoreCalibration?: boolean;
+}
+
 const STEERING_DEAD_ZONE_DEG = 8;
 const STEERING_MAX_TILT_DEG = 35;
 const THROTTLE_DEAD_ZONE_DEG = 8;
@@ -115,8 +119,10 @@ export class MotionInputSource {
   private readingHandle: ReturnType<typeof setInterval> | null = null;
   private stateListeners = new Set<(state: MotionState) => void>();
   private readingListeners = new Set<(reading: MotionReading) => void>();
+  private readonly restoreCalibration: boolean;
 
-  constructor() {
+  constructor(options: MotionInputOptions = {}) {
+    this.restoreCalibration = options.restoreCalibration ?? false;
     this.state = !window.isSecureContext
       ? "insecure-context"
       : typeof DeviceOrientationEvent === "undefined"
@@ -198,13 +204,7 @@ export class MotionInputSource {
       this.setState("await-landscape");
       return;
     }
-    // Recalibrating every rematch is real friction: the room returns to its
-    // lobby (and this controller view remounts) between races even though
-    // the player is still holding the phone exactly as they calibrated it a
-    // few seconds earlier. Restore that instead of re-running center/tilt-
-    // right/tilt-forward every time - only motion permission itself (a real
-    // per-page-load gesture requirement) still gates re-entry.
-    const stored = this.loadPersistedCalibration();
+    const stored = this.restoreCalibration ? this.loadPersistedCalibration() : null;
     if (stored) {
       this.neutralRotation = stored.neutralRotation;
       this.neutralPitch = stored.neutralPitch;
@@ -232,6 +232,14 @@ export class MotionInputSource {
       window.sessionStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(data));
     } catch {
       // sessionStorage unavailable (private browsing, quota) - calibration just won't persist.
+    }
+  }
+
+  private clearPersistedCalibration(): void {
+    try {
+      window.sessionStorage.removeItem(CALIBRATION_STORAGE_KEY);
+    } catch {
+      // sessionStorage unavailable - nothing persisted to clear.
     }
   }
 
@@ -331,6 +339,9 @@ export class MotionInputSource {
 
   recalibrate(): void {
     this.stopReadingLoop();
+    this.clearPersistedCalibration();
+    this.smoothedSteering = 0;
+    this.smoothedSigned = 0;
     this.calibrationStep = "center";
     this.setState(this.isLandscape() ? "await-calibration" : "await-landscape");
   }
