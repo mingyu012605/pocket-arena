@@ -252,6 +252,10 @@ export function createLauncherGameCard(game: LauncherGameView, onPlay: (id: Game
   const card = document.createElement("article");
   card.className = `pa-game-card ${game.playable ? "is-playable" : "is-coming-soon"}`;
   card.tabIndex = 0;
+  if (game.playable) {
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Play ${game.title}`);
+  }
   card.innerHTML = `
     <div class="pa-card-art"></div>
     <div class="pa-card-body">
@@ -275,8 +279,15 @@ export function createLauncherGameCard(game: LauncherGameView, onPlay: (id: Game
     play.type = "button";
     play.className = "pa-card-play";
     play.innerHTML = `${createIcon("play")}Play`;
-    play.addEventListener("click", () => onPlay(game.id));
+    play.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onPlay(game.id);
+    });
     card.querySelector<HTMLDivElement>(".pa-card-actions")!.appendChild(play);
+
+    card.addEventListener("click", () => {
+      onPlay(game.id);
+    });
   }
 
   card.addEventListener("keydown", (event) => {

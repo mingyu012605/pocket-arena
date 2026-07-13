@@ -2,14 +2,13 @@ import "./styles/global.css";
 import "./styles/components.css";
 import "./styles/animations.css";
 import { registerRoute, startRouter } from "./networking/router";
-import { renderLandingPage } from "./pages/landing";
 import { renderHostGameSelectPage } from "./pages/hostGameSelect";
 import { renderHostPlayerCountPage } from "./pages/hostPlayerCount";
 import { renderHostLobbyPage } from "./pages/hostLobby";
 import { renderJoinPage } from "./pages/join";
 import { renderMotionDebugPage } from "./pages/motionDebug";
 
-registerRoute("/", renderLandingPage);
+registerRoute("/", renderHostGameSelectPage);
 registerRoute("/host", renderHostGameSelectPage);
 registerRoute("/host/:gameId", renderHostPlayerCountPage);
 registerRoute("/host/lobby/:roomCode", renderHostLobbyPage);
