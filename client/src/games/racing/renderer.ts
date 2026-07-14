@@ -19,12 +19,15 @@ import { RacingEffects } from "./effects";
 import { buildImportedCarVisual, buildStadiumProps, loadRacingAssetLibrary } from "./assetScene";
 import type { RacingAssetLibrary } from "./assetScene";
 
-type CameraMode = "chase" | "close" | "hood" | "spectator";
+type CameraMode = "chase" | "wide" | "hood" | "spectator";
 
-const CAMERA_DISTANCE = 12;
-const CAMERA_HEIGHT = 5.8;
-const CAMERA_LOOK_AHEAD = 10;
-const CAMERA_MODES: CameraMode[] = ["chase", "close", "hood", "spectator"];
+// Raised/pulled back from the original 12/5.8 - the tighter framing put the
+// player's own car too close and low, cropping the road ahead and making
+// steering direction harder to read.
+const CAMERA_DISTANCE = 14.5;
+const CAMERA_HEIGHT = 7;
+const CAMERA_LOOK_AHEAD = 12;
+const CAMERA_MODES: CameraMode[] = ["chase", "wide", "hood", "spectator"];
 const SNAPSHOT_HZ_WINDOW_MS = 5000;
 const FRAME_BUDGET_MS = 1000 / 55;
 const PIXEL_RATIO_STEP = 0.12;
@@ -115,7 +118,13 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.18;
+    // Was 1.18 with much brighter lights (2.1 sun + 1.7 hemisphere), tuned
+    // for the old procedural car's MeshPhysicalMaterial clearcoat. The
+    // imported car's flat MeshStandardMaterial body paint (near-white native
+    // albedo, tinted per-player) blew out toward white under that much
+    // irradiance - ACES compresses high input luminance toward 1.0,
+    // crushing color saturation exactly where the player-color tint lives.
+    renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = this.quality.shadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "game-canvas racing-canvas";
@@ -132,8 +141,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     pmremGenerator.dispose();
     this.environmentTexture = environmentTexture;
 
-    scene.add(new THREE.HemisphereLight("#f3fbff", "#36553d", 1.7));
-    const sun = new THREE.DirectionalLight("#fff7df", 2.1);
+    scene.add(new THREE.HemisphereLight("#f3fbff", "#36553d", 1.05));
+    const sun = new THREE.DirectionalLight("#fff7df", 1.35);
     sun.position.set(60, 120, 40);
     sun.castShadow = this.quality.shadows;
     sun.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
@@ -144,7 +153,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     sun.shadow.bias = -0.0015;
     sun.shadow.normalBias = 0.4;
     scene.add(sun);
-    const rimLight = new THREE.DirectionalLight("#8be8ff", 0.85);
+    const rimLight = new THREE.DirectionalLight("#8be8ff", 0.55);
     rimLight.position.set(-80, 55, -120);
     scene.add(rimLight);
     scene.add(buildSkyDome());
@@ -308,7 +317,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
       const glowMaterial = car.underglow.material;
       if (glowMaterial instanceof THREE.MeshBasicMaterial) {
-        glowMaterial.opacity = 0.18 + Math.min(0.24, pos.speed / 140);
+        glowMaterial.opacity = 0.42 + Math.min(0.3, pos.speed / 140);
       }
       if (DEV_MODE) this.devHelpers?.updateCarBounds(playerNumber, car.root);
       if (Math.abs(pos.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth && Math.abs(pos.speed) > 3) {
@@ -460,10 +469,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   }
 
   private cameraConfig(speed: number): { distance: number; height: number; lookHeight: number; fov: number; damping: number; spectator: boolean } {
-    if (this.cameraMode === "close") return { distance: 10, height: 4.8, lookHeight: 1.35, fov: 70, damping: 0.2, spectator: false };
+    if (this.cameraMode === "wide") return { distance: 19, height: 9.5, lookHeight: 1.8, fov: 66, damping: 0.16, spectator: false };
     if (this.cameraMode === "hood") return { distance: -1.6, height: 1.55, lookHeight: 1.15, fov: 76, damping: 0.34, spectator: false };
     if (this.cameraMode === "spectator") return { distance: 0, height: 24 + speed * 0.03, lookHeight: 1.8, fov: 58, damping: 0.08, spectator: true };
-    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.55, fov: 70, damping: 0.18, spectator: false };
+    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.6, fov: 68, damping: 0.18, spectator: false };
   }
 
   private containerSize(): { width: number; height: number } {

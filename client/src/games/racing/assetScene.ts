@@ -94,10 +94,26 @@ function cloneWithUniqueMaterials(source: THREE.Object3D, paintColor?: string): 
       // touching the tire or glass materials.
       if (paintColor && /^grey$/i.test(material.name) && named.color) {
         named.color.set(paintColor);
+        // The body-paint mesh is a small fraction of the visible car (most
+        // of the shell is the neutral "carTire" material by design), and
+        // its native albedo starts almost white - under this scene's
+        // lighting a pure diffuse fill reads as a pale wash rather than a
+        // clear player color. A touch of gloss (lower roughness) plus a
+        // fixed emissive fraction of the same hue keeps the color reading
+        // as saturated regardless of how bright the surrounding scene is,
+        // instead of being entirely at the mercy of incident light.
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.roughness = 0.38;
+          material.emissive = new THREE.Color(paintColor);
+          material.emissiveIntensity = 0.4;
+        }
       }
       if (/glass/i.test(material.name)) {
         named.transparent = true;
         named.opacity = 0.62;
+      }
+      if (material instanceof THREE.MeshStandardMaterial) {
+        material.envMapIntensity = 0.35;
       }
       material.needsUpdate = true;
     }

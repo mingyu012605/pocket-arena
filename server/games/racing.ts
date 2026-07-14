@@ -123,12 +123,26 @@ function applyInputTimeout(car: RacingCarState, now: number): void {
 
 function applyBotInput(playerNumber: number, car: RacingCarState): void {
   const botIndex = Math.max(0, playerNumber - BOT_PLAYER_START);
-  const cruiseSpeed = 30 + botIndex * 1.8;
+  // Each bot gets its own cruise speed, cornering aggression, and braking
+  // point (seeded off botIndex so it's stable/reproducible, not random each
+  // tick) so racers spread out and show different speeds instead of every
+  // car converging on the same global top speed on a long straight.
+  const cruiseSpeed = 27 + botIndex * 4.5 + Math.sin(botIndex * 3.1) * 2;
+  const corneringConfidence = 0.62 + (botIndex % 3) * 0.1;
   const wave = Math.sin(car.progress * 0.035 + botIndex * 1.7) * 0.2;
   const laneTarget = ((botIndex % 3) - 1) * (TEST_OVAL_TRACK.trackHalfWidth * 0.34);
-  car.throttle = car.speed < cruiseSpeed ? 0.78 + botIndex * 0.035 : 0.28;
-  car.brake = car.speed > cruiseSpeed + 5 ? 0.18 : 0;
-  car.steering = Math.max(-0.55, Math.min(0.55, wave + (laneTarget - car.lateralOffset) * 0.075));
+  if (car.speed < cruiseSpeed) {
+    car.throttle = 0.78 + botIndex * 0.035;
+    car.brake = 0;
+  } else {
+    // Actually hold near cruiseSpeed instead of just slowing the climb rate -
+    // previously a reduced-but-still-positive throttle let every bot creep
+    // all the way up to the shared global max speed regardless of its own
+    // target, which is why every racer showed the same speed on a straight.
+    car.throttle = 0;
+    car.brake = Math.min(0.3, (car.speed - cruiseSpeed) * 0.05);
+  }
+  car.steering = Math.max(-0.55, Math.min(0.55, wave * corneringConfidence + (laneTarget - car.lateralOffset) * 0.075));
   car.lastInputAt = Date.now();
 }
 

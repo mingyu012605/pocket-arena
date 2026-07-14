@@ -47,7 +47,9 @@ const RIM_SPOKE_GEOMETRY = new THREE.BoxGeometry(0.04, 0.42, 0.04);
 const TIRE_GROOVE_GEOMETRY = new THREE.TorusGeometry(0.44, 0.03, 6, 20);
 const BRAKE_LIGHT_GEOMETRY = new THREE.BoxGeometry(1.1, 0.12, 0.08);
 const SPEED_TRAIL_GEOMETRY = new THREE.PlaneGeometry(2.2, 7.8);
-const UNDERGLOW_GEOMETRY = new THREE.CircleGeometry(1.5, 24);
+// A thin ring rather than a filled disc - reads as "this is your car"
+// without looking like the car is floating over a puddle of light.
+const UNDERGLOW_GEOMETRY = new THREE.RingGeometry(0.62, 0.78, 28);
 const SHADOW_GEOMETRY = new THREE.CircleGeometry(1.7, 20);
 const MARKER_GEOMETRY = new THREE.ConeGeometry(0.42, 0.88, 3);
 
@@ -240,10 +242,9 @@ export function buildCarMesh(color: string): CarVisual {
 
   const underglow = new THREE.Mesh(
     UNDERGLOW_GEOMETRY,
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending })
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })
   );
   underglow.rotation.x = -Math.PI / 2;
-  underglow.scale.set(1, 1.8, 1);
   underglow.position.y = 0.06;
   group.add(underglow);
 
