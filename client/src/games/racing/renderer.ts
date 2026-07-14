@@ -108,8 +108,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private readonly quality: RacingQualitySettings = getDefaultRacingQuality();
   private cameraInitialized = false;
   private cameraMode: CameraMode = "chase";
+  private lastRaceStatus: RacingGameStatePayload["raceStatus"] | null = null;
   private lookTarget = new THREE.Vector3();
-  private cameraShake = 0;
   /** Extra chase distance eased in when another car is close ahead, so nearby traffic can't fill the whole frame. */
   private trafficPullback = 0;
   private cameraRoll = 0;
@@ -316,6 +316,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     );
     for (const player of state.players) {
       this.ensureCarVisual(player.playerNumber, player.color);
+      if (state.raceStatus === "racing" && this.lastRaceStatus === "countdown") {
+        const { x, z } = computeRacingCarWorldTransform(player);
+        if (Number.isFinite(x) && Number.isFinite(z)) this.effects?.triggerStartBurst(x, z);
+      }
       if (player.finished && !this.finishedPlayers.has(player.playerNumber)) {
         this.finishedPlayers.add(player.playerNumber);
         const { x, z } = computeRacingCarWorldTransform(player);
@@ -323,6 +327,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
     }
     this.interpolationBuffer.addSnapshot(now, players);
+    this.lastRaceStatus = state.raceStatus;
   }
 
   /** Clears buffered snapshots and camera continuity state. Called automatically on round change; also safe to call explicitly on reconnect. */
@@ -335,6 +340,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.lastSkidSpawn.clear();
     this.visualYaw.clear();
     this.visualWheelSteer.clear();
+    this.lastRaceStatus = null;
   }
 
   render(_timestamp: number): void {
@@ -462,12 +468,13 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       // producing a broken, near-top-down view looking back at the car.
       const behindX = target.x - forwardX * effectiveDistance;
       const behindZ = target.z - forwardZ * effectiveDistance;
-      this.cameraShake = this.cameraShake * 0.88 + Math.min(0.08, target.speed * 0.0015);
-      const shakeX = Math.sin(_timestamp * 0.029) * this.cameraShake;
-      const shakeY = Math.cos(_timestamp * 0.023) * this.cameraShake;
+      // Removed the speed-linked position shake entirely - it read as
+      // constant, un-smoothable jitter on top of everything else, and was
+      // the main source of the "too shaky" feedback. Height still lifts
+      // slightly with speed for a touch of energy, without oscillating.
       const desired = new THREE.Vector3(
-        config.spectator ? target.x + 36 : behindX + shakeX,
-        config.height + Math.min(1.4, target.speed * 0.03) + shakeY,
+        config.spectator ? target.x + 36 : behindX,
+        config.height + Math.min(1.4, target.speed * 0.03),
         config.spectator ? target.z + 34 : behindZ
       );
       const desiredLook = new THREE.Vector3(
@@ -484,19 +491,32 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         this.lookTarget.copy(desiredLook);
         this.cameraInitialized = true;
       } else {
-        camera.position.lerp(desired, config.damping);
+        // Capped absolute step on top of the lerp - a plain lerp still
+        // moves a fixed *fraction* of however far "desired" jumped that
+        // frame, so a sudden target discontinuity (bouncing off a barrier,
+        // snapping back on track after an off-track excursion) could still
+        // move the camera several units in a single frame and read as a
+        // cut. Clamping the step means the camera eases up to a big jump
+        // over several frames instead of following it instantly.
+        const step = desired.clone().sub(camera.position).multiplyScalar(config.damping);
+        const MAX_CAMERA_STEP = 1.6;
+        if (step.length() > MAX_CAMERA_STEP) step.setLength(MAX_CAMERA_STEP);
+        camera.position.add(step);
       }
       this.lookTarget.lerp(desiredLook, config.spectator ? 0.16 : 0.5);
       camera.lookAt(this.lookTarget);
-      // Bank the camera into turns (restrained - a few degrees at most) and
-      // add a faint continuous sway so the chase cam reads as handheld
-      // rather than a rigid rig, both tied to the same interpolated state
-      // already used for positioning above. lookAt() fully overwrites the
-      // camera's orientation, so this roll must be applied afterward as a
-      // local Z rotation on top of it.
-      const rollTarget = config.spectator ? 0 : Math.max(-0.05, Math.min(0.05, -target.headingError * target.speed * 0.0009));
-      this.cameraRoll += (rollTarget - this.cameraRoll) * 0.1;
-      const sway = config.spectator ? 0 : Math.sin(_timestamp * 0.0021) * Math.min(0.01, target.speed * 0.00025);
+      // Bank the camera into turns (restrained - a couple degrees at most)
+      // and add a very faint continuous sway so the chase cam reads as
+      // handheld rather than a rigid rig, both tied to the same
+      // interpolated state already used for positioning above. lookAt()
+      // fully overwrites the camera's orientation, so this roll must be
+      // applied afterward as a local Z rotation on top of it. Both were
+      // cut down further (was +-0.05 roll / 0.01 sway) - combined with a
+      // heading-error spike during a hard drift, they were adding visible
+      // rotational jitter on top of any position movement.
+      const rollTarget = config.spectator ? 0 : Math.max(-0.025, Math.min(0.025, -target.headingError * target.speed * 0.0005));
+      this.cameraRoll += (rollTarget - this.cameraRoll) * 0.08;
+      const sway = config.spectator ? 0 : Math.sin(_timestamp * 0.0021) * Math.min(0.004, target.speed * 0.0001);
       camera.rotation.z += this.cameraRoll + sway;
       // Was up to +8deg at high speed - pushed chase mode's FOV to 76,
       // clearly outside the requested 55-65deg moderate-perspective range.
@@ -541,7 +561,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         : distance;
     }
 
-    this.cameraCollisionDistance += (this.cameraCollisionTargetDistance - this.cameraCollisionDistance) * 0.22;
+    // Slowed further (was 0.22) - a spinout suddenly putting scenery in the
+    // ray was pulling the camera in noticeably fast, reading as a cut.
+    this.cameraCollisionDistance += (this.cameraCollisionTargetDistance - this.cameraCollisionDistance) * 0.1;
     if (this.cameraCollisionDistance >= distance - 0.05) return;
     desired.copy(lookAt).addScaledVector(direction, this.cameraCollisionDistance);
     desired.y += 0.75;
