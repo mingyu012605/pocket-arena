@@ -40,23 +40,26 @@ export function buildTrackTexture(): THREE.CanvasTexture {
   canvas.width = 512;
   canvas.height = 2048;
   const ctx = canvas.getContext("2d")!;
+  // Warm plum-charcoal instead of near-black slate - a cozy "cocoa asphalt"
+  // rather than a stark, cold racetrack gray, plus softer coral/lavender
+  // accent stripes instead of harsh red/electric-blue.
   const asphalt = ctx.createLinearGradient(0, 0, canvas.width, 0);
-  asphalt.addColorStop(0, "#111827");
-  asphalt.addColorStop(0.18, "#334155");
-  asphalt.addColorStop(0.5, "#5b6676");
-  asphalt.addColorStop(0.82, "#334155");
-  asphalt.addColorStop(1, "#111827");
+  asphalt.addColorStop(0, "#2b2438");
+  asphalt.addColorStop(0.18, "#453b57");
+  asphalt.addColorStop(0.5, "#6c5f7d");
+  asphalt.addColorStop(0.82, "#453b57");
+  asphalt.addColorStop(1, "#2b2438");
   ctx.fillStyle = asphalt;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#f8fafc";
+  ctx.fillStyle = "#fdf6ec";
   ctx.fillRect(0, 0, 30, canvas.height);
   ctx.fillRect(canvas.width - 30, 0, 30, canvas.height);
-  ctx.fillStyle = "#ef4444";
+  ctx.fillStyle = "#f6957c";
   for (let y = 0; y < canvas.height; y += 86) {
     ctx.fillRect(0, y, 30, 43);
     ctx.fillRect(canvas.width - 30, y + 43, 30, 43);
   }
-  ctx.fillStyle = "#38bdf8";
+  ctx.fillStyle = "#b9a8e8";
   ctx.fillRect(38, 0, 7, canvas.height);
   ctx.fillRect(canvas.width - 45, 0, 7, canvas.height);
   ctx.fillStyle = "#facc15";
@@ -101,7 +104,7 @@ export function buildCheckerTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d")!;
   for (let x = 0; x < 8; x++) {
     for (let y = 0; y < 2; y++) {
-      ctx.fillStyle = (x + y) % 2 === 0 ? "#ffffff" : "#0ea5e9";
+      ctx.fillStyle = (x + y) % 2 === 0 ? "#fffaf2" : "#8b7ac9";
       ctx.fillRect(x * 16, y * 16, 16, 16);
     }
   }
@@ -325,7 +328,7 @@ export function buildTrackGroup(): THREE.Group {
   }
   group.add(barriers);
 
-  const archMaterial = new THREE.MeshStandardMaterial({ color: "#38bdf8", roughness: 0.36, metalness: 0.12, emissive: "#0ea5e9", emissiveIntensity: 0.12 });
+  const archMaterial = new THREE.MeshStandardMaterial({ color: "#b3a4e8", roughness: 0.42, metalness: 0.08, emissive: "#8b7ac9", emissiveIntensity: 0.12 });
   for (let i = 0; i < 6; i++) {
     const progress = (i / 8) * TEST_OVAL_TRACK.trackLength + 18;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
@@ -348,8 +351,8 @@ export function buildTrackGroup(): THREE.Group {
   }
 
   const gantry = new THREE.Group();
-  const gantryMaterial = new THREE.MeshStandardMaterial({ color: "#0ea5e9", roughness: 0.48, metalness: 0.08 });
-  const signMaterial = new THREE.MeshStandardMaterial({ color: "#f97316", roughness: 0.35, metalness: 0.03 });
+  const gantryMaterial = new THREE.MeshStandardMaterial({ color: "#8b7ac9", roughness: 0.5, metalness: 0.06 });
+  const signMaterial = new THREE.MeshStandardMaterial({ color: "#f6a35c", roughness: 0.4, metalness: 0.02 });
   const gantrySignMaterial = new THREE.MeshBasicMaterial({ map: buildSponsorTexture("RACING RALLY", "#facc15", "#2563eb") });
   for (const x of [-halfWidth - 2.8, halfWidth + 2.8]) {
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 8.6, 0.35), gantryMaterial);
