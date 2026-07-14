@@ -317,8 +317,7 @@ export function createGameGrid(games: LauncherGameView[], onPlay: (id: GameType)
 }
 
 const ASSET_CREDITS: Array<{ name: string; creator: string; license: string }> = [
-  { name: "Classic Muscle car (chassis + wheel)", creator: "Lexyc16 (Sketchfab)", license: "CC-BY-4.0" },
-  { name: "Desert Race Game Prototype Map V2 (landmark)", creator: "Batuhan13 (Sketchfab)", license: "CC-BY-4.0" },
+  { name: "Racing Kit (car, grandstand, flags, trees, light posts)", creator: "Kenney (kenney.nl)", license: "CC0 1.0" },
   { name: "Racing normal/detail maps", creator: "@pmndrs/assets package", license: "CC0 1.0" }
 ];
 

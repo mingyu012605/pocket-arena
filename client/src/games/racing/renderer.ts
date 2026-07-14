@@ -16,7 +16,7 @@ import { RacingInterpolationBuffer } from "./interpolation";
 import type { RacingCarFrame } from "./interpolation";
 import { RacingDevHelpers } from "./devHelpers";
 import { RacingEffects } from "./effects";
-import { buildImportedCarVisual, buildImportedTrackLandmark, loadRacingAssetLibrary } from "./assetScene";
+import { buildImportedCarVisual, buildStadiumProps, loadRacingAssetLibrary } from "./assetScene";
 import type { RacingAssetLibrary } from "./assetScene";
 
 type CameraMode = "chase" | "close" | "hood" | "spectator";
@@ -89,7 +89,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private lastQualityAdjustAt = 0;
   private assetLibrary: RacingAssetLibrary | null = null;
   private assetLoadCancelled = false;
-  private importedTrackLandmark: THREE.Group | null = null;
+  private stadiumProps: THREE.Group | null = null;
   private assetLoadState: "loading" | "ready" | "fallback" = "loading";
 
   constructor(room: PublicRoomState) {
@@ -175,9 +175,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         if (this.assetLoadCancelled || this.scene !== scene) return;
         this.assetLibrary = library;
         this.assetLoadState = "ready";
-        this.importedTrackLandmark = buildImportedTrackLandmark(library);
-        scene.add(this.importedTrackLandmark);
-        this.devHelpers?.showImportedAssetBounds(this.importedTrackLandmark);
+        this.stadiumProps = buildStadiumProps(library, this.quality.environmentDensity);
+        scene.add(this.stadiumProps);
         for (const [playerNumber, car] of this.cars) {
           this.applyImportedCarVisual(playerNumber, car);
         }
@@ -589,7 +588,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.effects = null;
     this.assetLoadCancelled = true;
     this.assetLibrary = null;
-    this.importedTrackLandmark = null;
+    this.stadiumProps = null;
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
     this.scene = null;

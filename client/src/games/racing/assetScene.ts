@@ -1,34 +1,30 @@
 import * as THREE from "three";
-import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
 
-const chassisUrl = new URL("../../assets/racing/models/chassis-draco.glb", import.meta.url).href;
-const wheelUrl = new URL("../../assets/racing/models/wheel-draco.glb", import.meta.url).href;
-const trackUrl = new URL("../../assets/racing/models/track-draco.glb", import.meta.url).href;
+const carUrl = new URL("../../assets/racing/models/kenney-race-car.glb", import.meta.url).href;
+const grandstandUrl = new URL("../../assets/racing/models/kenney-grandstand.glb", import.meta.url).href;
+const flagUrl = new URL("../../assets/racing/models/kenney-flag-checkers.glb", import.meta.url).href;
+const treeLargeUrl = new URL("../../assets/racing/models/kenney-tree-large.glb", import.meta.url).href;
+const treeSmallUrl = new URL("../../assets/racing/models/kenney-tree-small.glb", import.meta.url).href;
+const lightpostUrl = new URL("../../assets/racing/models/kenney-lightpost.glb", import.meta.url).href;
 
 export interface RacingAssetLibrary {
-  chassisScene: THREE.Group;
-  wheelScene: THREE.Group;
-  trackScene: THREE.Group;
+  carScene: THREE.Group;
+  grandstandScene: THREE.Group;
+  flagScene: THREE.Group;
+  treeLargeScene: THREE.Group;
+  treeSmallScene: THREE.Group;
+  lightpostScene: THREE.Group;
 }
 
 export interface ImportedCarVisual {
   root: THREE.Group;
   wheels: THREE.Object3D[];
   frontWheels: THREE.Object3D[];
-  brakeLight?: THREE.Object3D;
 }
 
 let assetPromise: Promise<RacingAssetLibrary> | null = null;
-
-function createLoader(): GLTFLoader {
-  const draco = new DRACOLoader();
-  draco.setDecoderPath("/draco/");
-  draco.setDecoderConfig({ type: "wasm" });
-  const loader = new GLTFLoader();
-  loader.setDRACOLoader(draco);
-  return loader;
-}
 
 async function loadGltfScene(loader: GLTFLoader, url: string): Promise<THREE.Group> {
   const gltf = await loader.loadAsync(url);
@@ -51,19 +47,30 @@ function prepareScene(scene: THREE.Group): THREE.Group {
   return scene;
 }
 
+/**
+ * All Kenney Racing Kit (CC0) - a single consistent, bright, low-poly arcade
+ * style for the car and every venue prop, so they read as one coherent
+ * design rather than several unrelated projects stitched together.
+ */
 export function loadRacingAssetLibrary(): Promise<RacingAssetLibrary> {
   if (!assetPromise) {
     assetPromise = (async () => {
-      const loader = createLoader();
-      const [chassisScene, wheelScene, trackScene] = await Promise.all([
-        loadGltfScene(loader, chassisUrl),
-        loadGltfScene(loader, wheelUrl),
-        loadGltfScene(loader, trackUrl)
+      const loader = new GLTFLoader();
+      const [carScene, grandstandScene, flagScene, treeLargeScene, treeSmallScene, lightpostScene] = await Promise.all([
+        loadGltfScene(loader, carUrl),
+        loadGltfScene(loader, grandstandUrl),
+        loadGltfScene(loader, flagUrl),
+        loadGltfScene(loader, treeLargeUrl),
+        loadGltfScene(loader, treeSmallUrl),
+        loadGltfScene(loader, lightpostUrl)
       ]);
       return {
-        chassisScene: prepareScene(chassisScene),
-        wheelScene: prepareScene(wheelScene),
-        trackScene: prepareScene(trackScene)
+        carScene: prepareScene(carScene),
+        grandstandScene: prepareScene(grandstandScene),
+        flagScene: prepareScene(flagScene),
+        treeLargeScene: prepareScene(treeLargeScene),
+        treeSmallScene: prepareScene(treeSmallScene),
+        lightpostScene: prepareScene(lightpostScene)
       };
     })();
   }
@@ -81,12 +88,12 @@ function cloneWithUniqueMaterials(source: THREE.Object3D, paintColor?: string): 
     }
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
-      const named = material as THREE.Material & { color?: THREE.Color; emissive?: THREE.Color; opacity?: number; transparent?: boolean };
-      if (paintColor && /bodypaint/i.test(material.name) && named.color) {
+      const named = material as THREE.Material & { color?: THREE.Color; opacity?: number; transparent?: boolean };
+      // The Kenney race car's body material is named "grey" (its neutral/
+      // white paint variant) - tint it to the player's color without
+      // touching the tire or glass materials.
+      if (paintColor && /^grey$/i.test(material.name) && named.color) {
         named.color.set(paintColor);
-      }
-      if (/brakelight/i.test(material.name) && named.emissive) {
-        named.emissive.set("#ef4444");
       }
       if (/glass/i.test(material.name)) {
         named.transparent = true;
@@ -98,69 +105,104 @@ function cloneWithUniqueMaterials(source: THREE.Object3D, paintColor?: string): 
   return clone;
 }
 
-function cloneWheel(source: THREE.Group, x: number, z: number, leftSide: boolean): THREE.Group {
-  const wheel = cloneWithUniqueMaterials(source) as THREE.Group;
-  wheel.position.set(x, 0.5, z);
-  wheel.scale.setScalar(1.55);
-  wheel.rotation.z = leftSide ? Math.PI : 0;
-  // Wheels are small and dark - their own cast/receive shadow contributes
-  // negligible visible detail relative to the extra shadow-map draw calls
-  // it costs across 4 wheels x 4 cars. The chassis itself still casts/
-  // receives (inherited from prepareScene), keeping the car grounded.
-  wheel.traverse((object) => {
-    if (object instanceof THREE.Mesh) {
-      object.castShadow = false;
-      object.receiveShadow = false;
-    }
-  });
-  return wheel;
-}
+// Tuned so the car's wheelbase/track width visually matches the space the
+// server-authoritative physics (car width, barrier offsets) expects - the
+// source model is modeled at real-world-ish meters, much smaller than the
+// scene's own unit scale.
+const CAR_SCALE = 6.4;
 
 export function buildImportedCarVisual(library: RacingAssetLibrary, color: string): ImportedCarVisual {
-  const root = new THREE.Group();
-  root.name = "imported-racing-car";
-  const chassis = cloneWithUniqueMaterials(library.chassisScene, color);
-  chassis.scale.setScalar(0.95);
-  chassis.position.set(0, 0.35, 0);
-  root.add(chassis);
+  const root = cloneWithUniqueMaterials(library.carScene, color) as THREE.Group;
+  root.name = "imported-arcade-car";
+  root.scale.setScalar(CAR_SCALE);
 
-  const frontLeft = cloneWheel(library.wheelScene, -1.35, -1.6, true);
-  const frontRight = cloneWheel(library.wheelScene, 1.35, -1.6, false);
-  const rearLeft = cloneWheel(library.wheelScene, -1.35, 1.45, true);
-  const rearRight = cloneWheel(library.wheelScene, 1.35, 1.45, false);
-  root.add(frontLeft, frontRight, rearLeft, rearRight);
+  const wheels: THREE.Object3D[] = [];
+  const frontWheels: THREE.Object3D[] = [];
+  root.traverse((object) => {
+    if (object.name === "wheelBackLeft" || object.name === "wheelBackRight") {
+      wheels.push(object);
+    } else if (object.name === "wheelFrontLeft" || object.name === "wheelFrontRight") {
+      wheels.push(object);
+      frontWheels.push(object);
+    }
+  });
 
+  return { root, wheels, frontWheels };
+}
+
+function tracksidePosition(progress: number, side: -1 | 1, offset: number): { position: THREE.Vector3; angle: number } {
+  const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+  const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+  const nx = Math.cos(angle);
+  const nz = Math.sin(angle);
   return {
-    root,
-    wheels: [frontLeft, frontRight, rearLeft, rearRight],
-    frontWheels: [frontLeft, frontRight]
+    position: new THREE.Vector3(center.x + nx * side * offset, 0, center.z + nz * side * offset),
+    angle
   };
 }
 
-// The source scene is an entire miniature race-track diorama (terrain, track
-// surface, water, a train, windmill blades, birds, clouds) at ~120k
-// triangles total - reasonable for a drivable scene, but this is used only
-// as a distant background landmark, and rendering all of it tanked frame
-// rate to ~16fps (confirmed via the dev metrics overlay). The ground-level
-// infrastructure (terrain/track/water/strip/tube/train) is what a driving
-// game would need; a landmark only needs the skyline silhouette, so only
-// the mountain backdrop and small decorative accents are kept.
-const LANDMARK_NODE_ALLOWLIST = /^(mountains|blade|bird|cloud)/i;
+/**
+ * Start/finish "stadium" dressing built from the same Kenney asset family as
+ * the car, so the venue reads as one coherent design instead of a grab bag
+ * of styles. Placed only near the start straight (progress 0), not around
+ * the whole (very long) track.
+ */
+export function buildStadiumProps(library: RacingAssetLibrary, density: number): THREE.Group {
+  const group = new THREE.Group();
+  group.name = "kenney-stadium-props";
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const GRANDSTAND_SCALE = 5.2;
+  const FLAG_SCALE = 4.2;
+  const TREE_SCALE = 4.6;
+  const LIGHTPOST_SCALE = 4.8;
 
-export function buildImportedTrackLandmark(library: RacingAssetLibrary): THREE.Group {
-  const landmark = cloneWithUniqueMaterials(library.trackScene) as THREE.Group;
-  landmark.name = "imported-desert-track-landmark";
-  landmark.scale.setScalar(2.4);
-  landmark.position.set(-185, -1.2, -280);
-  landmark.rotation.y = 0.34;
-  for (const child of [...landmark.children]) {
-    if (!LANDMARK_NODE_ALLOWLIST.test(child.name)) landmark.remove(child);
+  const grandstandCount = Math.max(2, Math.round(4 * density));
+  for (let i = 0; i < grandstandCount; i++) {
+    const progress = -34 - i * 30;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 10);
+    const stand = cloneWithUniqueMaterials(library.grandstandScene) as THREE.Group;
+    stand.scale.setScalar(GRANDSTAND_SCALE);
+    stand.position.copy(position);
+    stand.rotation.y = -angle + (side === 1 ? Math.PI : 0);
+    group.add(stand);
   }
-  landmark.traverse((object) => {
-    if (object instanceof THREE.Mesh) {
-      object.castShadow = false;
-      object.receiveShadow = false;
-    }
-  });
-  return landmark;
+
+  const treeCount = Math.max(6, Math.round(14 * density));
+  for (let i = 0; i < treeCount; i++) {
+    const progress = 40 + i * 18;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 7 + (i % 3) * 3);
+    const tree = cloneWithUniqueMaterials(i % 3 === 0 ? library.treeSmallScene : library.treeLargeScene) as THREE.Group;
+    tree.scale.setScalar(TREE_SCALE * (0.85 + (i % 4) * 0.08));
+    tree.position.copy(position);
+    tree.rotation.y = -angle;
+    group.add(tree);
+  }
+
+  const flagCount = Math.max(6, Math.round(12 * density));
+  for (let i = 0; i < flagCount; i++) {
+    const progress = -30 + i * 11;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 5);
+    const flag = cloneWithUniqueMaterials(library.flagScene) as THREE.Group;
+    flag.scale.setScalar(FLAG_SCALE);
+    flag.position.copy(position);
+    flag.rotation.y = -angle;
+    group.add(flag);
+  }
+
+  const lightCount = Math.max(4, Math.round(8 * density));
+  for (let i = 0; i < lightCount; i++) {
+    const progress = -40 + i * 22;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 3.6);
+    const post = cloneWithUniqueMaterials(library.lightpostScene) as THREE.Group;
+    post.scale.setScalar(LIGHTPOST_SCALE);
+    post.position.copy(position);
+    post.rotation.y = -angle;
+    group.add(post);
+  }
+
+  return group;
 }

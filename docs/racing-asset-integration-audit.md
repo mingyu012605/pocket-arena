@@ -2,6 +2,8 @@
 
 This audit covers assets inspected for the first asset-based Pocket Arena Racing graphics pass. Assets with unclear or missing per-asset licensing were not copied.
 
+**Superseded 2026-07-13:** the "Classic Muscle car" chassis/wheel and "Desert Race Game Prototype Map V2" landmark documented below were replaced in a follow-up art-direction pass. Visually, a realistic muscle car next to a desert landmark, a tropical harbor, and modern city towers read as unrelated projects combined rather than one identity. They were replaced with Kenney's CC0 "Racing Kit" (car + grandstand/flags/trees/light posts, one consistent art style) - see `THIRD_PARTY_ASSETS.md` for the current, authoritative asset list. This document is kept as a historical record of what was evaluated and why.
+
 ## Selected Assets
 
 | Asset | Source path | App path | Type | License | Attribution | Size / polycount | Textures | Web suitability | Optimization |
