@@ -103,9 +103,11 @@ function cloneWithUniqueMaterials(source: THREE.Object3D, paintColor?: string): 
         // as saturated regardless of how bright the surrounding scene is,
         // instead of being entirely at the mercy of incident light.
         if (material instanceof THREE.MeshStandardMaterial) {
-          material.roughness = 0.38;
+          // Pushed further (was 0.38/0.4) - up close the paint still read as
+          // a pale wash rather than a clearly saturated player color.
+          material.roughness = 0.3;
           material.emissive = new THREE.Color(paintColor);
-          material.emissiveIntensity = 0.4;
+          material.emissiveIntensity = 0.65;
         }
       }
       if (/glass/i.test(material.name)) {

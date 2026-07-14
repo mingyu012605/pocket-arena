@@ -312,13 +312,17 @@ export function buildHarborEnvironment(density: number): THREE.Group {
   water.position.set(0, -0.035, 70);
   group.add(water);
 
-  const buildingMaterial = new THREE.MeshStandardMaterial({ color: "#bfdbfe", roughness: 0.7, metalness: 0.02 });
+  // Varied building colors instead of one flat pale-blue repeated across
+  // the whole skyline - a small palette of warm/neutral tones so the
+  // backdrop doesn't add to the scene's cyan monotony.
+  const buildingColors = ["#e8dcc8", "#c9b79a", "#d9c2a6", "#b7c4b0", "#cbb896"];
+  const buildingMaterials = buildingColors.map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.72, metalness: 0.02 }));
   const windowMaterial = new THREE.MeshBasicMaterial({ color: "#fff7ed" });
   const count = Math.max(8, Math.round(22 * density));
   for (let i = 0; i < count; i++) {
     const height = 8 + ((i * 17) % 26);
     const width = 5 + (i % 4);
-    const building = new THREE.Mesh(new THREE.BoxGeometry(width, height, 7), buildingMaterial);
+    const building = new THREE.Mesh(new THREE.BoxGeometry(width, height, 7), buildingMaterials[i % buildingMaterials.length]);
     building.position.set(-125 + i * (250 / count), height / 2 - 0.02, -245 - (i % 3) * 9);
     building.castShadow = true;
     building.receiveShadow = true;
@@ -328,19 +332,34 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     group.add(windows);
   }
 
+  // All three stand groups below are positioned relative to the actual
+  // curving centerline (progress + perpendicular offset), not fixed world
+  // coordinates. The previous fixed-coordinate placement assumed the track
+  // ran straight near x=0, but TEST_OVAL_TRACK curves away from there
+  // almost immediately - by the world Z values these stands used, the real
+  // track had already curved much closer to them than intended, so the
+  // camera (which follows the car, which follows the track) could end up
+  // directly inside these large structures.
   const grandstandMaterial = new THREE.MeshStandardMaterial({ color: "#2563eb", roughness: 0.48, metalness: 0.08 });
-  for (const side of [-1, 1]) {
+  for (const side of [-1, 1] as const) {
+    const progress = 30 + (side === 1 ? 0 : 20);
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const nx = Math.cos(angle);
+    const nz = Math.sin(angle);
+    const offset = halfWidth + 26;
+    const rotationY = -angle + (side === 1 ? Math.PI : 0);
     const stand = new THREE.Mesh(new THREE.BoxGeometry(38, 5, 7), grandstandMaterial);
-    stand.position.set(side * (halfWidth + 48), 2.5, -24);
-    stand.rotation.y = side * 0.28;
+    stand.position.set(center.x + nx * side * offset, 2.5, center.z + nz * side * offset);
+    stand.rotation.y = rotationY;
     stand.castShadow = true;
     group.add(stand);
     const crowd = new THREE.Mesh(
       new THREE.PlaneGeometry(36, 7.2),
       new THREE.MeshBasicMaterial({ map: buildCrowdTexture(side > 0 ? 1 : 2), side: THREE.DoubleSide })
     );
-    crowd.position.set(side * (halfWidth + 48), 6.5, -18.3);
-    crowd.rotation.y = stand.rotation.y;
+    crowd.position.set(center.x + nx * side * (offset - 5.7), 6.5, center.z + nz * side * (offset - 5.7));
+    crowd.rotation.y = rotationY;
     group.add(crowd);
   }
 
@@ -368,8 +387,16 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     }
   }
   foregroundStand.add(fans);
-  foregroundStand.position.set(halfWidth + 78, 0, -42);
-  foregroundStand.rotation.y = -0.48;
+  {
+    const progress = 90;
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const nx = Math.cos(angle);
+    const nz = Math.sin(angle);
+    const offset = halfWidth + 34;
+    foregroundStand.position.set(center.x + nx * offset, 0, center.z + nz * offset);
+    foregroundStand.rotation.y = -angle + Math.PI;
+  }
   const foregroundCrowd = new THREE.Mesh(
     new THREE.PlaneGeometry(43, 10),
     new THREE.MeshBasicMaterial({ map: buildCrowdTexture(7), side: THREE.DoubleSide })
@@ -380,10 +407,15 @@ export function buildHarborEnvironment(density: number): THREE.Group {
   group.add(foregroundStand);
 
   const megaStandMaterial = new THREE.MeshStandardMaterial({ color: "#1e40af", roughness: 0.45, metalness: 0.12 });
-  for (const [x, z, rotationY, seed] of [
-    [-(halfWidth + 82), -78, 0.42, 11],
-    [halfWidth + 92, -132, -0.42, 13]
+  for (const [progress, side, seed] of [
+    [180, -1, 11],
+    [340, 1, 13]
   ] as const) {
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const nx = Math.cos(angle);
+    const nz = Math.sin(angle);
+    const offset = halfWidth + 42;
     const stand = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(58, 12, 16), megaStandMaterial);
     base.position.set(0, 6, 0);
@@ -398,7 +430,8 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     roof.position.set(0, 20, -2);
     roof.rotation.x = 0.16;
     stand.add(roof);
-    stand.position.set(x, 0, z);
+    stand.position.set(center.x + nx * side * offset, 0, center.z + nz * side * offset);
+    const rotationY = -angle + (side === 1 ? Math.PI : 0);
     stand.rotation.y = rotationY;
     group.add(stand);
   }
@@ -483,11 +516,23 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
     vertexColors: true
   });
   const glowPanels = new THREE.InstancedMesh(glowGeometry, glowMaterial, wallCount * 2);
+  const blockMaterial = new THREE.MeshStandardMaterial({
+    color: "#376a86",
+    roughness: 0.68,
+    metalness: 0.04,
+    emissive: "#061e30",
+    emissiveIntensity: 0.16,
+    vertexColors: true
+  });
+  const chunkyBlocks = new THREE.InstancedMesh(wallGeometry, blockMaterial, wallCount * 4);
 
   const matrix = new THREE.Matrix4();
   const glowMatrix = new THREE.Matrix4();
+  const blockMatrix = new THREE.Matrix4();
   const glowColors = ["#22d3ee", "#fb7185", "#facc15", "#a78bfa", "#34d399"];
+  const blockColors = ["#23415b", "#2f6f88", "#4b6f9d", "#325870", "#6d5e94"];
   let index = 0;
+  let blockIndex = 0;
   for (let i = 0; i < wallCount; i++) {
     const progress = (i / wallCount) * trackLength;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
@@ -513,13 +558,33 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
       );
       glowPanels.setMatrixAt(index, glowMatrix);
       glowPanels.setColorAt(index, new THREE.Color(glowColors[(i + (side > 0 ? 0 : 2)) % glowColors.length]!));
+      for (let layer = 0; layer < 2; layer++) {
+        const blockOffset = offset + 3.2 + layer * 2.3 + ((i + layer) % 2) * 0.55;
+        const blockHeight = 5.2 + ((i + layer * 3) % 4) * 1.35;
+        const blockLength = 4.5 + ((i * 7 + layer) % 5) * 1.4;
+        blockMatrix.compose(
+          new THREE.Vector3(
+            center.x + nx * side * blockOffset,
+            blockHeight / 2 - 0.05 + layer * 1.8,
+            center.z + nz * side * blockOffset
+          ),
+          rotation,
+          new THREE.Vector3(2.2 + layer * 0.7, blockHeight, blockLength)
+        );
+        chunkyBlocks.setMatrixAt(blockIndex, blockMatrix);
+        chunkyBlocks.setColorAt(blockIndex, new THREE.Color(blockColors[(i + layer + (side > 0 ? 0 : 2)) % blockColors.length]!));
+        blockIndex += 1;
+      }
       index += 1;
     }
   }
   walls.castShadow = true;
   walls.receiveShadow = true;
+  chunkyBlocks.castShadow = true;
+  chunkyBlocks.receiveShadow = true;
   glowPanels.instanceColor!.needsUpdate = true;
-  group.add(walls, glowPanels);
+  chunkyBlocks.instanceColor!.needsUpdate = true;
+  group.add(walls, chunkyBlocks, glowPanels);
 
   const gatePostMaterial = new THREE.MeshStandardMaterial({
     color: "#23415b",
@@ -535,14 +600,14 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
     const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
     const gate = new THREE.Group();
-    const postLeft = new THREE.Mesh(new THREE.BoxGeometry(0.7, 9.5, 0.7), gatePostMaterial);
+    const postLeft = new THREE.Mesh(new THREE.BoxGeometry(0.7, 13.5, 0.7), gatePostMaterial);
     const postRight = postLeft.clone();
-    postLeft.position.set(-halfWidth - 6.5, 4.75, 0);
-    postRight.position.set(halfWidth + 6.5, 4.75, 0);
+    postLeft.position.set(-halfWidth - 6.5, 6.75, 0);
+    postRight.position.set(halfWidth + 6.5, 6.75, 0);
     const top = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 14, 0.72, 0.9), gatePostMaterial);
-    top.position.set(0, 9.7, 0);
+    top.position.set(0, 13.7, 0);
     const light = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 10, 0.18, 1.08), gateGlowMaterial);
-    light.position.set(0, 9.26, 0);
+    light.position.set(0, 13.26, 0);
     gate.add(postLeft, postRight, top, light);
     gate.position.set(center.x, 0, center.z);
     gate.rotation.y = -angle;
@@ -659,10 +724,10 @@ export function buildSkyDome(): THREE.Group {
   skyCanvas.height = 512;
   const skyCtx = skyCanvas.getContext("2d")!;
   const skyGradient = skyCtx.createLinearGradient(0, 0, 0, skyCanvas.height);
-  skyGradient.addColorStop(0, "#21a7ff");
-  skyGradient.addColorStop(0.38, "#62d8ff");
-  skyGradient.addColorStop(0.72, "#b9f7ff");
-  skyGradient.addColorStop(1, "#fff1c2");
+  skyGradient.addColorStop(0, "#0875de");
+  skyGradient.addColorStop(0.34, "#1bb9ff");
+  skyGradient.addColorStop(0.68, "#7cf0ff");
+  skyGradient.addColorStop(1, "#ffd7a3");
   skyCtx.fillStyle = skyGradient;
   skyCtx.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
   const skyTexture = new THREE.CanvasTexture(skyCanvas);
@@ -689,7 +754,7 @@ export function buildSkyDome(): THREE.Group {
   sun.rotation.y = 0.3;
   group.add(sun);
 
-  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#6bb7dd", transparent: true, opacity: 0.45, side: THREE.DoubleSide });
+  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#2f82b4", transparent: true, opacity: 0.5, side: THREE.DoubleSide });
   for (let i = 0; i < 8; i++) {
     const mountain = new THREE.Mesh(new THREE.ConeGeometry(22 + (i % 3) * 9, 38 + (i % 4) * 8, 4), mountainMaterial);
     mountain.position.set(-170 + i * 48, 18, -330 - (i % 2) * 18);

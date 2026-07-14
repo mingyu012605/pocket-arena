@@ -46,7 +46,12 @@ const RIM_GEOMETRY = new THREE.CylinderGeometry(0.24, 0.24, 0.35, 16);
 const RIM_SPOKE_GEOMETRY = new THREE.BoxGeometry(0.04, 0.42, 0.04);
 const TIRE_GROOVE_GEOMETRY = new THREE.TorusGeometry(0.44, 0.03, 6, 20);
 const BRAKE_LIGHT_GEOMETRY = new THREE.BoxGeometry(1.1, 0.12, 0.08);
-const SPEED_TRAIL_GEOMETRY = new THREE.PlaneGeometry(2.2, 7.8);
+// Shrunk from 2.2x7.8 (which, after the car root's 1.7 scale, worked out to
+// a ~3.7x13.3-unit semi-transparent plane behind every car - large enough,
+// especially with several cars bunched at a start grid, to read as big
+// stray transparent quads filling much of the frame instead of a subtle
+// motion streak).
+const SPEED_TRAIL_GEOMETRY = new THREE.PlaneGeometry(1.1, 3.6);
 // A thin ring rather than a filled disc - reads as "this is your car"
 // without looking like the car is floating over a puddle of light.
 const UNDERGLOW_GEOMETRY = new THREE.RingGeometry(0.62, 0.78, 28);
