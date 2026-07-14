@@ -279,31 +279,26 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       summary.appendChild(staleWarning);
     }
 
-    const list = document.createElement("ol");
-    list.className = "racing-leaderboard";
-    // Compact HUD: only the focused player plus their immediate neighbors
-    // by rank, not the full grid - a 4+ player leaderboard was covering a
-    // meaningful chunk of the screen for information that matters most
-    // right around the player's own position.
-    const focusedIndex = ranked.findIndex((player) => player.playerNumber === focused.playerNumber);
-    const nearby =
-      focusedIndex === -1 ? ranked.slice(0, 3) : ranked.slice(Math.max(0, focusedIndex - 1), Math.max(0, focusedIndex - 1) + 3);
-    for (const player of nearby) {
-      const row = document.createElement("li");
-      const focusButton = document.createElement("button");
-      focusButton.type = "button";
-      focusButton.className = "racing-leaderboard-row";
-      if (player.playerNumber === focused.playerNumber) focusButton.classList.add("is-focused");
-      focusButton.textContent = `#${player.rank} ${playerLabel(player.playerNumber)} ${Math.round(player.speed * 3.6)} km/h`;
-      focusButton.addEventListener("click", () => {
-        focusedRacingPlayer = player.playerNumber;
-        racingRendererControls?.setFocusedPlayer(focusedRacingPlayer);
-        updateRacingHud(state);
-      });
-      row.appendChild(focusButton);
-      list.appendChild(row);
+    if (devMode) {
+      const list = document.createElement("ol");
+      list.className = "racing-leaderboard";
+      for (const player of ranked) {
+        const row = document.createElement("li");
+        const focusButton = document.createElement("button");
+        focusButton.type = "button";
+        focusButton.className = "racing-leaderboard-row";
+        if (player.playerNumber === focused.playerNumber) focusButton.classList.add("is-focused");
+        focusButton.textContent = `#${player.rank} ${playerLabel(player.playerNumber)} ${Math.round(player.speed * 3.6)} km/h`;
+        focusButton.addEventListener("click", () => {
+          focusedRacingPlayer = player.playerNumber;
+          racingRendererControls?.setFocusedPlayer(focusedRacingPlayer);
+          updateRacingHud(state);
+        });
+        row.appendChild(focusButton);
+        list.appendChild(row);
+      }
+      summary.appendChild(list);
     }
-    summary.appendChild(list);
     hud.appendChild(summary);
 
     const status = document.createElement("section");

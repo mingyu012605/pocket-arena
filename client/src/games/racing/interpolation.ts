@@ -3,6 +3,7 @@ export interface RacingCarFrame {
   lateralOffset: number;
   headingError: number;
   speed: number;
+  steering?: number;
   rank: number;
   stale: boolean;
 }
@@ -127,6 +128,10 @@ export class RacingInterpolationBuffer {
       let lateralOffset = prevFrame.lateralOffset + (nextFrame.lateralOffset - prevFrame.lateralOffset) * t;
       const headingError = prevFrame.headingError + headingDelta * t;
       const speed = prevFrame.speed + (nextFrame.speed - prevFrame.speed) * t;
+      const steering =
+        prevFrame.steering === undefined && nextFrame.steering === undefined
+          ? undefined
+          : (prevFrame.steering ?? nextFrame.steering ?? 0) + ((nextFrame.steering ?? prevFrame.steering ?? 0) - (prevFrame.steering ?? nextFrame.steering ?? 0)) * t;
 
       const extrapolateMs = rawT > 1 ? Math.min(this.maxExtrapolateMs, renderTime - next.time) : 0;
       if (extrapolateMs > 0 && !nextFrame.stale && Math.abs(speed) > 0.01) {
@@ -139,7 +144,7 @@ export class RacingInterpolationBuffer {
         );
       }
 
-      result.set(playerNumber, { progress, lateralOffset, headingError, speed, rank: nextFrame.rank, stale: nextFrame.stale });
+      result.set(playerNumber, { progress, lateralOffset, headingError, speed, steering, rank: nextFrame.rank, stale: nextFrame.stale });
     }
     return result;
   }

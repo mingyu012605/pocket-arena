@@ -102,8 +102,8 @@ export const RACING = {
   yawDamping: 3.35,
   headingCentering: 3.9,
   lateralResponsiveness: 0.72,
-  driftGrip: 2.6,
-  steeringSlip: 0.18,
+  driftGrip: 1.8,
+  steeringSlip: 0.12,
   offTrackSlowFactor: 0.94,
   barrierOffset: 2.6,
   barrierSpeedRetention: 0.88
@@ -148,7 +148,7 @@ function applyBotInput(playerNumber: number, car: RacingCarState): void {
 
 export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
   const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
-  const targetHeading = steering * Math.PI * 0.28;
+  const targetHeading = steering * Math.PI * 0.36;
   car.yawRate += (targetHeading - car.headingError) * RACING.steeringResponsiveness * dt;
   car.yawRate -= car.yawRate * RACING.yawDamping * dt;
   car.headingError += car.yawRate * dt;
@@ -175,7 +175,7 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   const lateralSpeed = driftSpeed + steeringSlip;
   car.lateralOffset += lateralSpeed * dt;
   const gripRecovery = Math.min(1, RACING.driftGrip * dt * (0.45 + grip * 0.75));
-  car.headingError += (0 - car.headingError) * gripRecovery * (steering === 0 ? 1 : 0.35);
+  car.headingError += (0 - car.headingError) * gripRecovery * (steering === 0 ? 1 : 0.18);
 
   const barrierLimit = track.trackHalfWidth + RACING.barrierOffset;
   let hitBarrier = false;

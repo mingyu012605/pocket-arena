@@ -38,6 +38,17 @@ const CAMERA_TRACK_MARGIN = TEST_OVAL_TRACK.trackHalfWidth + 2;
 const CAMERA_CAR_CLEARANCE = 2.6;
 const DEV_MODE = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dev") === "1";
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function shortestAngleDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 const racingLifecycleStats = {
   rendererInstances: 0,
   resizeListeners: 0
@@ -85,6 +96,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private cameraShake = 0;
   private cameraRoll = 0;
   private readonly lastSkidSpawn = new Map<number, { x: number; z: number }>();
+  private readonly visualYaw = new Map<number, number>();
+  private readonly visualWheelSteer = new Map<number, number>();
   private pixelRatio = 1;
   private targetPixelRatio = 1;
   private frameDeltas: number[] = [];
@@ -254,6 +267,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
           lateralOffset: p.lateralOffset,
           headingError: p.headingError,
           speed: p.speed,
+          steering: p.steering ?? 0,
           rank: p.rank,
           stale: p.inputStale ?? false
         }
@@ -278,6 +292,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.lastSnapshotAt = 0;
     this.finishedPlayers.clear();
     this.lastSkidSpawn.clear();
+    this.visualYaw.clear();
+    this.visualWheelSteer.clear();
   }
 
   render(_timestamp: number): void {
@@ -304,16 +320,26 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         continue;
       }
       car.root.position.set(x, 0, z);
-      car.root.rotation.y = -heading;
+      const steering = pos.steering ?? 0;
+      const visualSlip = clamp(pos.headingError * 0.85 + steering * 0.16, -0.62, 0.62);
+      const targetYaw = -(heading + visualSlip);
+      const previousYaw = this.visualYaw.get(playerNumber) ?? targetYaw;
+      const smoothedYaw = previousYaw + shortestAngleDelta(previousYaw, targetYaw) * 0.34;
+      this.visualYaw.set(playerNumber, smoothedYaw);
+      car.root.rotation.y = smoothedYaw;
       // Chassis lean: bank the body slightly into turns, proportional to how
       // hard the car is steering and how fast it's going. car.root.rotation.z
       // is never set anywhere else, so reading it back each frame doubles as
       // the lean's own persistent accumulator - no extra state map needed.
-      const leanTarget = Math.max(-0.05, Math.min(0.05, pos.headingError * pos.speed * 0.008));
+      const leanTarget = clamp((pos.headingError + steering * 0.12) * pos.speed * 0.01, -0.08, 0.08);
       car.root.rotation.z = car.root.rotation.z * 0.85 + leanTarget * 0.15;
       car.marker.visible = playerNumber === this.focusedPlayerNumber;
-      for (const wheel of car.wheels) wheel.rotation.x -= pos.speed * 0.025;
-      for (const wheel of car.frontWheels) wheel.rotation.y = Math.max(-0.45, Math.min(0.45, pos.headingError * 0.75));
+      for (const wheel of car.wheels) wheel.rotation.x -= pos.speed * 0.016;
+      const wheelTarget = clamp(steering * 0.22 + pos.headingError * 0.08, -0.26, 0.26);
+      const previousWheel = this.visualWheelSteer.get(playerNumber) ?? wheelTarget;
+      const wheelAngle = previousWheel + (wheelTarget - previousWheel) * 0.18;
+      this.visualWheelSteer.set(playerNumber, wheelAngle);
+      for (const wheel of car.frontWheels) wheel.rotation.y = wheelAngle;
       const brakeOpacity = Math.max(0.18, Math.min(0.95, Math.abs(pos.headingError) * 0.2 + (pos.speed < 3 ? 0.18 : 0.28)));
       const brakeMaterial = car.brakeLight.material;
       if (brakeMaterial instanceof THREE.MeshBasicMaterial) brakeMaterial.opacity = brakeOpacity;
