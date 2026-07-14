@@ -355,15 +355,15 @@ export function buildTrackGroup(): THREE.Group {
   const signMaterial = new THREE.MeshStandardMaterial({ color: "#f6a35c", roughness: 0.4, metalness: 0.02 });
   const gantrySignMaterial = new THREE.MeshBasicMaterial({ map: buildSponsorTexture("RACING RALLY", "#facc15", "#2563eb") });
   for (const x of [-halfWidth - 2.8, halfWidth + 2.8]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 8.6, 0.35), gantryMaterial);
-    post.position.set(x, 4.3, 0);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.35, 14, 0.35), gantryMaterial);
+    post.position.set(x, 7, 0);
     gantry.add(post);
   }
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 6.2, 1.05, 0.45), signMaterial);
-  beam.position.set(0, 8.35, 0);
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 6.2, 0.72, 0.45), signMaterial);
+  beam.position.set(0, 14.05, 0);
   gantry.add(beam);
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(halfWidth * 1.9, 3), gantrySignMaterial);
-  sign.position.set(0, 8.44, -0.27);
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(halfWidth * 1.55, 2.15), gantrySignMaterial);
+  sign.position.set(0, 14.22, -0.27);
   gantry.add(sign);
   gantry.position.set(start.x, 0, start.z);
   gantry.rotation.y = -start.heading;

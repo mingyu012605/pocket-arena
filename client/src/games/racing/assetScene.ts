@@ -169,6 +169,7 @@ export function buildImportedCarVisual(library: RacingAssetLibrary, color: strin
   const root = cloneWithUniqueMaterials(library.carScene, color) as THREE.Group;
   root.name = "imported-arcade-car";
   root.scale.setScalar(CAR_SCALE);
+  root.rotation.y = Math.PI;
   root.add(buildDriverBust(color));
 
   const wheels: THREE.Object3D[] = [];
@@ -197,25 +198,32 @@ function tracksidePosition(progress: number, side: -1 | 1, offset: number): { po
 }
 
 /**
- * Start/finish "stadium" dressing built from the same Kenney asset family as
- * the car, so the venue reads as one coherent design instead of a grab bag
- * of styles. Placed only near the start straight (progress 0), not around
- * the whole (very long) track.
+ * Stadium dressing built from the same Kenney asset family as the car, so
+ * the venue reads as one coherent design instead of a grab bag of styles.
+ * Spread around the *entire* lap (not just the start straight) - the track
+ * was later extended to a much longer circuit, and props clustered only
+ * near start/finish left the rest of the lap reading as empty/unfinished.
  */
 export function buildStadiumProps(library: RacingAssetLibrary, density: number): THREE.Group {
   const group = new THREE.Group();
   group.name = "kenney-stadium-props";
   const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const trackLength = TEST_OVAL_TRACK.trackLength;
   const GRANDSTAND_SCALE = 5.2;
   const FLAG_SCALE = 4.2;
   const TREE_SCALE = 4.6;
   const LIGHTPOST_SCALE = 4.8;
 
-  const grandstandCount = Math.max(2, Math.round(4 * density));
+  // Grandstands stay concentrated near the start straight (a real venue has
+  // one main stand, not stands wrapping the whole circuit). Kept well clear
+  // of where the chase camera actually trails behind a car starting at
+  // progress 0 - a closer offset had the camera clipping into the stand's
+  // own geometry right at the start line.
+  const grandstandCount = Math.max(2, Math.round(6 * density));
   for (let i = 0; i < grandstandCount; i++) {
-    const progress = -34 - i * 30;
+    const progress = -60 - i * 26;
     const side = i % 2 === 0 ? 1 : -1;
-    const { position, angle } = tracksidePosition(progress, side, halfWidth + 10);
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 17);
     const stand = cloneWithUniqueMaterials(library.grandstandScene) as THREE.Group;
     stand.scale.setScalar(GRANDSTAND_SCALE);
     stand.position.copy(position);
@@ -223,9 +231,12 @@ export function buildStadiumProps(library: RacingAssetLibrary, density: number):
     group.add(stand);
   }
 
-  const treeCount = Math.max(6, Math.round(14 * density));
+  // Trees, flags, and light posts wrap the full lap so every corner has
+  // trackside presence, not just the start/finish zone.
+  const treeSpacing = 26;
+  const treeCount = Math.max(20, Math.round((trackLength / treeSpacing) * density));
   for (let i = 0; i < treeCount; i++) {
-    const progress = 40 + i * 18;
+    const progress = (i / treeCount) * trackLength;
     const side = i % 2 === 0 ? 1 : -1;
     const { position, angle } = tracksidePosition(progress, side, halfWidth + 7 + (i % 3) * 3);
     const tree = cloneWithUniqueMaterials(i % 3 === 0 ? library.treeSmallScene : library.treeLargeScene) as THREE.Group;
@@ -235,9 +246,10 @@ export function buildStadiumProps(library: RacingAssetLibrary, density: number):
     group.add(tree);
   }
 
-  const flagCount = Math.max(6, Math.round(12 * density));
+  const flagSpacing = 20;
+  const flagCount = Math.max(16, Math.round((trackLength / flagSpacing) * density));
   for (let i = 0; i < flagCount; i++) {
-    const progress = -30 + i * 11;
+    const progress = (i / flagCount) * trackLength;
     const side = i % 2 === 0 ? 1 : -1;
     const { position, angle } = tracksidePosition(progress, side, halfWidth + 5);
     const flag = cloneWithUniqueMaterials(library.flagScene) as THREE.Group;
@@ -247,9 +259,10 @@ export function buildStadiumProps(library: RacingAssetLibrary, density: number):
     group.add(flag);
   }
 
-  const lightCount = Math.max(4, Math.round(8 * density));
+  const lightSpacing = 40;
+  const lightCount = Math.max(10, Math.round((trackLength / lightSpacing) * density));
   for (let i = 0; i < lightCount; i++) {
-    const progress = -40 + i * 22;
+    const progress = (i / lightCount) * trackLength;
     const side = i % 2 === 0 ? 1 : -1;
     const { position, angle } = tracksidePosition(progress, side, halfWidth + 3.6);
     const post = cloneWithUniqueMaterials(library.lightpostScene) as THREE.Group;

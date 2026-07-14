@@ -310,6 +310,23 @@
   pointer-events: none;
   z-index: 2;
 }
+.race-speed-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    repeating-conic-gradient(
+      from 0deg at 50% 50%,
+      rgba(255, 255, 255, 0.32) 0deg 1deg,
+      transparent 1deg 9deg
+    );
+  /* Only the far corners/edges get streaks - the driving line stays clear
+     no matter how this reads across different camera modes. */
+  mask-image: radial-gradient(ellipse at 50% 50%, transparent 58%, rgba(0, 0, 0, 0.85) 96%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 50%, transparent 58%, rgba(0, 0, 0, 0.85) 96%);
+  transition: opacity 0.2s ease;
+}
 .race-hud-panel {
   position: absolute;
   border: 1px solid rgba(226, 232, 240, 0.18);

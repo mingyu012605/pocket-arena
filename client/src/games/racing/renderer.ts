@@ -21,12 +21,14 @@ import type { RacingAssetLibrary } from "./assetScene";
 
 type CameraMode = "chase" | "wide" | "hood" | "spectator";
 
-// Raised/pulled back from the original 12/5.8 - the tighter framing put the
-// player's own car too close and low, cropping the road ahead and making
-// steering direction harder to read.
-const CAMERA_DISTANCE = 14.5;
-const CAMERA_HEIGHT = 7;
-const CAMERA_LOOK_AHEAD = 12;
+// Close, dramatic hero framing - the car should read as large in frame, and
+// the camera needs a real forward look-ahead (a near-zero value here points
+// the camera almost straight down at the car instead of down the road) so
+// it reads as a racing chase cam rather than pointing off at whatever is
+// beside the track.
+const CAMERA_DISTANCE = 11.2;
+const CAMERA_HEIGHT = 4.5;
+const CAMERA_LOOK_AHEAD = 7.5;
 const CAMERA_MODES: CameraMode[] = ["chase", "wide", "hood", "spectator"];
 const SNAPSHOT_HZ_WINDOW_MS = 5000;
 const FRAME_BUDGET_MS = 1000 / 55;
@@ -117,10 +119,11 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.assetLoadCancelled = false;
     this.container = container;
     const scene = new THREE.Scene();
-    // Warm peach/cream instead of a cool clinical blue - matches the sky
-    // dome's golden-hour gradient for a cozier, softer mood.
-    scene.background = new THREE.Color("#ffe3c2");
-    scene.fog = new THREE.Fog("#ffe9cf", 120, 420);
+    // Deeper, more saturated sky than a flat pale cyan - reads as dusk/
+    // golden-hour rather than a washed-out midday, closer to the moody,
+    // high-contrast reference art the user asked to match.
+    scene.background = new THREE.Color("#3f7fc9");
+    scene.fog = new THREE.Fog("#7fb0d9", 140, 560);
 
     const { width, height } = this.containerSize();
     const camera = new THREE.PerspectiveCamera(66, width / height, 0.1, 2500);
@@ -139,7 +142,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     // albedo, tinted per-player) blew out toward white under that much
     // irradiance - ACES compresses high input luminance toward 1.0,
     // crushing color saturation exactly where the player-color tint lives.
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 0.92;
     renderer.shadowMap.enabled = this.quality.shadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "game-canvas racing-canvas";
@@ -156,12 +159,15 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     pmremGenerator.dispose();
     this.environmentTexture = environmentTexture;
 
-    // Warm peachy sky-light + soft mossy-green ground bounce, and a
-    // golden-hour sun color instead of neutral white - matches the cozy
-    // pastel sky dome and keeps the whole scene reading as one warm mood
-    // rather than a cool blue sky over warm-lit props.
-    scene.add(new THREE.HemisphereLight("#ffd9b0", "#4a6b4a", 1.05));
-    const sun = new THREE.DirectionalLight("#ffdca0", 1.35);
+    // Lower, cooler ambient fill (was a bright near-white 1.15) so direct
+    // light does more of the work - flat, shadowless ambient is exactly
+    // what was making the scene read as flat/cartoon-bright instead of
+    // dramatic. Shadow-side fill leans teal, matching the cool/warm
+    // contrast in the reference mood art.
+    scene.add(new THREE.HemisphereLight("#bfe0ff", "#1f5c6b", 0.55));
+    // Punchier, more saturated warm key light (amber, not pale yellow) with
+    // higher intensity so it throws real contrast against the teal fill.
+    const sun = new THREE.DirectionalLight("#ffb35c", 2.1);
     sun.position.set(60, 120, 40);
     sun.castShadow = this.quality.shadows;
     sun.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
@@ -172,18 +178,21 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     sun.shadow.bias = -0.0015;
     sun.shadow.normalBias = 0.4;
     scene.add(sun);
-    const rimLight = new THREE.DirectionalLight("#8be8ff", 0.55);
+    // Cool teal rim/backlight, pushed stronger - this is the other half of
+    // the warm-key/cool-rim contrast that reads as "dramatic" rather than
+    // flat.
+    const rimLight = new THREE.DirectionalLight("#2fd9e8", 1.1);
     rimLight.position.set(-80, 55, -120);
     scene.add(rimLight);
     scene.add(buildSkyDome());
     scene.add(buildTrackGroup());
     scene.add(buildHarborEnvironment(this.quality.environmentDensity));
     scene.add(buildTracksideDetails(this.quality.environmentDensity));
-    scene.add(buildConfettiField(this.quality.particles));
+    scene.add(buildConfettiField(Math.round(this.quality.particles * 1.25)));
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(360, 340),
-      new THREE.MeshStandardMaterial({ color: "#a0d69b", roughness: 0.95 })
+      new THREE.MeshStandardMaterial({ color: "#3f9e5c", roughness: 0.92 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, -0.02, -100);
@@ -302,8 +311,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.updateRenderBudget(_timestamp);
 
     const positions = this.interpolationBuffer.interpolate(performance.now());
-    let focused: { x: number; z: number; heading: number; speed: number; progress: number; playerNumber: number; headingError: number } | null = null;
-    let leader: { x: number; z: number; heading: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number } | null = null;
+    let focused: { x: number; z: number; visualYaw: number; speed: number; progress: number; playerNumber: number; headingError: number } | null = null;
+    let leader: { x: number; z: number; visualYaw: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number } | null = null;
     const otherCarPositions: Array<{ playerNumber: number; x: number; z: number }> = [];
 
     for (const [playerNumber, car] of this.cars) {
@@ -366,8 +375,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
 
       otherCarPositions.push({ playerNumber, x, z });
-      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, heading, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError };
-      if (!leader || pos.rank < leader.rank) leader = { x, z, heading, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError };
+      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, visualYaw: smoothedYaw, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError };
+      if (!leader || pos.rank < leader.rank) leader = { x, z, visualYaw: smoothedYaw, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError };
     }
 
     if (DEV_MODE) {
@@ -384,18 +393,19 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     const target = focused ?? leader;
     if (target) {
       const config = this.cameraConfig(target.speed);
-      const behindX = target.x - Math.sin(target.heading) * config.distance;
-      const behindZ = target.z + Math.cos(target.heading) * config.distance;
+      const forwardX = -Math.sin(target.visualYaw);
+      const forwardZ = -Math.cos(target.visualYaw);
+      const behindX = target.x - forwardX * config.distance;
+      const behindZ = target.z - forwardZ * config.distance;
       this.cameraShake = this.cameraShake * 0.88 + Math.min(0.08, target.speed * 0.0015);
       const shakeX = Math.sin(_timestamp * 0.029) * this.cameraShake;
       const shakeY = Math.cos(_timestamp * 0.023) * this.cameraShake;
       const desired = new THREE.Vector3(
         config.spectator ? target.x + 36 : behindX + shakeX,
-        config.height + Math.min(3, target.speed * 0.06) + shakeY,
+        config.height + Math.min(1.4, target.speed * 0.03) + shakeY,
         config.spectator ? target.z + 34 : behindZ
       );
       if (!config.spectator) {
-        this.clampCameraToTrack(desired, target.progress, config.distance);
         this.pushCameraClearOfOtherCars(desired, target.playerNumber, otherCarPositions);
       }
       if (!this.cameraInitialized) {
@@ -406,9 +416,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         camera.position.lerp(desired, config.damping);
       }
       const desiredLook = new THREE.Vector3(
-        target.x + Math.sin(target.heading) * CAMERA_LOOK_AHEAD,
+        target.x + forwardX * CAMERA_LOOK_AHEAD,
         config.lookHeight,
-        target.z - Math.cos(target.heading) * CAMERA_LOOK_AHEAD
+        target.z + forwardZ * CAMERA_LOOK_AHEAD
       );
       this.lookTarget.lerp(desiredLook, 0.16);
       camera.lookAt(this.lookTarget);
@@ -504,7 +514,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (this.cameraMode === "wide") return { distance: 19, height: 9.5, lookHeight: 1.8, fov: 66, damping: 0.16, spectator: false };
     if (this.cameraMode === "hood") return { distance: -1.6, height: 1.55, lookHeight: 1.15, fov: 76, damping: 0.34, spectator: false };
     if (this.cameraMode === "spectator") return { distance: 0, height: 24 + speed * 0.03, lookHeight: 1.8, fov: 58, damping: 0.08, spectator: true };
-    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.6, fov: 68, damping: 0.18, spectator: false };
+    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.45, fov: 68, damping: 0.2, spectator: false };
   }
 
   private containerSize(): { width: number; height: number } {

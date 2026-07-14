@@ -17,7 +17,7 @@ export class RacingAudio {
   private tireGain: GainNode | null = null;
   private rumbleGain: GainNode | null = null;
   private muted = false;
-  private volume = 0.5;
+  private volume = 0.22;
   private failed = false;
 
   start(): void {
@@ -34,10 +34,10 @@ export class RacingAudio {
       master.connect(context.destination);
 
       const engineOsc = context.createOscillator();
-      engineOsc.type = "sawtooth";
-      engineOsc.frequency.value = 55;
+      engineOsc.type = "triangle";
+      engineOsc.frequency.value = 48;
       const engineGain = context.createGain();
-      engineGain.gain.value = 0.1;
+      engineGain.gain.value = 0.035;
       engineOsc.connect(engineGain).connect(master);
       engineOsc.start();
 
@@ -82,12 +82,12 @@ export class RacingAudio {
     if (!context || !engineOsc || !engineGain || !tireGain || !rumbleGain) return;
     const now = context.currentTime;
     const speedRatio = Math.min(1, Math.abs(input.speed) / Math.max(1, input.maxSpeed));
-    const targetFreq = 55 + speedRatio * 230 + (input.braking ? -8 : 0);
-    engineOsc.frequency.setTargetAtTime(targetFreq, now, 0.08);
-    engineGain.gain.setTargetAtTime(0.1 + speedRatio * 0.16, now, 0.12);
+    const targetFreq = 48 + speedRatio * 135 + (input.braking ? -5 : 0);
+    engineOsc.frequency.setTargetAtTime(targetFreq, now, 0.12);
+    engineGain.gain.setTargetAtTime(0.035 + speedRatio * 0.06, now, 0.16);
     const scrubbing = input.steeringMagnitude > 0.5 && Math.abs(input.speed) > 4;
-    tireGain.gain.setTargetAtTime(scrubbing ? 0.1 : 0, now, 0.06);
-    rumbleGain.gain.setTargetAtTime(input.offTrack ? 0.15 : 0, now, 0.1);
+    tireGain.gain.setTargetAtTime(scrubbing ? 0.035 : 0, now, 0.08);
+    rumbleGain.gain.setTargetAtTime(input.offTrack ? 0.045 : 0, now, 0.12);
   }
 
   private blip(frequency: number, durationSeconds: number, gainValue: number): void {
@@ -107,20 +107,20 @@ export class RacingAudio {
   }
 
   playCountdownTick(): void {
-    this.blip(440, 0.12, 0.22);
+    this.blip(440, 0.1, 0.08);
   }
 
   playCountdownGo(): void {
-    this.blip(880, 0.28, 0.3);
+    this.blip(880, 0.22, 0.11);
   }
 
   playFinish(): void {
-    this.blip(660, 0.16, 0.25);
-    window.setTimeout(() => this.blip(880, 0.3, 0.28), 130);
+    this.blip(660, 0.14, 0.09);
+    window.setTimeout(() => this.blip(880, 0.26, 0.1), 130);
   }
 
   playUiClick(): void {
-    this.blip(320, 0.06, 0.12);
+    this.blip(320, 0.05, 0.045);
   }
 
   setMuted(muted: boolean): void {

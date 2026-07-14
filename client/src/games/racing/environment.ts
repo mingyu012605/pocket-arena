@@ -2,8 +2,6 @@ import * as THREE from "three";
 import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
 import { buildSponsorTexture } from "./track";
 
-const racingKeyArtUrl = new URL("../../assets/launcher/card-racing.webp", import.meta.url).href;
-
 function buildCrowdTexture(seed = 0): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
   canvas.width = 1024;
@@ -39,10 +37,6 @@ function buildCrowdTexture(seed = 0): THREE.CanvasTexture {
       }
     }
   }
-  ctx.fillStyle = "rgba(255,255,255,.85)";
-  ctx.font = "900 32px Arial";
-  ctx.textAlign = "center";
-  ctx.fillText("RALLY CROWD", canvas.width / 2, 232);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
@@ -461,7 +455,99 @@ export function buildHarborEnvironment(density: number): THREE.Group {
   }
   group.add(trunks, leaves);
 
-  group.add(buildKeyArtBackdrop());
+  return group;
+}
+
+function buildArcadeCourseSetPieces(density: number): THREE.Group {
+  const group = new THREE.Group();
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const trackLength = TEST_OVAL_TRACK.trackLength;
+  const wallCount = Math.max(54, Math.round((trackLength / 34) * density));
+  const wallGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const wallMaterial = new THREE.MeshStandardMaterial({
+    color: "#28566f",
+    roughness: 0.72,
+    metalness: 0.04,
+    emissive: "#102d3b",
+    emissiveIntensity: 0.18
+  });
+  const walls = new THREE.InstancedMesh(wallGeometry, wallMaterial, wallCount * 2);
+
+  const glowGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const glowMaterial = new THREE.MeshStandardMaterial({
+    color: "#ffffff",
+    roughness: 0.24,
+    metalness: 0.08,
+    emissive: "#31e5ff",
+    emissiveIntensity: 1.05,
+    vertexColors: true
+  });
+  const glowPanels = new THREE.InstancedMesh(glowGeometry, glowMaterial, wallCount * 2);
+
+  const matrix = new THREE.Matrix4();
+  const glowMatrix = new THREE.Matrix4();
+  const glowColors = ["#22d3ee", "#fb7185", "#facc15", "#a78bfa", "#34d399"];
+  let index = 0;
+  for (let i = 0; i < wallCount; i++) {
+    const progress = (i / wallCount) * trackLength;
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const nx = Math.cos(angle);
+    const nz = Math.sin(angle);
+    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0));
+    for (const side of [-1, 1] as const) {
+      const height = 3.8 + ((i + (side > 0 ? 1 : 3)) % 5) * 0.75;
+      const length = 7 + ((i * 5) % 5) * 1.2;
+      const offset = halfWidth + 11 + ((i + (side > 0 ? 0 : 2)) % 3) * 1.9;
+      matrix.compose(
+        new THREE.Vector3(center.x + nx * side * offset, height / 2 - 0.04, center.z + nz * side * offset),
+        rotation,
+        new THREE.Vector3(2.5, height, length)
+      );
+      walls.setMatrixAt(index, matrix);
+
+      glowMatrix.compose(
+        new THREE.Vector3(center.x + nx * side * (offset - 1.35), 2.4 + (i % 3) * 0.36, center.z + nz * side * (offset - 1.35)),
+        rotation,
+        new THREE.Vector3(0.16, 0.52, 2.2 + (i % 3) * 0.5)
+      );
+      glowPanels.setMatrixAt(index, glowMatrix);
+      glowPanels.setColorAt(index, new THREE.Color(glowColors[(i + (side > 0 ? 0 : 2)) % glowColors.length]!));
+      index += 1;
+    }
+  }
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+  glowPanels.instanceColor!.needsUpdate = true;
+  group.add(walls, glowPanels);
+
+  const gatePostMaterial = new THREE.MeshStandardMaterial({
+    color: "#23415b",
+    roughness: 0.52,
+    metalness: 0.12,
+    emissive: "#102d3b",
+    emissiveIntensity: 0.12
+  });
+  const gateGlowMaterial = new THREE.MeshBasicMaterial({ color: "#40f0ff" });
+  const gateCount = Math.max(7, Math.round(11 * density));
+  for (let i = 0; i < gateCount; i++) {
+    const progress = ((i + 0.45) / gateCount) * trackLength;
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const gate = new THREE.Group();
+    const postLeft = new THREE.Mesh(new THREE.BoxGeometry(0.7, 9.5, 0.7), gatePostMaterial);
+    const postRight = postLeft.clone();
+    postLeft.position.set(-halfWidth - 6.5, 4.75, 0);
+    postRight.position.set(halfWidth + 6.5, 4.75, 0);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 14, 0.72, 0.9), gatePostMaterial);
+    top.position.set(0, 9.7, 0);
+    const light = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 10, 0.18, 1.08), gateGlowMaterial);
+    light.position.set(0, 9.26, 0);
+    gate.add(postLeft, postRight, top, light);
+    gate.position.set(center.x, 0, center.z);
+    gate.rotation.y = -angle;
+    group.add(gate);
+  }
 
   return group;
 }
@@ -561,42 +647,8 @@ export function buildTracksideDetails(density: number): THREE.Group {
   group.add(buildFencing(density));
   group.add(buildMarshals(density));
   group.add(buildVenueZones(density));
+  group.add(buildArcadeCourseSetPieces(density));
 
-  return group;
-}
-
-function buildKeyArtBackdrop(): THREE.Group {
-  const group = new THREE.Group();
-  const texture = new THREE.TextureLoader().load(racingKeyArtUrl);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
-  const screenSpecs: Array<[number, number, number, number, number]> = [
-    [42, 22, -46, -0.72, 44],
-    [-58, 22, -82, 0.34, 58],
-    [62, 19, -132, -0.36, 48],
-    [-92, 18, -178, 0.42, 46]
-  ];
-
-  const frameMaterial = new THREE.MeshStandardMaterial({ color: "#0f6fcb", roughness: 0.35, metalness: 0.18 });
-  for (const [x, y, z, rotationY, width] of screenSpecs) {
-    const height = width * 0.5625;
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
-    board.position.set(x, y, z);
-    board.rotation.y = rotationY;
-    group.add(board);
-
-    const top = new THREE.Mesh(new THREE.BoxGeometry(width + 2, 0.8, 0.8), frameMaterial);
-    const bottom = top.clone();
-    const left = new THREE.Mesh(new THREE.BoxGeometry(0.8, height + 2, 0.8), frameMaterial);
-    const right = left.clone();
-    top.position.set(x, y + height / 2 + 0.8, z);
-    bottom.position.set(x, y - height / 2 - 0.8, z);
-    left.position.set(x - width / 2 - 0.8, y, z);
-    right.position.set(x + width / 2 + 0.8, y, z);
-    for (const item of [top, bottom, left, right]) item.rotation.y = rotationY;
-    group.add(top, bottom, left, right);
-  }
   return group;
 }
 
@@ -606,15 +658,11 @@ export function buildSkyDome(): THREE.Group {
   skyCanvas.width = 64;
   skyCanvas.height = 512;
   const skyCtx = skyCanvas.getContext("2d")!;
-  // Warm, cozy "golden hour" pastel gradient - soft periwinkle up top melting
-  // into peach and butter-cream near the horizon - instead of the cool,
-  // stark blue midday sky. This is the single biggest lever for a "cute and
-  // comfy" mood versus a clinical arcade-sim one.
   const skyGradient = skyCtx.createLinearGradient(0, 0, 0, skyCanvas.height);
-  skyGradient.addColorStop(0, "#a78bd9");
-  skyGradient.addColorStop(0.4, "#f6b8c9");
-  skyGradient.addColorStop(0.72, "#ffd9a8");
-  skyGradient.addColorStop(1, "#fff3d6");
+  skyGradient.addColorStop(0, "#21a7ff");
+  skyGradient.addColorStop(0.38, "#62d8ff");
+  skyGradient.addColorStop(0.72, "#b9f7ff");
+  skyGradient.addColorStop(1, "#fff1c2");
   skyCtx.fillStyle = skyGradient;
   skyCtx.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
   const skyTexture = new THREE.CanvasTexture(skyCanvas);
@@ -626,22 +674,22 @@ export function buildSkyDome(): THREE.Group {
   group.add(dome);
 
   const sunGlow = new THREE.Mesh(
-    new THREE.CircleGeometry(42, 48),
-    new THREE.MeshBasicMaterial({ color: "#ffcf8a", transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+    new THREE.CircleGeometry(54, 48),
+    new THREE.MeshBasicMaterial({ color: "#fff176", transparent: true, opacity: 0.28, side: THREE.DoubleSide })
   );
-  sunGlow.position.set(-145, 108, -349);
+  sunGlow.position.set(-150, 118, -350);
   sunGlow.rotation.y = 0.3;
   group.add(sunGlow);
 
   const sun = new THREE.Mesh(
-    new THREE.CircleGeometry(22, 48),
-    new THREE.MeshBasicMaterial({ color: "#fff1c2", transparent: true, opacity: 0.95, side: THREE.DoubleSide })
+    new THREE.CircleGeometry(24, 48),
+    new THREE.MeshBasicMaterial({ color: "#fff9a8", transparent: true, opacity: 0.96, side: THREE.DoubleSide })
   );
-  sun.position.set(-145, 110, -350);
+  sun.position.set(-150, 120, -350);
   sun.rotation.y = 0.3;
   group.add(sun);
 
-  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#c9a3d8", transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#6bb7dd", transparent: true, opacity: 0.45, side: THREE.DoubleSide });
   for (let i = 0; i < 8; i++) {
     const mountain = new THREE.Mesh(new THREE.ConeGeometry(22 + (i % 3) * 9, 38 + (i % 4) * 8, 4), mountainMaterial);
     mountain.position.set(-170 + i * 48, 18, -330 - (i % 2) * 18);
@@ -650,8 +698,8 @@ export function buildSkyDome(): THREE.Group {
     group.add(mountain);
   }
 
-  const cloudMaterial = new THREE.MeshStandardMaterial({ color: "#fff6ea", roughness: 0.95, transparent: true, opacity: 0.92 });
-  for (let i = 0; i < 18; i++) {
+  const cloudMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.95, transparent: true, opacity: 0.9 });
+  for (let i = 0; i < 28; i++) {
     const cloud = new THREE.Group();
     const puffs = 3 + (i % 3);
     for (let j = 0; j < puffs; j++) {
@@ -660,9 +708,25 @@ export function buildSkyDome(): THREE.Group {
       puff.position.set(j * 4.2, 0, (j % 2) * 1.4);
       cloud.add(puff);
     }
-    cloud.position.set(-160 + i * 19, 42 + (i % 5) * 4, -260 - (i % 4) * 22);
+    cloud.position.set(-210 + i * 17, 46 + (i % 6) * 5, -230 - (i % 5) * 26);
     cloud.rotation.y = (i % 3) * 0.2;
     group.add(cloud);
+  }
+
+  const ribbonColors = ["#ff6b6b", "#ffd93d", "#38bdf8", "#a78bfa", "#22c55e"];
+  for (let i = 0; i < 16; i++) {
+    const ribbon = new THREE.Mesh(
+      new THREE.PlaneGeometry(8 + (i % 4) * 2.5, 0.8),
+      new THREE.MeshBasicMaterial({
+        color: ribbonColors[i % ribbonColors.length],
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide
+      })
+    );
+    ribbon.position.set(-190 + i * 26, 82 + (i % 5) * 7, -210 - (i % 4) * 30);
+    ribbon.rotation.set(0.18 + (i % 3) * 0.08, -0.35 + (i % 4) * 0.22, -0.25 + (i % 5) * 0.13);
+    group.add(ribbon);
   }
   return group;
 }

@@ -338,6 +338,17 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     </svg><strong>${Math.abs(Math.round(focused.speed * 3.6))}</strong><span>km/h</span><small>${focusedMode}</small>`;
     hud.appendChild(speed);
 
+    // Screen-space speed lines: a cheap, purely 2D way to sell "fast" that
+    // doesn't need any new 3D geometry or a post-processing pass - opacity
+    // ramps in only once the car is actually moving quickly.
+    const speedFractionForLines = Math.max(0, Math.min(1, (Math.abs(focused.speed) * 3.6 - 60) / 90));
+    if (speedFractionForLines > 0) {
+      const speedLines = document.createElement("div");
+      speedLines.className = "race-speed-lines";
+      speedLines.style.opacity = String(speedFractionForLines * 0.35);
+      hud.appendChild(speedLines);
+    }
+
     const progress = document.createElement("section");
     progress.className = "race-hud-panel race-progress";
     progress.innerHTML = `<span style="--player-color:${color}"></span><p>${playerLabel(focused.playerNumber)}</p>`;
