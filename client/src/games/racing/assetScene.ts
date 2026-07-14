@@ -127,10 +127,49 @@ function cloneWithUniqueMaterials(source: THREE.Object3D, paintColor?: string): 
 // scene's own unit scale.
 const CAR_SCALE = 6.4;
 
+// The Kenney kit's race car is an empty shell - no driver mesh at all, which
+// reads as lifeless next to the launcher's cute character art. A small
+// original driver bust (round helmet + visor + shoulders, no licensing
+// concerns since it's built from primitives) seated in the cockpit closes
+// that gap cheaply. Coordinates are in the model's own native units (pre
+// CAR_SCALE), matching where the body/wheel node offsets already sit.
+function buildDriverBust(color: string): THREE.Group {
+  const driver = new THREE.Group();
+  driver.name = "driver-bust";
+
+  const suit = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.068, 0.045, 4, 10),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.02 })
+  );
+  suit.position.set(0, 0.25, 0.08);
+  suit.castShadow = true;
+  driver.add(suit);
+
+  const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.078, 16, 12),
+    new THREE.MeshStandardMaterial({ color: "#fff8ec", roughness: 0.4, metalness: 0.02 })
+  );
+  helmet.scale.set(1, 0.96, 1.02);
+  helmet.position.set(0, 0.34, 0.09);
+  helmet.castShadow = true;
+  driver.add(helmet);
+
+  const visor = new THREE.Mesh(
+    new THREE.SphereGeometry(0.057, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    new THREE.MeshStandardMaterial({ color: "#6bc7e6", roughness: 0.25, metalness: 0.15 })
+  );
+  visor.rotation.x = Math.PI * 0.92;
+  visor.position.set(0, 0.335, 0.03);
+  driver.add(visor);
+
+  return driver;
+}
+
 export function buildImportedCarVisual(library: RacingAssetLibrary, color: string): ImportedCarVisual {
   const root = cloneWithUniqueMaterials(library.carScene, color) as THREE.Group;
   root.name = "imported-arcade-car";
   root.scale.setScalar(CAR_SCALE);
+  root.add(buildDriverBust(color));
 
   const wheels: THREE.Object3D[] = [];
   const frontWheels: THREE.Object3D[] = [];
