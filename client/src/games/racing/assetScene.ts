@@ -89,30 +89,62 @@ function cloneWithUniqueMaterials(source: THREE.Object3D, paintColor?: string): 
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const material of materials) {
       const named = material as THREE.Material & { color?: THREE.Color; opacity?: number; transparent?: boolean };
-      // The Kenney race car's body material is named "grey" (its neutral/
-      // white paint variant) - tint it to the player's color without
-      // touching the tire or glass materials.
-      if (paintColor && /^grey$/i.test(material.name) && named.color) {
+      // The Kenney kit's "grey" material slot is reused for two different
+      // things depending on which mesh it's on: the car's main body panels
+      // (node "body"), and the wheel hub/rim (node "wheel*"). GLTFLoader
+      // splits a multi-material node into one sub-mesh per material slot,
+      // named "Mesh_<nodeName>" with a numeric suffix per slot (e.g.
+      // "Mesh_body_1") rather than keeping the plain node name - an exact
+      // `=== "body"` match never fired, so the body's own paint slot fell
+      // through to the wheel-hub branch and rendered as a neutral grey
+      // instead of the player's color. Match the "Mesh_body"/"Mesh_wheel*"
+      // prefix instead of exact node-name equality.
+      const isBodyPaint = /^grey$/i.test(material.name) && /^Mesh_body(_\d+)?$/.test(object.name);
+      const isWheelHub = /^grey$/i.test(material.name) && /^Mesh_wheel/i.test(object.name);
+      if (paintColor && isBodyPaint && named.color) {
         named.color.set(paintColor);
-        // The body-paint mesh is a small fraction of the visible car (most
-        // of the shell is the neutral "carTire" material by design), and
-        // its native albedo starts almost white - under this scene's
-        // lighting a pure diffuse fill reads as a pale wash rather than a
-        // clear player color. A touch of gloss (lower roughness) plus a
-        // fixed emissive fraction of the same hue keeps the color reading
-        // as saturated regardless of how bright the surrounding scene is,
-        // instead of being entirely at the mercy of incident light.
         if (material instanceof THREE.MeshStandardMaterial) {
-          // Pushed further (was 0.38/0.4) - up close the paint still read as
-          // a pale wash rather than a clearly saturated player color.
-          material.roughness = 0.3;
+          // Moderate roughness/metalness so the paint reads as a physically
+          // lit, shaded surface rather than a flat wash - and only a faint
+          // emissive fraction (was 0.65, which made the paint look pale and
+          // self-lit rather than reading contrast from the scene's actual
+          // lighting like every other material on the car does).
+          material.roughness = 0.45;
+          material.metalness = 0.25;
           material.emissive = new THREE.Color(paintColor);
-          material.emissiveIntensity = 0.65;
+          material.emissiveIntensity = 0.08;
+        }
+      } else if (isWheelHub && named.color) {
+        // Wheel hub/rim: neutral dark metal, distinct from both the body
+        // paint and the tire rubber - previously inherited the same
+        // near-white "grey" default as an unlit, oddly pale wheel center.
+        named.color.set("#6b7280");
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.roughness = 0.32;
+          material.metalness = 0.72;
+          material.emissiveIntensity = 0;
+        }
+      }
+      if (/^carTire$/i.test(material.name) && named.color) {
+        // Tire rubber: near-black, rough, non-metallic.
+        named.color.set("#0c0c0e");
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.roughness = 0.92;
+          material.metalness = 0;
+          material.emissiveIntensity = 0;
         }
       }
       if (/glass/i.test(material.name)) {
+        // Dark tinted cockpit glass, low opacity - was a mid-toned blue
+        // semi-transparent panel that read as a pale patch rather than a
+        // proper dark visor/windshield.
+        named.color?.set("#12181f");
         named.transparent = true;
-        named.opacity = 0.62;
+        named.opacity = 0.45;
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.roughness = 0.15;
+          material.metalness = 0.2;
+        }
       }
       if (material instanceof THREE.MeshStandardMaterial) {
         material.envMapIntensity = 0.35;
@@ -158,7 +190,9 @@ function buildDriverBust(color: string): THREE.Group {
 
   const visor = new THREE.Mesh(
     new THREE.SphereGeometry(0.057, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
-    new THREE.MeshStandardMaterial({ color: "#6bc7e6", roughness: 0.25, metalness: 0.15 })
+    // Dark tinted visor (was a pale sky-blue) to match the car's own
+    // cockpit glass treatment.
+    new THREE.MeshStandardMaterial({ color: "#171c22", roughness: 0.22, metalness: 0.25 })
   );
   visor.rotation.x = Math.PI * 0.92;
   visor.position.set(0, 0.335, 0.03);

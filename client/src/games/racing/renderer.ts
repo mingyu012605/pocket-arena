@@ -55,6 +55,16 @@ function shortestAngleDelta(from: number, to: number): number {
   return delta;
 }
 
+// PLAYER_COLORS (shared/protocol.ts) is used by every game mode, so it can't
+// be changed here without affecting Rhythm Battle/Table Tennis/etc. too.
+// Player 1's default pale cyan reads poorly against this scene's own sky/
+// lighting up close, so it's remapped to a more saturated racing red for
+// the 3D car specifically - every other assigned color (bot fallbacks
+// included) passes through unchanged.
+function distinctCarColor(rawColor: string): string {
+  return rawColor.toLowerCase() === "#22d3ee" ? "#e5233a" : rawColor;
+}
+
 const racingLifecycleStats = {
   rendererInstances: 0,
   resizeListeners: 0
@@ -100,6 +110,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private cameraMode: CameraMode = "chase";
   private lookTarget = new THREE.Vector3();
   private cameraShake = 0;
+  /** Extra chase distance eased in when another car is close ahead, so nearby traffic can't fill the whole frame. */
+  private trafficPullback = 0;
   private cameraRoll = 0;
   private readonly lastSkidSpawn = new Map<number, { x: number; z: number }>();
   private readonly visualYaw = new Map<number, number>();
@@ -122,7 +134,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private lastCameraCollisionScanAt = 0;
 
   constructor(room: PublicRoomState) {
-    for (const player of room.players) this.colors.set(player.playerNumber, player.color);
+    for (const player of room.players) this.colors.set(player.playerNumber, distinctCarColor(player.color));
   }
 
   mount(container: HTMLElement): void {
@@ -419,12 +431,37 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       const config = this.cameraConfig(target.speed);
       const forwardX = -Math.sin(target.cameraYaw);
       const forwardZ = -Math.cos(target.cameraYaw);
+      // Ease the camera back a little when another car is close ahead of
+      // the focused car, so nearby traffic can't fill the whole screen.
+      // Only cars roughly in front (positive dot with the forward vector)
+      // count - a car alongside or behind shouldn't push the camera out.
+      let closestAheadDist = Infinity;
+      if (!config.spectator) {
+        for (const other of otherCarPositions) {
+          if (other.playerNumber === target.playerNumber) continue;
+          const dx = other.x - target.x;
+          const dz = other.z - target.z;
+          if (dx * forwardX + dz * forwardZ <= 0) continue;
+          const dist = Math.hypot(dx, dz);
+          if (dist < closestAheadDist) closestAheadDist = dist;
+        }
+      }
+      const CLOSE_TRAFFIC_RANGE = 8;
+      const MAX_TRAFFIC_PULLBACK = 3.5;
+      const targetPullback =
+        closestAheadDist < CLOSE_TRAFFIC_RANGE
+          ? ((CLOSE_TRAFFIC_RANGE - closestAheadDist) / CLOSE_TRAFFIC_RANGE) * MAX_TRAFFIC_PULLBACK
+          : 0;
+      // Slow ease in both directions - pulling back and returning should
+      // both read as a smooth, deliberate camera move, not a snap.
+      this.trafficPullback += (targetPullback - this.trafficPullback) * 0.05;
+      const effectiveDistance = config.distance + this.trafficPullback;
       // Behind the car is target MINUS forward*distance - this had been
       // flipped to a plus, which put the "chase" camera ahead of the car in
       // the same direction as the look-ahead point instead of behind it,
       // producing a broken, near-top-down view looking back at the car.
-      const behindX = target.x - forwardX * config.distance;
-      const behindZ = target.z - forwardZ * config.distance;
+      const behindX = target.x - forwardX * effectiveDistance;
+      const behindZ = target.z - forwardZ * effectiveDistance;
       this.cameraShake = this.cameraShake * 0.88 + Math.min(0.08, target.speed * 0.0015);
       const shakeX = Math.sin(_timestamp * 0.029) * this.cameraShake;
       const shakeY = Math.cos(_timestamp * 0.023) * this.cameraShake;
@@ -619,7 +656,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   }
 
   private ensureCarVisual(playerNumber: number, color?: string): void {
-    if (color) this.colors.set(playerNumber, color);
+    if (color) this.colors.set(playerNumber, distinctCarColor(color));
     if (this.cars.has(playerNumber)) return;
     const scene = this.scene;
     if (!scene) return;

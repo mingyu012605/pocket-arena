@@ -55,7 +55,11 @@ const SPEED_TRAIL_GEOMETRY = new THREE.PlaneGeometry(1.1, 3.6);
 // A thin ring rather than a filled disc - reads as "this is your car"
 // without looking like the car is floating over a puddle of light.
 const UNDERGLOW_GEOMETRY = new THREE.RingGeometry(0.62, 0.78, 28);
-const SHADOW_GEOMETRY = new THREE.CircleGeometry(1.7, 20);
+// Shrunk from radius 1.7 (which, combined with the 1x1.55 stretch below and
+// the car root's 1.7 scale, worked out to an ~5.8x9-unit ellipse - visibly
+// larger than the car's own ~4x3.7-unit footprint, reading as a big flat
+// disc floating under the car rather than a grounded contact shadow).
+const SHADOW_GEOMETRY = new THREE.CircleGeometry(1.15, 24);
 const MARKER_GEOMETRY = new THREE.ConeGeometry(0.42, 0.88, 3);
 
 const WHEEL_OFFSETS: Array<[number, number]> = [
@@ -160,6 +164,30 @@ function buildSpeedTrailTexture(color: string): THREE.CanvasTexture {
 }
 
 /**
+ * Soft radial falloff instead of a hard-edged flat disc - a uniform-opacity
+ * circle reads as a "fake dark circle" floating under the car regardless of
+ * how close its edge sits to the wheels; a feathered center-to-edge fade
+ * reads as a grounded contact shadow instead.
+ */
+function buildContactShadowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gradient.addColorStop(0, "rgba(8,10,14,0.55)");
+  gradient.addColorStop(0.55, "rgba(8,10,14,0.32)");
+  gradient.addColorStop(1, "rgba(8,10,14,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+const CONTACT_SHADOW_TEXTURE = buildContactShadowTexture();
+
+/**
  * Builds an original open-wheel arcade car. The tub/nose use low radial-segment
  * (faceted) geometry rather than spheres so hard edges survive the non-uniform
  * scaling needed for a low, wide silhouette - a sphere just rounds into a blob
@@ -253,9 +281,16 @@ export function buildCarMesh(color: string): CarVisual {
   underglow.position.y = 0.06;
   group.add(underglow);
 
-  const shadow = new THREE.Mesh(SHADOW_GEOMETRY, new THREE.MeshBasicMaterial({ color: "#14532d", transparent: true, opacity: 0.18, depthWrite: false }));
+  // Soft, neutral-dark contact shadow (was a flat, oversized, oddly
+  // green-tinted disc) - the radial falloff texture fades to fully
+  // transparent well inside the mesh's own edge, so there's no hard rim
+  // reading as a shadow "floating" separate from the car.
+  const shadow = new THREE.Mesh(
+    SHADOW_GEOMETRY,
+    new THREE.MeshBasicMaterial({ map: CONTACT_SHADOW_TEXTURE, transparent: true, depthWrite: false })
+  );
   shadow.rotation.x = -Math.PI / 2;
-  shadow.scale.set(1, 1.55, 1);
+  shadow.scale.set(1.05, 1.3, 1);
   shadow.position.y = 0.045;
   group.add(shadow);
 
