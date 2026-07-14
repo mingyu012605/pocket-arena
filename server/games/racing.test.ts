@@ -37,17 +37,20 @@ describe("stepCar", () => {
     expect(car.lateralOffset).toBeCloseTo(0, 1);
   });
 
-  it("turns: sustained steering with speed increases heading error and lateral offset, not just progress", () => {
+  it("turns by yawing the car first, then drifting laterally from its heading", () => {
     const car = makeCar({ throttle: 1, speed: RACING.maxSpeed / 2, steering: 1 });
     for (let i = 0; i < 60; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(Math.abs(car.headingError)).toBeGreaterThan(0);
     expect(Math.abs(car.lateralOffset)).toBeGreaterThan(0);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(18);
   });
 
-  it("neutral steering does not keep pushing the car sideways", () => {
+  it("neutral steering lets drift bleed off instead of snapping the car sideways", () => {
     const car = makeCar({ speed: 24, lateralOffset: 2, headingError: 0.55, steering: 0 });
     for (let i = 0; i < 60; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
-    expect(car.lateralOffset).toBeCloseTo(2, 1);
+    expect(car.lateralOffset).toBeGreaterThan(2);
+    expect(Math.abs(car.headingError)).toBeLessThan(0.55);
+    expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
   });
 
   it("slows down when off track", () => {
@@ -94,7 +97,7 @@ describe("stepCar", () => {
 
   it("does not tunnel through the barrier during repeated contact", () => {
     const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
-    const car = makeCar({ speed: 32, lateralOffset: barrierLimit + 1.2, steering: 1 });
+    const car = makeCar({ speed: 32, lateralOffset: barrierLimit + 1.2, steering: 1, throttle: 1 });
     for (let i = 0; i < 90; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(Math.abs(car.lateralOffset)).toBeLessThanOrEqual(barrierLimit);
     expect(car.speed).toBeGreaterThan(0);

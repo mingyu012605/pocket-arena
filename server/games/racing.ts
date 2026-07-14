@@ -77,7 +77,7 @@ export function createRacingGameState(room: InternalRoom): RacingGameState {
 }
 
 const PHYSICS_STEP = 1 / 60;
-const BROADCAST_EVERY_N_STEPS = 2; // 60 / 2 = 30Hz
+const BROADCAST_EVERY_N_STEPS = 1; // 60Hz snapshots keep phone steering visibly responsive.
 const MAX_STEPS_PER_CALLBACK = 5;
 const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
@@ -99,9 +99,11 @@ export const RACING = {
   reverseAcceleration: 11,
   coastDrag: 5,
   steeringResponsiveness: 4.4,
-  yawDamping: 4.2,
-  headingCentering: 5.8,
-  lateralResponsiveness: 0.78,
+  yawDamping: 3.35,
+  headingCentering: 3.9,
+  lateralResponsiveness: 0.72,
+  driftGrip: 2.6,
+  steeringSlip: 0.18,
   offTrackSlowFactor: 0.94,
   barrierOffset: 2.6,
   barrierSpeedRetention: 0.88
@@ -151,9 +153,15 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   }
   car.speed = Math.max(-RACING.maxReverseSpeed, Math.min(RACING.maxSpeed, car.speed));
 
-  car.progress += car.speed * dt;
-  const lateralSpeed = steering * Math.max(8, Math.abs(car.speed)) * RACING.lateralResponsiveness;
+  const grip = Math.min(1, Math.max(0.2, Math.abs(car.speed) / RACING.maxSpeed));
+  const forwardSpeed = car.speed * Math.cos(car.headingError);
+  const driftSpeed = car.speed * Math.sin(car.headingError) * RACING.lateralResponsiveness;
+  const steeringSlip = steering * Math.max(3, Math.abs(car.speed)) * RACING.steeringSlip * (1 - grip * 0.45);
+  car.progress += forwardSpeed * dt;
+  const lateralSpeed = driftSpeed + steeringSlip;
   car.lateralOffset += lateralSpeed * dt;
+  const gripRecovery = Math.min(1, RACING.driftGrip * dt * (0.45 + grip * 0.75));
+  car.headingError += (0 - car.headingError) * gripRecovery * (steering === 0 ? 1 : 0.35);
 
   const barrierLimit = track.trackHalfWidth + RACING.barrierOffset;
   let hitBarrier = false;

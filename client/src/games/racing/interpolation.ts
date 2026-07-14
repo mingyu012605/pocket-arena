@@ -12,9 +12,9 @@ export interface RacingSnapshot {
   players: Map<number, RacingCarFrame>;
 }
 
-export const RENDER_DELAY_MS = 85;
-export const MAX_EXTRAPOLATE_MS = 70;
-export const MAX_SNAPSHOTS = 6;
+export const RENDER_DELAY_MS = 55;
+export const MAX_EXTRAPOLATE_MS = 100;
+export const MAX_SNAPSHOTS = 8;
 
 const TWO_PI = Math.PI * 2;
 
