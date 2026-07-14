@@ -313,7 +313,7 @@
 .race-hud-panel {
   position: absolute;
   border: 1px solid rgba(226, 232, 240, 0.18);
-  border-radius: 8px;
+  border-radius: 18px;
   background: rgba(5, 7, 15, 0.68);
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(14px);
@@ -1381,32 +1381,34 @@
   background: #c7f0ff;
 }
 .race-hud-panel {
-  border-color: rgba(14, 165, 233, 0.22);
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 16px 36px rgba(14, 116, 144, 0.14);
-  color: #12304a;
+  border-color: rgba(255, 200, 150, 0.4);
+  background: rgba(255, 250, 240, 0.88);
+  box-shadow: 0 16px 36px rgba(200, 130, 90, 0.16);
+  color: #6b4a3a;
 }
 .racing-leaderboard-row {
-  border-color: rgba(14, 165, 233, 0.22);
-  background: rgba(255, 255, 255, 0.72);
-  color: #12304a;
+  border-color: rgba(255, 200, 150, 0.4);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 14px;
+  color: #6b4a3a;
 }
 .racing-leaderboard-row.is-focused {
-  border-color: #0ea5e9;
-  color: #036083;
+  border-color: #f6a35c;
+  background: rgba(255, 224, 178, 0.55);
+  color: #a3541c;
 }
 .racing-hud-title {
   color: var(--player-color, #0ea5e9);
 }
 .race-speedometer span,
 .race-progress p {
-  color: #48677f;
+  color: #a3806b;
 }
 .race-speedometer small {
   color: #ea580c;
 }
 .race-progress::before {
-  background: rgba(14, 165, 233, 0.18);
+  background: rgba(246, 163, 92, 0.28);
 }
 .race-results-overlay {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.32));

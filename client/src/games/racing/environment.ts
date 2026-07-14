@@ -606,10 +606,15 @@ export function buildSkyDome(): THREE.Group {
   skyCanvas.width = 64;
   skyCanvas.height = 512;
   const skyCtx = skyCanvas.getContext("2d")!;
+  // Warm, cozy "golden hour" pastel gradient - soft periwinkle up top melting
+  // into peach and butter-cream near the horizon - instead of the cool,
+  // stark blue midday sky. This is the single biggest lever for a "cute and
+  // comfy" mood versus a clinical arcade-sim one.
   const skyGradient = skyCtx.createLinearGradient(0, 0, 0, skyCanvas.height);
-  skyGradient.addColorStop(0, "#38bdf8");
-  skyGradient.addColorStop(0.44, "#b9f2ff");
-  skyGradient.addColorStop(1, "#f8fbff");
+  skyGradient.addColorStop(0, "#a78bd9");
+  skyGradient.addColorStop(0.4, "#f6b8c9");
+  skyGradient.addColorStop(0.72, "#ffd9a8");
+  skyGradient.addColorStop(1, "#fff3d6");
   skyCtx.fillStyle = skyGradient;
   skyCtx.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
   const skyTexture = new THREE.CanvasTexture(skyCanvas);
@@ -620,15 +625,23 @@ export function buildSkyDome(): THREE.Group {
   );
   group.add(dome);
 
+  const sunGlow = new THREE.Mesh(
+    new THREE.CircleGeometry(42, 48),
+    new THREE.MeshBasicMaterial({ color: "#ffcf8a", transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+  );
+  sunGlow.position.set(-145, 108, -349);
+  sunGlow.rotation.y = 0.3;
+  group.add(sunGlow);
+
   const sun = new THREE.Mesh(
-    new THREE.CircleGeometry(24, 48),
-    new THREE.MeshBasicMaterial({ color: "#fde68a", transparent: true, opacity: 0.92, side: THREE.DoubleSide })
+    new THREE.CircleGeometry(22, 48),
+    new THREE.MeshBasicMaterial({ color: "#fff1c2", transparent: true, opacity: 0.95, side: THREE.DoubleSide })
   );
   sun.position.set(-145, 110, -350);
   sun.rotation.y = 0.3;
   group.add(sun);
 
-  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#7dd3fc", transparent: true, opacity: 0.42, side: THREE.DoubleSide });
+  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#c9a3d8", transparent: true, opacity: 0.4, side: THREE.DoubleSide });
   for (let i = 0; i < 8; i++) {
     const mountain = new THREE.Mesh(new THREE.ConeGeometry(22 + (i % 3) * 9, 38 + (i % 4) * 8, 4), mountainMaterial);
     mountain.position.set(-170 + i * 48, 18, -330 - (i % 2) * 18);
@@ -637,7 +650,7 @@ export function buildSkyDome(): THREE.Group {
     group.add(mountain);
   }
 
-  const cloudMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.95, transparent: true, opacity: 0.9 });
+  const cloudMaterial = new THREE.MeshStandardMaterial({ color: "#fff6ea", roughness: 0.95, transparent: true, opacity: 0.92 });
   for (let i = 0; i < 18; i++) {
     const cloud = new THREE.Group();
     const puffs = 3 + (i % 3);

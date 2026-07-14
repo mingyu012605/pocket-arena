@@ -104,8 +104,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.assetLoadCancelled = false;
     this.container = container;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#b9f2ff");
-    scene.fog = new THREE.Fog("#bfefff", 120, 420);
+    // Warm peach/cream instead of a cool clinical blue - matches the sky
+    // dome's golden-hour gradient for a cozier, softer mood.
+    scene.background = new THREE.Color("#ffe3c2");
+    scene.fog = new THREE.Fog("#ffe9cf", 120, 420);
 
     const { width, height } = this.containerSize();
     const camera = new THREE.PerspectiveCamera(66, width / height, 0.1, 2500);
@@ -141,8 +143,12 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     pmremGenerator.dispose();
     this.environmentTexture = environmentTexture;
 
-    scene.add(new THREE.HemisphereLight("#f3fbff", "#36553d", 1.05));
-    const sun = new THREE.DirectionalLight("#fff7df", 1.35);
+    // Warm peachy sky-light + soft mossy-green ground bounce, and a
+    // golden-hour sun color instead of neutral white - matches the cozy
+    // pastel sky dome and keeps the whole scene reading as one warm mood
+    // rather than a cool blue sky over warm-lit props.
+    scene.add(new THREE.HemisphereLight("#ffd9b0", "#4a6b4a", 1.05));
+    const sun = new THREE.DirectionalLight("#ffdca0", 1.35);
     sun.position.set(60, 120, 40);
     sun.castShadow = this.quality.shadows;
     sun.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
@@ -164,7 +170,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(360, 340),
-      new THREE.MeshStandardMaterial({ color: "#68d977", roughness: 0.95 })
+      new THREE.MeshStandardMaterial({ color: "#a0d69b", roughness: 0.95 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, -0.02, -100);

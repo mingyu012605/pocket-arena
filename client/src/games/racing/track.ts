@@ -135,17 +135,19 @@ export function buildGrassTexture(): THREE.CanvasTexture {
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
+  // Softer sage/mint green instead of a saturated bright grass green - reads
+  // as cozy meadow rather than sports-turf, matching the warm pastel sky.
   const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  gradient.addColorStop(0, "#86efac");
-  gradient.addColorStop(0.48, "#4ade80");
-  gradient.addColorStop(1, "#22c55e");
+  gradient.addColorStop(0, "#c3ebc0");
+  gradient.addColorStop(0.48, "#9ed99a");
+  gradient.addColorStop(1, "#7cc47f");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.globalAlpha = 0.16;
   for (let i = 0; i < 420; i++) {
     const x = Math.random() * canvas.width;
     const y = Math.random() * canvas.height;
-    ctx.strokeStyle = i % 3 === 0 ? "#bbf7d0" : "#15803d";
+    ctx.strokeStyle = i % 3 === 0 ? "#e4f9dd" : "#4d8f52";
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(x + 5 + Math.random() * 9, y + 2 + Math.random() * 7);
@@ -244,7 +246,7 @@ export function buildTrackGroup(): THREE.Group {
     side: THREE.DoubleSide
   });
   const runoffMaterial = new THREE.MeshStandardMaterial({
-    color: "#7bdd88",
+    color: "#a8d9a3",
     map: buildGrassTexture(),
     alphaMap: loadRepeatTexture(terrainDetailUrl, 18, 18, THREE.SRGBColorSpace),
     roughness: 0.92,
