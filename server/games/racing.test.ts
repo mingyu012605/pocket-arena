@@ -13,7 +13,9 @@ import {
   updateRanks,
   respawnFallenCar,
   RESPAWN_DELAY_MS,
-  RESPAWN_SPEED_FACTOR
+  RESPAWN_SPEED_FACTOR,
+  checkpointsFor,
+  advanceCheckpoint
 } from "./racing";
 import { createRoom, findPlayer } from "../rooms";
 import type { RacingCarState } from "../types";
@@ -709,5 +711,55 @@ describe("fall recovery", () => {
     expect(car.progress).toBe(checkpoints[0]);
     expect(car.lateralOffset).toBe(0);
     expect(car.speed).toBeLessThanOrEqual(RACING.maxSpeed * RESPAWN_SPEED_FACTOR + 0.01);
+  });
+});
+
+describe("checkpoints", () => {
+  it("advances lastCheckpointIndex as a car crosses checkpoints in order", () => {
+    const track = TEST_OVAL_TRACK;
+    const checkpoints = checkpointsFor(track);
+    const car = makeCar({ progress: checkpoints[1]! + 1, lastCheckpointIndex: 0 });
+    advanceCheckpoint(track, car, checkpoints);
+    expect(car.lastCheckpointIndex).toBe(1);
+  });
+
+  it("does not regress lastCheckpointIndex on a manufactured backward jump", () => {
+    const track = TEST_OVAL_TRACK;
+    const checkpoints = checkpointsFor(track);
+    const car = makeCar({ progress: checkpoints[1]! + 1, lastCheckpointIndex: 2 });
+    advanceCheckpoint(track, car, checkpoints);
+    expect(car.lastCheckpointIndex).toBe(2);
+  });
+
+  it("does not let the mid-flight projected-progress hint advance checkpoints", () => {
+    const track = TEST_OVAL_TRACK;
+    const checkpoints = checkpointsFor(track);
+    const car = makeCar({
+      progress: checkpoints[0]! + 1,
+      projectedProgress: checkpoints[3]! + 1,
+      airborne: true,
+      lastCheckpointIndex: 0
+    });
+    advanceCheckpoint(track, car, checkpoints);
+    expect(car.lastCheckpointIndex).toBe(0);
+  });
+
+  it("does not automatically credit a checkpoint just from landing - only the actual landed progress counts", () => {
+    // Land the car (via real physics) somewhere inside the gap/landing
+    // zone, well before rampTrack's own next checkpoint boundary, and
+    // confirm the checkpoint index only reflects where it actually landed,
+    // not an implicit "you landed, so you must have reached the zone's
+    // checkpoint" credit.
+    const checkpoints = checkpointsFor(rampTrack);
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1, lastCheckpointIndex: -1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    advanceCheckpoint(rampTrack, car, checkpoints);
+    const expectedIndex = checkpoints.reduce(
+      (acc, checkpoint, index) => (shortestProgressDelta(rampTrack, checkpoint, car.progress) >= 0 ? index : acc),
+      -1
+    );
+    expect(car.lastCheckpointIndex).toBe(expectedIndex);
   });
 });

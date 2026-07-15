@@ -576,9 +576,33 @@ function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, n
   }
 }
 
+/**
+ * Roughly one checkpoint per major section (start straight, each jump's
+ * landing, the banked sweeper, the chicane) - exact placement is authored
+ * alongside the Task 11 circuit layout. A generic quarter/half/three-quarter
+ * spread is used here so checkpoints exist and are independently testable
+ * before that authoring pass.
+ */
+export function checkpointsFor(track: TrackDefinition): number[] {
+  return [0, track.trackLength * 0.25, track.trackLength * 0.5, track.trackLength * 0.75];
+}
+
+/** Uses only the car's real, landed `progress` - never `projectedProgress`, so mid-flight state can never advance a checkpoint. */
+export function advanceCheckpoint(track: TrackDefinition, car: RacingCarState, checkpoints: number[]): void {
+  if (car.airborne) return;
+  for (let i = 0; i < checkpoints.length; i++) {
+    if (i <= car.lastCheckpointIndex) continue;
+    const delta = shortestProgressDelta(track, checkpoints[i]!, car.progress);
+    if (delta >= 0 && delta < track.trackLength / checkpoints.length) {
+      car.lastCheckpointIndex = i;
+    }
+  }
+}
+
 export function stepPhysics(room: InternalRoom, dt: number): void {
   if (room.gameState?.gameType !== "racing") return;
   const track = trackFor(room);
+  const checkpoints = checkpointsFor(track);
   const now = Date.now();
   const startedAt = room.gameState.startedAt ?? now;
   for (const [playerNumber, car] of room.gameState.cars) {
@@ -586,9 +610,10 @@ export function stepPhysics(room: InternalRoom, dt: number): void {
     if (car.isBot || isBotPlayerNumber(playerNumber)) applyBotInput(playerNumber, car);
     else applyInputTimeout(car, now);
     stepCar(track, car, dt);
+    advanceCheckpoint(track, car, checkpoints);
     if (car.finished) car.finishTime = now - startedAt;
   }
-  applyFallRecovery(room, now, [0]); // checkpoint list replaced with the real one in Task 7
+  applyFallRecovery(room, now, checkpoints);
   resolveCollisions(track, room.gameState, now);
   updateRanks(room.gameState);
 }
