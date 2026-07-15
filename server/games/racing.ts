@@ -1,7 +1,7 @@
 import type { Server } from "socket.io";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../shared/protocol";
-import { TEST_OVAL_TRACK, shortestProgressDelta } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta, sampleRacingTrackFrame, rampJumpSpanAt, wrapProgress } from "../../shared/racingTrack";
 import type { TrackDefinition } from "../../shared/racingTrack";
 import { roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";
@@ -11,6 +11,9 @@ const RACING_GRID_SIZE = 4;
 const BOT_PLAYER_START = 101;
 const BOT_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15"] as const;
 const BOT_NAMES = ["Turbo Kim", "Pixel Rae", "Nitro Jun", "Apex Mina"] as const;
+const GRAVITY = 24;
+const MIN_LAUNCH_SPEED = 14;
+const AIR_STEER_AUTHORITY = 0.35; // fraction of grounded steeringResponsiveness, applied to velocity direction
 
 function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
   return {
@@ -30,6 +33,20 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     lap: 1,
     finished: false,
     finishTime: null,
+    airborne: false,
+    worldX: 0,
+    worldY: 0,
+    worldZ: 0,
+    velocityX: 0,
+    velocityY: 0,
+    velocityZ: 0,
+    takeoffProgress: 0,
+    settleTimer: 0,
+    settleFromPitch: 0,
+    hardLanding: false,
+    fallenAt: null,
+    lastCheckpointIndex: -1,
+    projectedProgress: 0,
     ...overrides
   };
 }
@@ -149,6 +166,26 @@ function applyBotInput(playerNumber: number, car: RacingCarState): void {
 }
 
 export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
+  if (car.airborne) {
+    stepAirborneCar(track, car, dt);
+    return;
+  }
+  const frame = sampleRacingTrackFrame(track, car.progress, car.lateralOffset);
+  if (!frame.surfacePresent) {
+    launchAirborne(track, car, false);
+    return;
+  }
+  stepGroundedCar(track, car, dt);
+  const rampLaunch = frame.segmentType === "ramp" && car.speed >= MIN_LAUNCH_SPEED;
+  const rampAtEdge = rampLaunch && sampleRacingTrackFrame(track, car.progress, car.lateralOffset).segmentType !== "ramp";
+  if (rampAtEdge) launchAirborne(track, car, true);
+}
+
+function stepGroundedCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
+  if (car.settleTimer > 0) {
+    car.settleTimer = Math.max(0, car.settleTimer - dt);
+    car.settleFromPitch *= Math.max(0, 1 - dt / 0.12);
+  }
   const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
   const targetHeading = steering * Math.PI * 0.36;
   car.yawRate += (targetHeading - car.headingError) * RACING.steeringResponsiveness * dt;
@@ -213,6 +250,45 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   if (car.progress >= track.trackLength && car.speed > 0 && !car.finished) {
     car.finished = true;
   }
+}
+
+/** Converts track-relative state into world-space flight state. `properLaunch` distinguishes a real ramp launch (arc from the ramp's exit slope) from driving too slowly off an edge (keeps existing horizontal velocity, near-zero vertical velocity). */
+function launchAirborne(track: TrackDefinition, car: RacingCarState, properLaunch: boolean): void {
+  const frame = sampleRacingTrackFrame(track, car.progress, car.lateralOffset);
+  car.airborne = true;
+  car.takeoffProgress = car.progress;
+  car.worldX = frame.x;
+  car.worldY = frame.y;
+  car.worldZ = frame.z;
+  const forwardX = Math.cos(frame.heading);
+  const forwardZ = Math.sin(frame.heading);
+  car.velocityX = forwardX * car.speed;
+  car.velocityZ = forwardZ * car.speed;
+  car.velocityY = properLaunch ? Math.max(2, frame.slope) * Math.max(car.speed, MIN_LAUNCH_SPEED) * 0.5 : Math.min(0, frame.slope);
+  car.projectedProgress = car.progress;
+}
+
+function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
+  const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
+  if (steering !== 0) {
+    const speedXZ = Math.hypot(car.velocityX, car.velocityZ) || 1;
+    const currentHeading = Math.atan2(car.velocityZ, car.velocityX);
+    const targetHeading = currentHeading + steering * RACING.steeringResponsiveness * AIR_STEER_AUTHORITY * dt;
+    car.velocityX = Math.cos(targetHeading) * speedXZ;
+    car.velocityZ = Math.sin(targetHeading) * speedXZ;
+  }
+  car.velocityY -= GRAVITY * dt;
+  const prevWorldY = car.worldY;
+  car.worldX += car.velocityX * dt;
+  car.worldY += car.velocityY * dt;
+  car.worldZ += car.velocityZ * dt;
+  car.speed = Math.hypot(car.velocityX, car.velocityZ);
+
+  tryLandOrFall(track, car, prevWorldY, dt);
+}
+
+function tryLandOrFall(_track: TrackDefinition, _car: RacingCarState, _prevWorldY: number, _dt: number): void {
+  // Implemented in Task 4.
 }
 
 function updateRanks(gameState: RacingGameState): void {

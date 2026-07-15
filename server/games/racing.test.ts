@@ -1,6 +1,6 @@
 import type { Server } from "socket.io";
 import { describe, expect, it } from "vitest";
-import { TEST_OVAL_TRACK, shortestProgressDelta } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
 import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload } from "./racing";
@@ -25,9 +25,35 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     lap: 1,
     finished: false,
     finishTime: null,
+    airborne: false,
+    worldX: 0,
+    worldY: 0,
+    worldZ: 0,
+    velocityX: 0,
+    velocityY: 0,
+    velocityZ: 0,
+    takeoffProgress: 0,
+    settleTimer: 0,
+    settleFromPitch: 0,
+    hardLanding: false,
+    fallenAt: null,
+    lastCheckpointIndex: -1,
+    projectedProgress: 0,
     ...overrides
   };
 }
+
+const rampTrack = createTrack(
+  "test-ramp",
+  [
+    { x: 0, z: 0, y: 0, segmentType: "flat" },
+    { x: 100, z: 0, y: 5, segmentType: "ramp", jumpSpan: 40 },
+    { x: 160, z: 0, y: 0, segmentType: "gap" },
+    { x: 220, z: 0, y: 0, segmentType: "landing" },
+    { x: 300, z: 0, y: 0, segmentType: "flat" }
+  ],
+  12
+);
 
 describe("stepCar", () => {
   it("accelerates forward and increases progress under full throttle with no steering", () => {
@@ -455,5 +481,55 @@ describe("checkRaceCompletion", () => {
 
     expect(finished).toBe(false);
     expect(gameState.finishOrder).toEqual([1, 2]);
+  });
+});
+
+// Empirically verified segment boundaries for `rampTrack` (Catmull-Rom arc
+// length isn't proportional to waypoint x-spacing, so these are measured,
+// not estimated): flat [0,113), ramp [113,173), gap [173,233),
+// landing [233,330), flat (wrap) [330, trackLength).
+const RAMP_SEGMENT_START = 113;
+const RAMP_SEGMENT_END = 173;
+
+describe("airborne launch", () => {
+  // Launch only fires at the ramp segment's *exit* edge, not simply from
+  // being somewhere on the ramp - so tests drive forward until the car
+  // actually crosses that edge, rather than assuming one tick does it.
+  it("launches airborne with upward velocity above the minimum launch speed", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    expect(car.velocityY).toBeGreaterThan(0);
+  });
+
+  it("drops off the ramp edge without a launch arc below the minimum speed", () => {
+    // Positioned within coasting distance of the ramp's exit edge (speed=5
+    // decelerating at RACING.coastDrag covers at most 2.5 units before
+    // stopping), so it reaches the edge with residual speed still under
+    // MIN_LAUNCH_SPEED rather than stopping short of it.
+    const car = makeCar({ progress: RAMP_SEGMENT_END - 2, speed: 5 });
+    for (let i = 0; i < 100 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    expect(car.velocityY).toBeLessThanOrEqual(0.5);
+  });
+
+  it("integrates world-space position under gravity while airborne", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const startY = car.worldY;
+    const startVelocityY = car.velocityY;
+    stepCar(rampTrack, car, 1 / 60);
+    expect(car.velocityY).toBeLessThan(startVelocityY);
+    expect(car.worldY).not.toBe(startY);
+  });
+
+  it("freezes progress at takeoff while airborne", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const frozen = car.progress;
+    for (let i = 0; i < 10; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.progress).toBe(frozen);
   });
 });
