@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
+import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle, sampleRacingTrackFrame } from "../../../../shared/racingTrack";
 import { computeRacingCarWorldTransform } from "./carTransform";
 import asphaltNormalUrl from "@pmndrs/assets/normals/0004.webp";
 import curbNormalUrl from "@pmndrs/assets/normals/0012.webp";
@@ -197,21 +197,41 @@ export function buildSponsorTexture(title: string, accent: string, bg: string): 
   return texture;
 }
 
-function buildRibbonMesh(innerOffset: number, outerOffset: number, y: number, material: THREE.Material): THREE.Mesh {
+// Placeholder-only graybox tint per segment type, purely for playtest
+// readability until Cycle 5's real environment art - deliberately not
+// exported/reused anywhere the real art pass would need to touch.
+const SEGMENT_GRAYBOX_COLOR: Record<string, [number, number, number]> = {
+  flat: [1, 1, 1],
+  ramp: [1, 0.65, 0.15],
+  gap: [1, 0.25, 0.25],
+  landing: [0.35, 1, 0.45],
+  bank: [1, 1, 1]
+};
+
+/**
+ * Uses the exact same `sampleRacingTrackFrame` the server's physics reads
+ * (`shared/racingTrack.ts`) for both elevation and banking, so the visible
+ * road surface can never drift out of sync with what the car actually
+ * drives on - a mismatch here would be especially confusing right at a
+ * landing, where the player is watching the road to judge where they'll
+ * touch down.
+ */
+function buildRibbonMesh(innerOffset: number, outerOffset: number, yOffset: number, material: THREE.Material): THREE.Mesh {
   const positions: number[] = [];
   const uvs: number[] = [];
+  const colors: number[] = [];
   const indices: number[] = [];
 
   for (let i = 0; i <= TRACK_SAMPLES; i++) {
     const progress = (i / TRACK_SAMPLES) * TEST_OVAL_TRACK.trackLength;
-    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
-    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
-    const nx = Math.cos(angle);
-    const nz = Math.sin(angle);
-    positions.push(center.x + nx * outerOffset, y, center.z + nz * outerOffset);
-    positions.push(center.x + nx * innerOffset, y, center.z + nz * innerOffset);
+    const outer = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, outerOffset);
+    const inner = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, innerOffset);
+    positions.push(outer.x, outer.y + yOffset, outer.z);
+    positions.push(inner.x, inner.y + yOffset, inner.z);
     uvs.push(0, i / TRACK_SAMPLES);
     uvs.push(1, i / TRACK_SAMPLES);
+    const [r, g, b] = SEGMENT_GRAYBOX_COLOR[outer.segmentType] ?? [1, 1, 1];
+    colors.push(r, g, b, r, g, b);
   }
 
   for (let i = 0; i < TRACK_SAMPLES; i++) {
@@ -225,6 +245,7 @@ function buildRibbonMesh(innerOffset: number, outerOffset: number, y: number, ma
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
@@ -241,7 +262,11 @@ export function buildTrackGroup(): THREE.Group {
     normalScale: new THREE.Vector2(0.42, 0.42),
     roughness: 0.86,
     metalness: 0.02,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    // Multiplies with the asphalt map/color above rather than replacing it,
+    // so the per-segment graybox tint (ramp/gap/landing) reads as a color
+    // wash over the existing road texture, not a flat swap.
+    vertexColors: true
   });
   const runoffMaterial = new THREE.MeshStandardMaterial({
     color: "#4bd383",
@@ -249,7 +274,8 @@ export function buildTrackGroup(): THREE.Group {
     alphaMap: loadRepeatTexture(terrainDetailUrl, 18, 18, THREE.SRGBColorSpace),
     roughness: 0.92,
     metalness: 0.01,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    vertexColors: true
   });
   const lineMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", side: THREE.DoubleSide });
   const laneGuideMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", transparent: true, opacity: 0.4, side: THREE.DoubleSide });

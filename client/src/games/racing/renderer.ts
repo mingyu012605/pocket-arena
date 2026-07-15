@@ -1,7 +1,7 @@
 ﻿import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { GameRenderer } from "../gameRenderer";
-import { TEST_OVAL_TRACK } from "../../../../shared/racingTrack";
+import { TEST_OVAL_TRACK, sampleRacingTrackFrame } from "../../../../shared/racingTrack";
 import type { PublicRoomState, RacingGameStatePayload, RacingPlayerState } from "../../../../shared/protocol";
 import { RacingMetricsOverlay, shouldShowRacingMetrics } from "./metrics";
 import type { RacingLifecycleStats } from "./metrics";
@@ -128,6 +128,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private cameraRoll = 0;
   private readonly lastSkidSpawn = new Map<number, { x: number; z: number }>();
   private readonly visualYaw = new Map<number, number>();
+  private readonly visualPitch = new Map<number, number>();
+  /** Previous frame's rendered world height per car, used to estimate airborne vertical velocity client-side (velocity itself isn't sent over the wire). */
+  private readonly previousCarHeight = new Map<number, number>();
   private readonly visualWheelSteer = new Map<number, number>();
   private pixelRatio = 1;
   private targetPixelRatio = 1;
@@ -374,6 +377,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.lastSkidSpawn.clear();
     this.visualYaw.clear();
     this.visualWheelSteer.clear();
+    this.visualPitch.clear();
+    this.previousCarHeight.clear();
     this.lastRaceStatus = null;
   }
 
@@ -383,8 +388,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.updateRenderBudget(_timestamp);
 
     const positions = this.interpolationBuffer.interpolate(performance.now());
-    let focused: { x: number; z: number; cameraYaw: number; speed: number; progress: number; playerNumber: number; headingError: number } | null = null;
-    let leader: { x: number; z: number; cameraYaw: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number } | null = null;
+    let focused: { x: number; y: number; z: number; cameraYaw: number; speed: number; progress: number; playerNumber: number; headingError: number; airborne: boolean } | null = null;
+    let leader: { x: number; y: number; z: number; cameraYaw: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number; airborne: boolean } | null = null;
     const otherCarPositions: Array<{ playerNumber: number; x: number; z: number }> = [];
 
     for (const [playerNumber, car] of this.cars) {
@@ -409,12 +414,33 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       this.visualYaw.set(playerNumber, smoothedYaw);
       car.root.rotation.y = smoothedYaw;
       const cameraYaw = -(heading + clamp(pos.headingError * 0.22, -0.24, 0.24));
-      // Chassis lean: bank the body slightly into turns, proportional to how
-      // hard the car is steering and how fast it's going. car.root.rotation.z
-      // is never set anywhere else, so reading it back each frame doubles as
-      // the lean's own persistent accumulator - no extra state map needed.
-      const leanTarget = clamp((pos.headingError + steering * 0.12) * pos.speed * 0.01, -0.08, 0.08);
+      // Grounded roll/pitch read the track's own authored bank/slope at this
+      // car's exact progress+lateralOffset - not inferred from consecutive
+      // network positions, which would be noisy and indistinguishable from
+      // drift lean. Airborne cars have no ground to read, so roll falls back
+      // to drift-lean-only and pitch derives from an estimated vertical
+      // velocity instead (see below).
+      const groundedFrame = pos.airborne ? null : sampleRacingTrackFrame(TEST_OVAL_TRACK, pos.progress, pos.lateralOffset);
+      // Chassis lean: bank angle (grounded) plus a small drift-lean layered
+      // on top, proportional to how hard the car is steering and how fast
+      // it's going. car.root.rotation.z is never set anywhere else, so
+      // reading it back each frame doubles as the lean's own persistent
+      // accumulator - no extra state map needed for the drift component.
+      const leanTarget = (groundedFrame?.bankAngle ?? 0) + clamp((pos.headingError + steering * 0.12) * pos.speed * 0.01, -0.08, 0.08);
       car.root.rotation.z = car.root.rotation.z * 0.85 + leanTarget * 0.15;
+      // Pitch: grounded pitch follows the track's slope; airborne pitch is
+      // derived from a client-side vertical-velocity estimate (a finite
+      // difference of consecutive rendered heights), the same style of
+      // client-derived signal already used for `acceleration` in the Cycle 3
+      // driver-character spec, since raw velocity isn't sent over the wire.
+      const previousHeight = this.previousCarHeight.get(playerNumber) ?? y;
+      const verticalDelta = y - previousHeight;
+      this.previousCarHeight.set(playerNumber, y);
+      const pitchTarget = groundedFrame ? Math.atan(groundedFrame.slope) : clamp(-verticalDelta * 6, -0.5, 0.5);
+      const previousPitch = this.visualPitch.get(playerNumber) ?? pitchTarget;
+      const smoothedPitch = previousPitch + (pitchTarget - previousPitch) * 0.2;
+      this.visualPitch.set(playerNumber, smoothedPitch);
+      car.root.rotation.x = smoothedPitch;
       car.marker.visible = playerNumber === this.focusedPlayerNumber;
       for (const wheel of car.wheels) wheel.rotation.x -= pos.speed * 0.016;
       const wheelTarget = clamp(steering * 0.18 + pos.headingError * 0.035, -0.22, 0.22);
@@ -451,8 +477,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
 
       otherCarPositions.push({ playerNumber, x, z });
-      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, cameraYaw, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError };
-      if (!leader || pos.rank < leader.rank) leader = { x, z, cameraYaw, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError };
+      if (playerNumber === this.focusedPlayerNumber)
+        focused = { x, y, z, cameraYaw, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError, airborne: pos.airborne ?? false };
+      if (!leader || pos.rank < leader.rank)
+        leader = { x, y, z, cameraYaw, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError, airborne: pos.airborne ?? false };
     }
 
     if (DEV_MODE) {
@@ -468,6 +496,14 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
 
     const target = focused ?? leader;
     if (target) {
+      // A respawn teleports the car far from wherever the camera was
+      // easing toward - continuing the normal damped follow would produce
+      // a long, wrong-looking slide chasing a car that already isn't
+      // there. Snap cleanly instead, the same way a fresh mount does.
+      if (this.respawnedPlayers.has(target.playerNumber)) {
+        this.cameraInitialized = false;
+        this.respawnedPlayers.delete(target.playerNumber);
+      }
       const config = this.cameraConfig(target.speed);
       const forwardX = -Math.sin(target.cameraYaw);
       const forwardZ = -Math.cos(target.cameraYaw);
@@ -506,16 +542,24 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       // constant, un-smoothable jitter on top of everything else, and was
       // the main source of the "too shaky" feedback. Height still lifts
       // slightly with speed for a touch of energy, without oscillating.
+      // target.y (the car's real world height, grounded or airborne) rides
+      // on top of the existing per-mode base height/look-height so the
+      // camera climbs and drops through jumps - no new easing system, it
+      // rides through the same damped step-clamp below as everything else.
       const desired = new THREE.Vector3(
         config.spectator ? target.x + 36 : behindX,
-        config.height + Math.min(1.4, target.speed * 0.03),
+        config.height + target.y + Math.min(1.4, target.speed * 0.03),
         config.spectator ? target.z + 34 : behindZ
       );
-      const desiredLook = new THREE.Vector3(
-        target.x + forwardX * config.lookAhead,
-        config.lookHeight,
-        target.z + forwardZ * config.lookAhead
-      );
+      // Clamp how far the look target's height can sit above/below the
+      // camera itself - an uncapped target.y contribution here would let a
+      // steep launch or landing swing the implied look-at pitch (via
+      // camera.lookAt below) sharply within a couple of frames, reading as
+      // a flip. The clamp bounds that angle regardless of how extreme the
+      // car's momentary height is, without touching the position damping.
+      const MAX_LOOK_HEIGHT_DELTA = 6;
+      const lookHeight = clamp(config.lookHeight + target.y, desired.y - MAX_LOOK_HEIGHT_DELTA, desired.y + MAX_LOOK_HEIGHT_DELTA);
+      const desiredLook = new THREE.Vector3(target.x + forwardX * config.lookAhead, lookHeight, target.z + forwardZ * config.lookAhead);
       if (!config.spectator) {
         if (config.avoidCars) this.pushCameraClearOfOtherCars(desired, target.playerNumber, otherCarPositions);
         if (config.avoidScenery) this.raycastCameraCollision(desired, desiredLook, _timestamp);
