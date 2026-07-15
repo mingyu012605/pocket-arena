@@ -175,10 +175,20 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
     launchAirborne(track, car, false);
     return;
   }
+  const rampProgressBeforeMove = car.progress;
   stepGroundedCar(track, car, dt);
   const rampLaunch = frame.segmentType === "ramp" && car.speed >= MIN_LAUNCH_SPEED;
   const rampAtEdge = rampLaunch && sampleRacingTrackFrame(track, car.progress, car.lateralOffset).segmentType !== "ramp";
-  if (rampAtEdge) launchAirborne(track, car, true);
+  if (rampAtEdge) {
+    // Use the pre-movement progress (still on the ramp segment) for the
+    // launch, not the post-movement one - stepGroundedCar's forward step
+    // this tick already carried the car past the ramp's own segment and
+    // into the next (gap) segment, which has no jumpSpan of its own. Using
+    // that overshot position as takeoffProgress would make rampJumpSpanAt
+    // look up the wrong segment and silently fall back to its default.
+    car.progress = rampProgressBeforeMove;
+    launchAirborne(track, car, true);
+  }
 }
 
 function stepGroundedCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
@@ -252,7 +262,20 @@ function stepGroundedCar(track: TrackDefinition, car: RacingCarState, dt: number
   }
 }
 
-/** Converts track-relative state into world-space flight state. `properLaunch` distinguishes a real ramp launch (arc from the ramp's exit slope) from driving too slowly off an edge (keeps existing horizontal velocity, near-zero vertical velocity). */
+/**
+ * Converts track-relative state into world-space flight state.
+ * `properLaunch` distinguishes a real ramp launch (arc, modest and bounded
+ * regardless of the local spline slope right at the boundary) from driving
+ * too slowly off an edge (keeps existing horizontal velocity, near-zero
+ * vertical velocity).
+ *
+ * Forward direction from `heading` is `(sin(heading), -cos(heading))`, not
+ * `(cos(heading), sin(heading))` - that pair is the *lateral* (perpendicular)
+ * direction already used by `sampleRacingTrackFrame`/`carTransform.ts`. This
+ * follows from `centerlineTangentAngle`'s own definition,
+ * `atan2(dx, -dz)`, which is the inverse of `dx = sin(heading)`,
+ * `dz = -cos(heading)`.
+ */
 function launchAirborne(track: TrackDefinition, car: RacingCarState, properLaunch: boolean): void {
   const frame = sampleRacingTrackFrame(track, car.progress, car.lateralOffset);
   car.airborne = true;
@@ -260,11 +283,11 @@ function launchAirborne(track: TrackDefinition, car: RacingCarState, properLaunc
   car.worldX = frame.x;
   car.worldY = frame.y;
   car.worldZ = frame.z;
-  const forwardX = Math.cos(frame.heading);
-  const forwardZ = Math.sin(frame.heading);
+  const forwardX = Math.sin(frame.heading);
+  const forwardZ = -Math.cos(frame.heading);
   car.velocityX = forwardX * car.speed;
   car.velocityZ = forwardZ * car.speed;
-  car.velocityY = properLaunch ? Math.max(2, frame.slope) * Math.max(car.speed, MIN_LAUNCH_SPEED) * 0.5 : Math.min(0, frame.slope);
+  car.velocityY = properLaunch ? Math.min(22, Math.max(8, car.speed * 0.5)) : Math.min(0, frame.slope);
   car.projectedProgress = car.progress;
 }
 
@@ -272,10 +295,10 @@ function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number
   const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
   if (steering !== 0) {
     const speedXZ = Math.hypot(car.velocityX, car.velocityZ) || 1;
-    const currentHeading = Math.atan2(car.velocityZ, car.velocityX);
+    const currentHeading = Math.atan2(car.velocityX, -car.velocityZ);
     const targetHeading = currentHeading + steering * RACING.steeringResponsiveness * AIR_STEER_AUTHORITY * dt;
-    car.velocityX = Math.cos(targetHeading) * speedXZ;
-    car.velocityZ = Math.sin(targetHeading) * speedXZ;
+    car.velocityX = Math.sin(targetHeading) * speedXZ;
+    car.velocityZ = -Math.cos(targetHeading) * speedXZ;
   }
   car.velocityY -= GRAVITY * dt;
   const prevWorldY = car.worldY;
@@ -287,8 +310,119 @@ function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number
   tryLandOrFall(track, car, prevWorldY, dt);
 }
 
-function tryLandOrFall(_track: TrackDefinition, _car: RacingCarState, _prevWorldY: number, _dt: number): void {
-  // Implemented in Task 4.
+const HARD_LANDING_PITCH_THRESHOLD = 0.55;
+const VOID_FALL_HEIGHT_MARGIN = 12;
+
+interface LandingCandidate {
+  progress: number;
+  crossingFraction: number;
+  lateralError: number;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function lateralErrorAt(track: TrackDefinition, progress: number, worldX: number, worldZ: number): number {
+  const center = sampleRacingTrackFrame(track, progress, 0);
+  const dx = worldX - center.x;
+  const dz = worldZ - center.z;
+  return dx * Math.cos(center.heading) + dz * Math.sin(center.heading);
+}
+
+function shortestAngleDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
+function markFallen(car: RacingCarState): void {
+  if (car.fallenAt === null) car.fallenAt = Date.now();
+}
+
+function land(track: TrackDefinition, car: RacingCarState, candidate: LandingCandidate): void {
+  const pitch = Math.atan2(-car.velocityY, Math.hypot(car.velocityX, car.velocityZ) || 1);
+  const hardLanding = Math.abs(pitch) > HARD_LANDING_PITCH_THRESHOLD;
+  const landingHeading = Math.atan2(car.velocityX, -car.velocityZ);
+  const trackHeading = sampleRacingTrackFrame(track, candidate.progress, candidate.lateralError).heading;
+
+  car.airborne = false;
+  car.progress = candidate.progress;
+  car.lateralOffset = candidate.lateralError;
+  car.headingError = shortestAngleDelta(trackHeading, landingHeading);
+  car.speed = Math.hypot(car.velocityX, car.velocityZ);
+  car.velocityX = 0;
+  car.velocityY = 0;
+  car.velocityZ = 0;
+  car.hardLanding = hardLanding;
+  car.settleTimer = hardLanding ? 0.25 : 0.12;
+  car.settleFromPitch = pitch;
+  if (hardLanding) car.speed *= 0.85;
+  car.fallenAt = null;
+}
+
+// How close (in arc-length terms) a candidate's distance-from-takeoff must
+// be to the car's *actual* horizontal distance traveled from takeoff for it
+// to be tested at all this tick. Without this, a height-crossing against a
+// candidate far ahead of (or behind) where the car has actually flown to
+// could match purely by coincidence of height - the crossing must happen
+// where the car currently is, not merely at some height it once had.
+const LANDING_PROXIMITY_TOLERANCE = 4;
+
+function tryLandOrFall(track: TrackDefinition, car: RacingCarState, prevWorldY: number, _dt: number): void {
+  const jumpSpan = rampJumpSpanAt(track, car.takeoffProgress) ?? 30;
+  const searchEnd = car.takeoffProgress + jumpSpan * 1.5;
+  const descending = car.velocityY < 0;
+  const takeoffFrame = sampleRacingTrackFrame(track, car.takeoffProgress, 0);
+  const distanceTraveled = Math.hypot(car.worldX - takeoffFrame.x, car.worldZ - takeoffFrame.z);
+
+  let best: LandingCandidate | null = null;
+  if (descending) {
+    const SEARCH_STEP = 2;
+    for (let p = car.takeoffProgress; p <= searchEnd; p += SEARCH_STEP) {
+      const wrapped = wrapProgress(p, track.trackLength);
+      const arcFromTakeoff = shortestProgressDelta(track, car.takeoffProgress, wrapped);
+      if (arcFromTakeoff <= 0) continue; // strictly ahead of takeoff
+      if (Math.abs(arcFromTakeoff - distanceTraveled) > LANDING_PROXIMITY_TOLERANCE) continue; // not where the car currently is
+      const frame = sampleRacingTrackFrame(track, wrapped, 0);
+      if (!frame.surfacePresent) continue;
+
+      const lateral = lateralErrorAt(track, wrapped, car.worldX, car.worldZ);
+      if (Math.abs(lateral) > track.trackHalfWidth) continue;
+
+      const candidateSurfaceY = sampleRacingTrackFrame(track, wrapped, lateral).y;
+      if (!(prevWorldY > candidateSurfaceY && car.worldY <= candidateSurfaceY)) continue;
+
+      const crossingFraction = clamp01((prevWorldY - candidateSurfaceY) / (prevWorldY - car.worldY || 1));
+      const pitch = Math.atan2(-car.velocityY, Math.hypot(car.velocityX, car.velocityZ) || 1);
+      if (Math.abs(pitch) > Math.PI * 0.47) continue; // sideways/backwards approach rejected
+
+      if (
+        !best ||
+        crossingFraction < best.crossingFraction ||
+        (crossingFraction === best.crossingFraction && Math.abs(lateral) < Math.abs(best.lateralError))
+      ) {
+        best = { progress: wrapped, crossingFraction, lateralError: lateral };
+      }
+    }
+  }
+
+  if (best) {
+    land(track, car, best);
+    return;
+  }
+
+  // `car.progress` is frozen at takeoff for the whole flight (Task 3), so
+  // "flew past the window" can't be measured in progress terms here without
+  // Task 5's continuous projection. Horizontal world-space distance from the
+  // takeoff point (already computed above) is an equivalent, self-contained
+  // gate for this task.
+  const outsideWindow = distanceTraveled > jumpSpan * 1.5;
+  const belowVoid = car.worldY < prevWorldY - VOID_FALL_HEIGHT_MARGIN && car.velocityY < 0;
+  if (outsideWindow || belowVoid) {
+    markFallen(car);
+  }
 }
 
 function updateRanks(gameState: RacingGameState): void {

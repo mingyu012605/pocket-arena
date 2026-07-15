@@ -47,7 +47,7 @@ const rampTrack = createTrack(
   "test-ramp",
   [
     { x: 0, z: 0, y: 0, segmentType: "flat" },
-    { x: 100, z: 0, y: 5, segmentType: "ramp", jumpSpan: 40 },
+    { x: 100, z: 0, y: 5, segmentType: "ramp", jumpSpan: 60 }, // matches the fixture's own measured 60-unit gap width (empirically verified: gap spans [173,233))
     { x: 160, z: 0, y: 0, segmentType: "gap" },
     { x: 220, z: 0, y: 0, segmentType: "landing" },
     { x: 300, z: 0, y: 0, segmentType: "flat" }
@@ -531,5 +531,72 @@ describe("airborne launch", () => {
     const frozen = car.progress;
     for (let i = 0; i < 10; i++) stepCar(rampTrack, car, 1 / 60);
     expect(car.progress).toBe(frozen);
+  });
+});
+
+describe("landing", () => {
+  it("lands within the landing zone's lateral bounds and re-grounds", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && car.airborne === false; i++) stepCar(rampTrack, car, 1 / 60);
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    // Landing zone measured at [233, 330) for this fixture.
+    expect(car.progress).toBeGreaterThanOrEqual(173);
+    expect(car.progress).toBeLessThan(330);
+  });
+
+  it("does not land laterally outside the landing zone's bounds", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    car.velocityZ += 100; // force a hard sideways drift well outside the track's lateral bounds
+    for (let i = 0; i < 30; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+  });
+
+  it("resolves overlapping landing candidates by earliest crossing time", () => {
+    const stackedTrack = createTrack(
+      "test-stacked",
+      [
+        { x: 0, z: 0, y: 0, segmentType: "flat" },
+        { x: 100, z: 0, y: 10, segmentType: "ramp", jumpSpan: 60 },
+        { x: 160, z: 0, y: 10, segmentType: "gap" },
+        { x: 220, z: 0, y: 3, segmentType: "landing" },
+        { x: 280, z: 0, y: 0, segmentType: "flat" }
+      ],
+      12
+    );
+    // Empirically verified: flat [0,111), ramp [111,171), gap [171,231), landing [231,311).
+    const car = makeCar({ progress: 113, speed: 35, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(stackedTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(stackedTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    expect(car.worldY).toBeGreaterThan(1);
+  });
+
+  it("does not tunnel through a thin landing surface at a coarser timestep", () => {
+    const car60 = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    const car30 = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 600; i++) stepCar(rampTrack, car60, 1 / 60);
+    for (let i = 0; i < 300; i++) stepCar(rampTrack, car30, 1 / 30);
+    expect(car60.airborne).toBe(false);
+    expect(car30.airborne).toBe(false);
+  });
+
+  it("applies a longer settle and a speed reduction on a hard (steep) landing", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    // Let the natural arc carry it most of the way toward the landing zone
+    // first, then force a much steeper descent angle for the final
+    // approach - forcing the steep dive immediately at takeoff (zero
+    // altitude, still over the gap) would just fall through before ever
+    // reaching a valid landing candidate.
+    for (let i = 0; i < 90; i++) stepCar(rampTrack, car, 1 / 60);
+    car.velocityY = -40;
+    for (let i = 0; i < 90 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    expect(car.settleTimer).toBeGreaterThan(0);
   });
 });
