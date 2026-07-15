@@ -140,3 +140,18 @@ describe("RacingInterpolationBuffer", () => {
     expect(result.get(1)!.progress).toBe(0);
   });
 });
+
+describe("airborne world-space interpolation", () => {
+  it("passes through airborne world-space fields unchanged when both snapshots are airborne", () => {
+    const buffer = new RacingInterpolationBuffer(TRACK_LENGTH, Infinity, 0, 0);
+    buffer.addSnapshot(1000, new Map([[1, frame({ progress: 50, airborne: true, worldX: 10, worldY: 5, worldZ: 20 })]]));
+    buffer.addSnapshot(1100, new Map([[1, frame({ progress: 50, airborne: true, worldX: 12, worldY: 4.5, worldZ: 22 })]]));
+
+    const result = buffer.interpolate(1050);
+    const f = result.get(1)!;
+    expect(f.airborne).toBe(true);
+    expect(f.worldX).toBeCloseTo(11, 5);
+    expect(f.worldY).toBeCloseTo(4.75, 5);
+    expect(f.worldZ).toBeCloseTo(21, 5);
+  });
+});

@@ -33,6 +33,20 @@ export interface RacingCarState {
   lap: number;
   finished: boolean;
   finishTime: number | null;
+  airborne: boolean;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+  velocityX: number;
+  velocityY: number;
+  velocityZ: number;
+  takeoffProgress: number;
+  settleTimer: number;
+  settleFromPitch: number;
+  hardLanding: boolean;
+  fallenAt: number | null;
+  lastCheckpointIndex: number;
+  projectedProgress: number;
 }
 export interface RacingGameState {
   gameType: "racing";

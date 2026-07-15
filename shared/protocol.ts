@@ -191,6 +191,10 @@ export interface RacingPlayerState {
   lap: number;
   finished: boolean;
   finishTime: number | null;
+  airborne?: boolean;
+  worldX?: number;
+  worldY?: number;
+  worldZ?: number;
 }
 export interface RacingGameStatePayload {
   gameType: "racing";

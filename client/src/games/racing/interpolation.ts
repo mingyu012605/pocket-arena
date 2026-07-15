@@ -1,3 +1,5 @@
+import { sampleRacingTrackFrame, TEST_OVAL_TRACK } from "../../../../shared/racingTrack";
+
 export interface RacingCarFrame {
   progress: number;
   lateralOffset: number;
@@ -6,6 +8,10 @@ export interface RacingCarFrame {
   steering?: number;
   rank: number;
   stale: boolean;
+  airborne?: boolean;
+  worldX?: number;
+  worldY?: number;
+  worldZ?: number;
 }
 
 export interface RacingSnapshot {
@@ -121,6 +127,27 @@ export class RacingInterpolationBuffer {
 
     for (const [playerNumber, nextFrame] of next.players) {
       const prevFrame = prev.players.get(playerNumber) ?? nextFrame;
+
+      if (nextFrame.airborne || prevFrame.airborne) {
+        const prevWorld = prevFrame.airborne ? prevFrame : this.groundedWorldPosition(prevFrame);
+        const nextWorld = nextFrame.airborne ? nextFrame : this.groundedWorldPosition(nextFrame);
+        const headingDelta = shortestDelta(prevFrame.headingError, nextFrame.headingError, TWO_PI);
+        result.set(playerNumber, {
+          progress: nextFrame.progress,
+          lateralOffset: nextFrame.lateralOffset,
+          headingError: prevFrame.headingError + headingDelta * t,
+          speed: prevFrame.speed + (nextFrame.speed - prevFrame.speed) * t,
+          steering: nextFrame.steering,
+          rank: nextFrame.rank,
+          stale: nextFrame.stale,
+          airborne: nextFrame.airborne,
+          worldX: prevWorld.worldX! + (nextWorld.worldX! - prevWorld.worldX!) * t,
+          worldY: prevWorld.worldY! + (nextWorld.worldY! - prevWorld.worldY!) * t,
+          worldZ: prevWorld.worldZ! + (nextWorld.worldZ! - prevWorld.worldZ!) * t
+        });
+        continue;
+      }
+
       const progressDelta = shortestDelta(prevFrame.progress, nextFrame.progress, this.trackLength);
       const headingDelta = shortestDelta(prevFrame.headingError, nextFrame.headingError, TWO_PI);
 
@@ -144,8 +171,14 @@ export class RacingInterpolationBuffer {
         );
       }
 
-      result.set(playerNumber, { progress, lateralOffset, headingError, speed, steering, rank: nextFrame.rank, stale: nextFrame.stale });
+      result.set(playerNumber, { progress, lateralOffset, headingError, speed, steering, rank: nextFrame.rank, stale: nextFrame.stale, airborne: false });
     }
     return result;
+  }
+
+  /** For a mixed grounded/airborne interpolation pair (the takeoff/landing tick), gives the grounded endpoint an equivalent world position so both ends of the blend share a basis. */
+  private groundedWorldPosition(frame: RacingCarFrame): { worldX: number; worldY: number; worldZ: number } {
+    const sample = sampleRacingTrackFrame(TEST_OVAL_TRACK, frame.progress, frame.lateralOffset);
+    return { worldX: sample.x, worldY: sample.y, worldZ: sample.z };
   }
 }
