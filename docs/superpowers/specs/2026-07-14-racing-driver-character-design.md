@@ -14,38 +14,69 @@ wheel of a rounded go-kart. The in-game car does not match: the driver is a
 tiny, barely-visible helmet bump (`buildDriverBust()` in
 `client/src/games/racing/assetScene.ts`), and the overall car/HUD read as
 generic-arcade rather than "cute." This cycle closes that gap: a real,
-reactive chibi character visible in every car, plus a supporting polish pass
-(car shape softening, effects/camera personality, HUD, audio) so the game
-matches the energy of its own marketing art.
+reactive chibi character visible in every car, plus a supporting redesign
+pass (exaggerated kart silhouette, effects, closer camera composition, a
+structural HUD pass, audio) so the game matches the energy of its own
+marketing art.
 
 This is a focused visual/feel pass, not a re-architecture. It preserves
-Cycle 2's server-authoritative physics, protocol shape, and the recent
-chase-camera smoothing fix.
+Cycle 2's server-authoritative physics and protocol shape. It revises one
+earlier constraint from the chase-camera smoothing fix: camera *position*
+(distance/height/look-ahead) is now in scope (Section 6.2), but camera
+*shake* stays permanently out (see Non-Goals).
+
+**Acceptance bar (added 2026-07-15, round 2):** the risk with a pass like
+this is shipping something that is technically everything on the list but
+still reads as barely different in play. So the bar is explicit: matched
+before/after screenshots from the five fixed camera positions in Section 10
+must look obviously different at a glance, with no caption needed to explain
+what changed. If a reviewer needs the diff explained, or needs to zoom in to
+see it, this cycle is not done - regardless of how much code changed
+underneath.
 
 ## 2. Scope
 
 In scope:
 
-- A visible, reactive chibi driver character in every car (human and AI).
-- Softening the sharpest edges of the car silhouette (both the procedural
-  fallback and, where the model allows, the imported GLTF car).
-- Effects and car-mesh "personality" (squash/stretch, drift sparkle) without
-  reintroducing camera shake.
-- Rounding out remaining sharp-cornered HUD elements to match the existing
-  warm pastel palette.
+- A visible, reactive chibi driver character in every car (human and AI),
+  meeting the explicit readability minimums in Section 4.7.
+- A substantially exaggerated kart-like silhouette on the existing
+  open-wheel car, with measurable before/after proportions (Section 5) -
+  not a subtle softening pass. The car stays open-wheel (wings, exposed
+  wheels, F1-derived silhouette); it does not become a fully enclosed
+  go-kart body (see Non-Goals).
+- Chase-camera framing (distance/height/look-ahead) retuned so the
+  redesigned kart and driver read as larger and closer in the camera
+  players actually use, not just in close-up screenshots (Section 6.2).
+- Effects and car-mesh "personality": squash/stretch on impact/landing,
+  drift smoke/streaks, and a jump takeoff effect, without reintroducing
+  camera shake (Section 6.1).
+- A structural HUD pass - rank emphasis, speed display, drift feedback,
+  reduced screen footprint, consistent typography/spacing/icons - not just
+  corner-radius rounding (Section 7).
 - A couple of new procedurally-synthesized SFX (collision, finish).
+- Matched before/after acceptance screenshots per Section 10, gating
+  whether this cycle counts as complete.
 
 Out of scope (explicitly not this cycle):
 
-- Redesigning the car body into a full go-kart silhouette (evaluated and
-  deferred as a separate, larger effort).
+- A fully enclosed go-kart body redesign (evaluated and deferred as a
+  separate, larger effort). The silhouette work in Section 5 pushes the
+  *existing* open-wheel car hard toward exaggerated/chunky arcade
+  proportions; it does not change its car-body category.
 - Any server/protocol changes. Everything here derives from state the client
   already receives.
 - Reintroducing camera position shake. `06e4389` removed it deliberately for
-  causing motion sickness; this cycle must not regress that.
-- New gameplay mechanics (e.g. a boost system). None exists today, and
-  reactivity is designed around the mechanics that do exist (steering,
-  accel/brake, drift, collision, finish).
+  causing motion sickness; this cycle must not regress that, even
+  indirectly via the camera retuning in Section 6.2.
+- Any new camera mode, or changes to the existing collision-avoidance/
+  scenery-raycasting logic beyond retuning the distance/height/look-ahead
+  constants it already reacts to (Section 6.2).
+- New gameplay mechanics, including boost/nitro. None exists today (verified:
+  no `boost`/`nitro` reference anywhere in client, server, or shared code),
+  and reactivity is designed around the mechanics that do exist (steering,
+  accel/brake, drift, airborne, collision, finish). No pose, effect, or HUD
+  element in this spec references boost.
 
 ## 3. Current Baseline
 
@@ -153,6 +184,31 @@ Airtime sits above drift because `headingError` can stay large through a
 jump's launch rotation, which would otherwise read as a drift pose while
 airborne.
 
+**State checklist mapping (added 2026-07-15, round 2).** The full reactive
+vocabulary this system must cover: neutral steering, hard steering, drift
+lean, airtime, soft landing, hard landing, collision reaction, win/excited
+state. Every one of these maps onto a priority tier above, either as its own
+tier or as a magnitude band within one — nothing here is a new signal beyond
+`airborne` (4.9):
+
+- **Win/excited** = tier 1 (finish celebration, 4.6).
+- **Collision reaction / hard landing** = tier 2. Both are the same
+  `impactStrength`-driven reaction (4.5); a hard landing is simply the
+  falling-edge-of-`airborne` case of it (4.9). Above a tuned threshold
+  (implementation-time, see Section 12) it plays the full startled-face +
+  squash/stretch reaction; below it, **soft landing** just yields
+  immediately back to tier 4/5 with a small squash - not a distinct tier,
+  the low-magnitude end of the same one.
+- **Airtime** = tier 3 (4.9), unchanged.
+- **Drift lean** = tier 4 (4.4), unchanged.
+- **Neutral steering / hard steering** = tier 5, and are not two separate
+  states either - the existing steering/acceleration lean pose (4.1, 4.3)
+  is already continuous, scaled by `|steering|` and `|acceleration|`.
+  "Neutral" is that pose at small magnitude, "hard steering" is the same
+  pose at large magnitude. No new pose logic, only confirming the existing
+  continuous scaling reads as clearly different at both ends (verify in
+  Section 10).
+
 ### 4.3 Smoothed acceleration
 
 The renderer does not have a direct throttle/brake signal in the
@@ -224,11 +280,11 @@ instant pose swap:
   distance, hairstyle, eyes, gloves, and head movement must be recognizable
   without zooming in. Shoulders/gloves sit above the cockpit edge.
 - **Face states — 3, kept simple:** neutral (open eyes, small smile),
-  excited (happy eyes, open smile — used for drift), startled (wide eyes,
-  small round mouth — used for collision). Swapped via visibility toggles
-  between small pre-built mesh pairs, no shaders/textures. Large, simple
-  silhouettes over detail, since small facial nuance won't read at gameplay
-  distance.
+  excited (happy eyes, open smile — used for drift and airtime, 4.9),
+  startled (wide eyes, small round mouth — used for collision and hard
+  landing). Swapped via visibility toggles between small pre-built mesh
+  pairs, no shaders/textures. Large, simple silhouettes over detail, since
+  small facial nuance won't read at gameplay distance.
 - **"A few distinct looks":** 4 fixed hairstyle+haircolor combinations
   (spiky like the reference art, ponytail, buzzcut, curly), assigned
   deterministically by `playerNumber % 4`. The racing suit/gloves stay
@@ -237,6 +293,29 @@ instant pose swap:
 - Built entirely from primitives (spheres/capsules/cones), same technique
   the current tiny bust already uses — no new asset files, no licensing
   concerns, cheap to render, easy to recolor per player.
+
+**Minimum readability requirements (added 2026-07-15, round 2).** These are
+hard gates, checked against the actual gameplay chase camera (post Section
+6.2 retune) — not a close-up/zoomed screenshot:
+
+- Head + hairstyle silhouette must be clearly distinguishable at the default
+  chase-camera distance in every drive state (steering, drift, airtime,
+  landing, collision), not only when stationary.
+- Both arms/gloves must read as visibly connected to the steering wheel
+  during normal driving - no floating hands, no hands hidden inside the
+  cockpit geometry.
+- The active face state (4.7 above) must be legible from the chase camera
+  during airtime, landing, and collision poses specifically, not just when
+  neutral - these are exactly the moments the silhouette work in Section 5
+  and the closer camera in 6.2 need to prove out together.
+- No hair/helmet/shoulder geometry may intersect or clip through the car
+  body or cockpit rim in any pose, checked across the full priority stack
+  (4.2), not just the resting pose.
+- Driver-to-car scale ratio, measured from the cockpit-opening geometry
+  defined in Section 5: driver head height at least 55% of the cockpit
+  opening height, shoulder width at least 70% of the cockpit opening width.
+  This is the concrete form of "driver occupying a much larger portion of
+  the vehicle" - checkable, not subjective.
 
 ### 4.8 Implementation order (de-risking)
 
@@ -271,29 +350,78 @@ derived signal needed, unlike drift/impact):
   than adding a fourth face; a jump is a positive, high-energy moment, same
   register as drift.
 
-## 5. Car Shape Softening
+## 5. Car Silhouette Redesign (expanded 2026-07-15, round 2)
 
-- **Procedural fallback (`cars.ts`):** shrink/round the front and rear wing
-  geometry, fatten the tire profile slightly. This car is only visible
-  briefly during GLTF load (or if loading fails), but should still look
-  friendlier next to the new character rather than clashing with it.
+Renamed from "Car Shape Softening" - the original wording ("shrink/round
+the wing geometry, fatten the tire profile slightly") was vague enough that
+implementation could satisfy it with changes too small to see at gameplay
+distance. This section replaces it with measurable proportions, targeted
+against the baseline already recorded in the Harbor City GP Art Bible
+(`docs/superpowers/specs/2026-07-12-harbor-city-gp-art-bible.md` Section 2:
+~3.9m nose-to-tail, ~1.9m wide, before the 1.55x presentation scale).
+
+Target deltas, applied to both the procedural fallback (`cars.ts`) and the
+primary GLTF car (`assetScene.ts`, to whatever extent its node structure
+allows - see the open question in Section 12):
+
+- **Length:** reduce nose-to-tail footprint from ~3.9m to roughly 3.0-3.2m
+  (about -20%). This is the single biggest lever for reading as "kart" vs.
+  "F1 car" at a glance.
+- **Stance:** increase overall width (wheel-to-wheel, including tire bulge)
+  from ~1.9m to roughly 2.15-2.3m (+15-20%), so wheels protrude visibly
+  further past the body than today.
+- **Wheels:** increase visible wheel radius by roughly +30-40% over the
+  current model. Wheels should read as chunky, not just "present."
+  Geometry is still shared/instanced across all four wheels and all cars,
+  per the Art Bible's texture/geometry-sharing rules.
+- **Nose:** lower the nose tip height by roughly -30% relative to its
+  current ride height, sitting closer to the ground - the "lower front
+  nose" from the requirements.
+- **Cockpit opening:** increase the opening (the recess the driver bust
+  sits in) by roughly +50% in area over the current geometry. This is a
+  prerequisite for the driver-scale ratios required in Section 4.7 - a
+  bigger driver needs a bigger opening to sit in without clipping.
+- **Panel treatment:** this is a direct, explicit supersession of one
+  clause in the Art Bible (Section 2): "hard edges at the nose taper,
+  sidepod step, and rear deck are required for readability" is replaced,
+  for this cycle onward, with filleted/rounded transitions at those same
+  three features. The Art Bible's underlying goal - a silhouette that
+  reads as open-wheel from chase-camera distance (nose taper, cockpit
+  bump, protruding wheels) - is preserved; only the edge treatment
+  changes, from faceted/hard to rounded/soft. The Art Bible should be
+  updated to reflect this once implemented.
+
+**Explicitly still out of scope:** the car stays open-wheel - front/rear
+wings, exposed wheels, an F1-derived silhouette. It does not become a fully
+enclosed go-kart shell. See Section 2 / Non-Goals.
+
+- **Procedural fallback (`cars.ts`):** apply the deltas above directly.
+  This car is only visible briefly during GLTF load (or if loading fails),
+  but must still meet the same proportions - it's also the one used for the
+  de-risking screenshot pass in Section 4.8.
 - **Primary GLTF car (`assetScene.ts`):** exact treatment is an
   implementation-time discovery step — inspect the actual Kenney model's
-  node names to see whether wing-like shapes exist as separate, hideable/
-  scalable nodes, or whether what appeared wing-like in existing screenshots
-  was actually the procedural fallback. If separate nodes exist, soften them
-  similarly; if not, this is limited to material/proportion adjustments
-  (e.g. wheel scale) rather than reshaping geometry. No full kart-body
-  redesign in this cycle (see Section 2).
+  node names to see whether wing/wheel/nose shapes exist as separate,
+  hideable/rescalable nodes, or whether what appeared wing-like in existing
+  screenshots was actually the procedural fallback. If separate nodes exist,
+  apply the same deltas via node-level scaling/repositioning; if the model
+  can't reach these targets through scaling alone (e.g. no separable nose/
+  cockpit geometry), the procedural fallback becomes the primary visual for
+  this cycle instead of a brief loading placeholder - the measurable
+  proportions take priority over keeping the imported model as primary.
 
-## 6. Effects & Camera Personality
+## 6. Effects & Camera Composition
+
+### 6.1 Effects & car-mesh personality
 
 Hard constraint: **no camera position shake.** `06e4389` ("Smooth out chase
 camera: remove shake, clamp step, ease collision slower") removed it
 deliberately for causing motion sickness. This cycle must not reintroduce
-it, directly or indirectly (e.g. no new speed-linked camera jitter).
+it, directly or indirectly (e.g. no new speed-linked camera jitter). This
+holds even with the camera retuning in 6.2 - "closer/lower" is a static
+framing change, not a return of per-frame position noise.
 
-Instead, "personality" comes from:
+"Personality" comes from:
 
 - **Squash-and-stretch on the car mesh itself** (not the camera): a brief
   scale animation (~150ms) on `car.root` — compress vertically / stretch
@@ -303,21 +431,90 @@ Instead, "personality" comes from:
   of `airborne` in 4.9), scaled by fall distance/impact speed the same way
   a collision impact is scaled. Classic arcade-kart physicality that reads
   as "alive" without moving the camera.
-- **Drift sparkle:** brighter, more colorful particles layered onto the
-  existing pooled dust/burst system in `effects.ts`, spawned using the same
+- **Drift smoke/streaks** (expanded from "sparkle," round 2): the drift
+  reaction needs to read as tire smoke/motion streaks, not just a sparkle
+  accent - brighter, more colorful particles layered onto the existing
+  pooled dust/burst system in `effects.ts`, spawned using the same
   continuous `driftAmount` signal from Section 4.4, within the existing
   particle count budget already governed by `quality.ts`.
-- Camera code itself (`renderer.ts` camera section) is untouched.
+- **Jump takeoff effect** (new, round 2): a brief upward puff/spark burst
+  at the rising edge of `airborne` (4.9), distinct from the landing
+  squash/stretch + impact effect at the falling edge - takeoff and landing
+  should each have their own readable beat, not share one.
+- No boost effect of any kind (see Non-Goals, Section 2).
 
-## 7. HUD Styling
+### 6.2 Camera composition (new, round 2 - revises the earlier "camera untouched" constraint)
 
-Round out the remaining sharp-cornered elements
-(`.racing-leaderboard-row`, any panel still at 6-8px radius) to match the
-18px radius already used by `.race-hud-panel` and the rounded pill buttons.
-Add small circular rank badges (colored circle + position number) in place
-of plain leaderboard text, and a subtle bounce-in transition when a car's
-rank changes. Scoped to CSS/DOM in `components.css` and the HUD-building
-code in `hostLobby.ts` — no new HUD data is needed.
+The kart/driver redesign in Sections 4-5 can't be judged fairly through the
+existing distant framing - a bigger, cuter car and driver still read as
+small and far away at the current camera settings. Chase-camera
+`distance`/`height`/`look-ahead` (`renderer.ts`, currently `CAMERA_DISTANCE
+= 17`, `CAMERA_HEIGHT = 5.8`, `CAMERA_LOOK_AHEAD = 3.4`) come into scope for
+this cycle, retuned toward:
+
+- Noticeably closer distance and lower height than today, so the kart
+  occupies a clearly larger share of the frame.
+- Road visibility ahead must stay intact - this is a framing change, not a
+  return to the pre-`1a19223` "near-top-down staring back at the car" bug.
+  That bug was a geometry sign error (camera placed in front of the car
+  instead of behind it via `target + forward*distance` instead of
+  `target - forward*distance`), not a consequence of being close - fixed
+  distance/height values in the 11-14 / 4.5-5.5 range have worked
+  correctly before (see `1a19223`, which retuned to `13.5`/`5.4` after
+  fixing the sign bug), so this is re-tuning within a previously-validated
+  range, not repeating a known-bad configuration.
+- `CAMERA_MIN_DISTANCE` stays derived from `CAMERA_LOOK_AHEAD` (its current
+  `CAMERA_LOOK_AHEAD + 5.5` formula), not a hardcoded constant, so the
+  collision-avoidance floor still tracks whatever look-ahead value this
+  cycle lands on.
+- The existing camera-collision raycasting against scenery
+  (`CAMERA_COLLISION_MARGIN`) and other cars (`CAMERA_CAR_CLEARANCE`) is
+  retuned if needed for the new distance, but the mechanism itself
+  (throttled raycast + smoothed correction) is unchanged.
+- Elevation-aware framing from Cycle 4 (camera following car height through
+  jumps) is preserved - the retune only changes the distance/height/
+  look-ahead constants that elevation-aware logic already consumes.
+- Implementation note: the code comment above these constants currently
+  says look-ahead was "increased ... to target a point well down the road,"
+  but the current value (`3.4`) is actually lower than both prior tuned
+  values (`7.5`, then `9`) - the comment is stale relative to the code and
+  should be corrected as part of this retune, not just the numbers.
+- Exact final numbers are implementation-time tuning (consistent with
+  Section 12's existing pattern), verified against the acceptance
+  screenshots in Section 10, not fixed here.
+
+## 7. HUD Redesign (expanded 2026-07-15, round 2)
+
+Renamed from "HUD Styling" - corner-radius rounding alone isn't enough to
+read as a structural change. This cycle restructures the existing
+`.race-hud-panel`, `.racing-leaderboard-row`, and `.race-speedometer`
+(`components.css`) rather than only re-skinning them:
+
+- **Rank emphasis:** replace plain leaderboard text with a compact rank
+  badge (colored circle keyed to the car's own player color + a large,
+  bold position numeral), plus a subtle bounce-in transition when a car's
+  rank changes. Rank must be scannable at a glance, not read word-by-word.
+- **Speed display:** restyle `.race-speedometer` with bolder, more
+  arcade-styled numerals and a clearer unit treatment - legible in
+  peripheral vision while focused on the road, not just up close.
+- **Drift feedback:** a small, secondary indicator reflecting the existing
+  continuous `driftAmount` signal (4.4) - purely a cosmetic readout of
+  state the game already has, no new mechanic. No boost indicator (Section
+  2 Non-Goals).
+- **Reduced screen footprint:** the combined HUD (panels + leaderboard +
+  speedometer) should occupy visibly less of the frame than today, so more
+  of the newly-closer camera view (6.2) and the redesigned kart are
+  actually visible. Verified via the Section 10 acceptance screenshots,
+  not a fixed pixel budget.
+- **Typography/spacing/icon consistency:** all HUD text/icons draw from one
+  consistent scale and the existing warm pastel palette - no element
+  introduces its own one-off font size, icon style, or corner radius.
+  18px radius (already used by `.race-hud-panel` and the rounded pill
+  buttons) remains the shared corner treatment.
+
+Scoped to CSS/DOM in `components.css` and the HUD-building code in
+`hostLobby.ts` — no new HUD data is needed; every element above reflects
+state the client already has.
 
 ## 8. Audio
 
@@ -344,8 +541,18 @@ No changes to the engine loop, tire scrub, or off-track rumble.
   profiling shows a problem, the first thing to gate behind quality preset
   is the cosmetic hair-flutter wobble, not the core character or its
   reactivity.
-- Drift sparkle particles stay within the existing `quality.ts` particle
-  count caps (already governs the shared pool size).
+- Drift smoke/streak and jump-takeoff particles stay within the existing
+  `quality.ts` particle count caps (already governs the shared pool size).
+- **Explicit regression gate (added round 2):** using the existing
+  `RacingMetricsOverlay`/lifecycle-stats infrastructure already in
+  `metrics.ts` (dev-only, `?dev=1`), measure frame time before and after
+  this cycle at up to 8 visible cars, across Low/Medium/High quality
+  presets. Average frame time must stay within `FRAME_BUDGET_MS` (currently
+  `1000/55`) at Medium and above on typical laptop-class hardware (no
+  discrete GPU assumed) - not just on the machine doing the implementation.
+  If it doesn't, gate the newly-added cosmetic elements (hair flutter,
+  smoke/streak density, takeoff effect) behind quality preset before
+  cutting anything from the character/silhouette/camera work itself.
 
 ## 10. Testing / Verification
 
@@ -355,33 +562,71 @@ No changes to the engine loop, tire scrub, or off-track rumble.
 - Explicit check per Section 4.8: screenshot the first hairstyle from the
   real chase camera and confirm legibility before building the rest.
 - Manually drive through countdown -> race -> a deliberate collision -> a
-  drift -> finish, confirming each triggers the right character
-  reaction/expression and that celebration suppresses steering animation.
+  drift -> a jump (airtime + landing) -> finish, confirming each triggers
+  the right character reaction/expression per the state-checklist mapping
+  in 4.2, and that celebration suppresses steering animation.
 - Confirm no camera-shake regression (compare against pre-change chase-cam
-  behavior).
+  behavior), and confirm the retuned camera (6.2) doesn't reproduce the
+  pre-`1a19223` near-top-down framing bug or lose road visibility.
+
+**Acceptance-gate screenshots (added round 2, gates cycle completion per
+the Section 1 acceptance bar):** matched before/after screenshots from the
+same five fixed camera positions, same track location, same quality
+preset:
+
+1. Starting grid.
+2. A normal straight (neutral steering).
+3. A drift corner.
+4. Mid-air on the circuit's jump section.
+5. The moment of landing.
+
+Each pair (pre-cycle baseline vs. post-cycle) must be placed side by side.
+The cycle is **not** complete if a reviewer needs the difference explained,
+or needs to zoom in to see it - both the kart/driver redesign (Sections 4-5)
+and the camera retune (6.2) have to show up unmistakably in these five
+frames, not just in isolated close-ups.
+
 - Run existing `shared/racingTrack.test.ts`,
   `server/games/racing.test.ts`, and
   `client/src/games/racing/interpolation.test.ts` — all should pass
   unchanged since no protocol/server changes are made.
 - Full production build (`vite build`) succeeds without new bundle-size
   warnings beyond what Three.js already contributes.
+- Frame-time regression check per Section 9.
 
 ## 11. Non-Goals (restated)
 
-- No go-kart body redesign this cycle.
+- No fully enclosed go-kart body - car stays open-wheel even after the
+  exaggerated silhouette redesign in Section 5 (see the explicit boundary
+  there and in Section 2).
 - No server/protocol changes.
-- No camera shake, in any form.
-- No new gameplay mechanics (no boost/nitro).
+- No camera shake, in any form - including indirectly via the Section 6.2
+  distance/height retune.
+- No new camera modes, and no changes to the collision-avoidance/scenery-
+  raycasting mechanism itself beyond retuning the constants it consumes
+  (Section 6.2).
+- No new gameplay mechanics, including boost/nitro - verified absent from
+  the codebase (Section 2). No pose, effect, or HUD element references it.
 - No licensed/imported audio.
 
 ## 12. Open Questions For Implementation
 
-- Does the Kenney GLTF car model expose separate, named wing/trim nodes
-  that can be hidden or rescaled, or is the wing silhouette seen in earlier
-  screenshots specific to the procedural fallback? Resolve by inspecting
-  the loaded `THREE.Group` node names before deciding how much Section 5
-  applies to the primary car.
+- Does the Kenney GLTF car model expose separate, named wing/trim/wheel/
+  nose/cockpit nodes that can be hidden or rescaled to reach the Section 5
+  proportions, or is the wing silhouette seen in earlier screenshots
+  specific to the procedural fallback? Resolve by inspecting the loaded
+  `THREE.Group` node names before deciding how much of Section 5 applies to
+  the primary car, and whether the procedural fallback needs to become the
+  primary visual (Section 5's explicit fallback clause).
 - Exact numeric thresholds in Section 4.5 (`IMPACT_SPEED_DROP_THRESHOLD`,
-  `IMPACT_MIN_SPEED`, `IMPACT_MAX_STEERING`) and Section 4.3's
-  `MAX_ACCELERATION` clamp are implementation-time tuning, verified visually
+  `IMPACT_MIN_SPEED`, `IMPACT_MAX_STEERING`), Section 4.3's
+  `MAX_ACCELERATION` clamp, and the new soft/hard landing `impactStrength`
+  split referenced in 4.2 are implementation-time tuning, verified visually
   against real gameplay rather than fixed in this spec.
+- Exact final `CAMERA_DISTANCE`/`CAMERA_HEIGHT`/`CAMERA_LOOK_AHEAD` values
+  for Section 6.2 are implementation-time tuning within the ranges
+  discussed there, verified against the Section 10 acceptance screenshots.
+- Exact silhouette percentages in Section 5 are directional targets;
+  implementation should hit them as closely as practical but the real gate
+  is the Section 10 acceptance screenshots and the Section 4.7 driver-scale
+  ratios, not the percentages themselves in isolation.
