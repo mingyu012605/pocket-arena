@@ -340,6 +340,8 @@ function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number
 
 const HARD_LANDING_PITCH_THRESHOLD = 0.55;
 const VOID_FALL_HEIGHT_MARGIN = 12;
+export const RESPAWN_DELAY_MS = 1000;
+export const RESPAWN_SPEED_FACTOR = 0.3;
 
 interface LandingCandidate {
   progress: number;
@@ -367,6 +369,32 @@ function shortestAngleDelta(from: number, to: number): number {
 
 function markFallen(car: RacingCarState): void {
   if (car.fallenAt === null) car.fallenAt = Date.now();
+}
+
+/** Respawns a fallen car at its last checkpoint, fully resetting airborne state - a respawn that clears position but leaves stale airborne/velocity state would corrupt the next physics tick. */
+export function respawnFallenCar(_track: TrackDefinition, car: RacingCarState, checkpoints: number[]): void {
+  const anchor = checkpoints[Math.max(0, car.lastCheckpointIndex)] ?? 0;
+  car.airborne = false;
+  car.progress = anchor;
+  car.lateralOffset = 0;
+  car.headingError = 0;
+  car.velocityX = 0;
+  car.velocityY = 0;
+  car.velocityZ = 0;
+  car.speed = Math.min(car.speed, RACING.maxSpeed) * RESPAWN_SPEED_FACTOR;
+  car.settleTimer = 0;
+  car.hardLanding = false;
+  car.fallenAt = null;
+}
+
+function applyFallRecovery(room: InternalRoom, now: number, checkpoints: number[]): void {
+  if (room.gameState?.gameType !== "racing") return;
+  const track = trackFor(room);
+  for (const car of room.gameState.cars.values()) {
+    if (car.fallenAt !== null && now - car.fallenAt >= RESPAWN_DELAY_MS) {
+      respawnFallenCar(track, car, checkpoints);
+    }
+  }
 }
 
 function land(track: TrackDefinition, car: RacingCarState, candidate: LandingCandidate): void {
@@ -560,6 +588,7 @@ export function stepPhysics(room: InternalRoom, dt: number): void {
     stepCar(track, car, dt);
     if (car.finished) car.finishTime = now - startedAt;
   }
+  applyFallRecovery(room, now, [0]); // checkpoint list replaced with the real one in Task 7
   resolveCollisions(track, room.gameState, now);
   updateRanks(room.gameState);
 }

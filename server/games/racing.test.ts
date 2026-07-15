@@ -3,7 +3,18 @@ import { describe, expect, it } from "vitest";
 import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt, sampleRacingTrackFrame } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
-import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload, updateRanks } from "./racing";
+import {
+  RACING,
+  checkRaceCompletion,
+  createRacingGameState,
+  stepCar,
+  stepPhysics,
+  toGameStatePayload,
+  updateRanks,
+  respawnFallenCar,
+  RESPAWN_DELAY_MS,
+  RESPAWN_SPEED_FACTOR
+} from "./racing";
 import { createRoom, findPlayer } from "../rooms";
 import type { RacingCarState } from "../types";
 
@@ -664,5 +675,39 @@ describe("projected progress during flight", () => {
     gameState.cars.set(2, grounded);
     updateRanks(gameState);
     expect(flying.rank).toBeLessThan(grounded.rank);
+  });
+});
+
+describe("fall recovery", () => {
+  it("marks a car fallen when it exits the search window without landing", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    car.velocityZ += 100; // force a hard sideways drift that can never land
+    for (let i = 0; i < 300 && car.fallenAt === null; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.fallenAt).not.toBeNull();
+  });
+
+  it("respawns a fallen car at its last checkpoint after the delay, fully resetting airborne state", () => {
+    const car = makeCar({
+      progress: 999,
+      lateralOffset: 40,
+      airborne: true,
+      velocityX: 5,
+      velocityY: -3,
+      velocityZ: 2,
+      fallenAt: Date.now() - (RESPAWN_DELAY_MS + 50),
+      lastCheckpointIndex: 0
+    });
+    const checkpoints = [0, 200, 400, 600];
+    respawnFallenCar(rampTrack, car, checkpoints);
+    expect(car.airborne).toBe(false);
+    expect(car.velocityX).toBe(0);
+    expect(car.velocityY).toBe(0);
+    expect(car.velocityZ).toBe(0);
+    expect(car.fallenAt).toBeNull();
+    expect(car.progress).toBe(checkpoints[0]);
+    expect(car.lateralOffset).toBe(0);
+    expect(car.speed).toBeLessThanOrEqual(RACING.maxSpeed * RESPAWN_SPEED_FACTOR + 0.01);
   });
 });
