@@ -47,6 +47,7 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     fallenAt: null,
     lastCheckpointIndex: -1,
     projectedProgress: 0,
+    lastRespawnAt: 0,
     ...overrides
   };
 }
@@ -108,6 +109,7 @@ const COLLISION_LATERAL_RADIUS = 2.35;
 const COLLISION_RESOLUTION_PASSES = 4;
 const COLLISION_SPEED_FACTOR = 0.78;
 const COLLISION_FEEDBACK_WINDOW_MS = 220;
+const RESPAWN_FEEDBACK_WINDOW_MS = 250;
 const COLLISION_VERTICAL_SEPARATION = 3.2;
 
 export const RACING = {
@@ -386,6 +388,7 @@ export function respawnFallenCar(_track: TrackDefinition, car: RacingCarState, c
   car.settleTimer = 0;
   car.hardLanding = false;
   car.fallenAt = null;
+  car.lastRespawnAt = Date.now();
 }
 
 function applyFallRecovery(room: InternalRoom, now: number, checkpoints: number[]): void {
@@ -691,7 +694,12 @@ export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
         rank: car.rank,
         lap: car.lap,
         finished: car.finished,
-        finishTime: car.finishTime
+        finishTime: car.finishTime,
+        airborne: car.airborne,
+        worldX: car.airborne ? car.worldX : undefined,
+        worldY: car.airborne ? car.worldY : undefined,
+        worldZ: car.airborne ? car.worldZ : undefined,
+        respawned: now - car.lastRespawnAt < RESPAWN_FEEDBACK_WINDOW_MS
       }))
     : [];
   const allFinished = players.length > 0 && players.every((p) => p.finished);

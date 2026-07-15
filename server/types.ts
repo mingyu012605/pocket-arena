@@ -47,6 +47,7 @@ export interface RacingCarState {
   fallenAt: number | null;
   lastCheckpointIndex: number;
   projectedProgress: number;
+  lastRespawnAt: number;
 }
 export interface RacingGameState {
   gameType: "racing";

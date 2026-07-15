@@ -195,6 +195,7 @@ export interface RacingPlayerState {
   worldX?: number;
   worldY?: number;
   worldZ?: number;
+  respawned?: boolean;
 }
 export interface RacingGameStatePayload {
   gameType: "racing";

@@ -53,6 +53,7 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     fallenAt: null,
     lastCheckpointIndex: -1,
     projectedProgress: 0,
+    lastRespawnAt: 0,
     ...overrides
   };
 }
@@ -712,6 +713,21 @@ describe("fall recovery", () => {
     expect(car.progress).toBe(checkpoints[0]);
     expect(car.lateralOffset).toBe(0);
     expect(car.speed).toBeLessThanOrEqual(RACING.maxSpeed * RESPAWN_SPEED_FACTOR + 0.01);
+  });
+
+  it("surfaces a transient respawned flag on the game-state payload so the client can snap its camera instead of easing through the teleport", () => {
+    const room = createRoom("racing", 1);
+    const gameState = createRacingGameState(room);
+    room.gameState = gameState;
+    const car = gameState.cars.get(1)!;
+    car.airborne = true;
+    car.fallenAt = Date.now() - (RESPAWN_DELAY_MS + 50);
+    car.lastCheckpointIndex = 0;
+
+    stepPhysics(room, 0);
+    const payload = toGameStatePayload(room);
+
+    expect(payload.players.find((p) => p.playerNumber === 1)?.respawned).toBe(true);
   });
 });
 
