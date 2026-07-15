@@ -291,6 +291,33 @@ function launchAirborne(track: TrackDefinition, car: RacingCarState, properLaunc
   car.projectedProgress = car.progress;
 }
 
+/**
+ * Display/ranking-only estimate of forward position while airborne - never
+ * read by checkpoint or lap logic. Reuses the same bounded
+ * nearest-point-on-centerline search idea as landing rather than a second
+ * mechanism, but searches by nearest (x,z) position within the window
+ * (not height-crossing, which is landing's job) since this only needs a
+ * reasonable forward estimate for display, not a physically exact one.
+ */
+function updateProjectedProgress(track: TrackDefinition, car: RacingCarState): void {
+  const jumpSpan = rampJumpSpanAt(track, car.takeoffProgress) ?? 30;
+  const windowEnd = car.takeoffProgress + jumpSpan * 1.5;
+  const SEARCH_STEP = 4;
+  let nearest = car.takeoffProgress;
+  let nearestDistSq = Infinity;
+  for (let p = car.takeoffProgress; p <= windowEnd; p += SEARCH_STEP) {
+    const wrapped = wrapProgress(p, track.trackLength);
+    const center = sampleRacingTrackFrame(track, wrapped, 0);
+    const distSq = (center.x - car.worldX) ** 2 + (center.z - car.worldZ) ** 2;
+    if (distSq < nearestDistSq) {
+      nearestDistSq = distSq;
+      nearest = wrapped;
+    }
+  }
+  const advanced = shortestProgressDelta(track, car.takeoffProgress, nearest);
+  car.projectedProgress = car.takeoffProgress + Math.max(0, Math.min(jumpSpan * 1.5, advanced));
+}
+
 function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
   const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
   if (steering !== 0) {
@@ -307,6 +334,7 @@ function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number
   car.worldZ += car.velocityZ * dt;
   car.speed = Math.hypot(car.velocityX, car.velocityZ);
 
+  updateProjectedProgress(track, car);
   tryLandOrFall(track, car, prevWorldY, dt);
 }
 
@@ -425,8 +453,9 @@ function tryLandOrFall(track: TrackDefinition, car: RacingCarState, prevWorldY: 
   }
 }
 
-function updateRanks(gameState: RacingGameState): void {
-  const entries = [...gameState.cars.entries()].sort(([, a], [, b]) => b.progress - a.progress);
+export function updateRanks(gameState: RacingGameState): void {
+  const rankValue = (car: RacingCarState): number => (car.airborne ? car.projectedProgress : car.progress);
+  const entries = [...gameState.cars.entries()].sort(([, a], [, b]) => rankValue(b) - rankValue(a));
   entries.forEach(([, car], index) => {
     car.rank = index + 1;
   });

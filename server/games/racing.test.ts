@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
-import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload } from "./racing";
+import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload, updateRanks } from "./racing";
 import { createRoom, findPlayer } from "../rooms";
 import type { RacingCarState } from "../types";
 
@@ -598,5 +598,42 @@ describe("landing", () => {
     for (let i = 0; i < 90 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
     expect(car.airborne).toBe(false);
     expect(car.settleTimer).toBeGreaterThan(0);
+  });
+});
+
+describe("projected progress during flight", () => {
+  it("advances projectedProgress forward while airborne without moving real progress", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const frozenProgress = car.progress;
+    const firstProjected = car.projectedProgress;
+    for (let i = 0; i < 5 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.progress).toBe(frozenProgress);
+    expect(car.projectedProgress).toBeGreaterThan(firstProjected);
+  });
+
+  it("clamps projectedProgress to the authored jumpSpan window", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const jumpSpan = rampJumpSpanAt(rampTrack, car.takeoffProgress) ?? 30;
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.projectedProgress).toBeLessThanOrEqual(car.takeoffProgress + jumpSpan * 1.5 + 0.01);
+  });
+
+  it("ranks an airborne car by projectedProgress, not frozen progress", () => {
+    const room = createRoom("racing", 2);
+    room.gameState = createRacingGameState(room);
+    const gameState = room.gameState;
+    if (gameState.gameType !== "racing") throw new Error("expected racing state");
+    // flying's real progress is frozen below grounded's, but it's further
+    // ahead by projectedProgress - ranking must use the latter while airborne.
+    const flying = makeCar({ progress: 500, projectedProgress: 550, airborne: true });
+    const grounded = makeCar({ progress: 520, projectedProgress: 520, airborne: false });
+    gameState.cars.set(1, flying);
+    gameState.cars.set(2, grounded);
+    updateRanks(gameState);
+    expect(flying.rank).toBeLessThan(grounded.rank);
   });
 });
