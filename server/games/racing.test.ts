@@ -1,6 +1,6 @@
 import type { Server } from "socket.io";
 import { describe, expect, it } from "vitest";
-import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt, sampleRacingTrackFrame } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
 import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload, updateRanks } from "./racing";
@@ -531,6 +531,35 @@ describe("airborne launch", () => {
     const frozen = car.progress;
     for (let i = 0; i < 10; i++) stepCar(rampTrack, car, 1 / 60);
     expect(car.progress).toBe(frozen);
+  });
+
+  it("launches with velocity aligned to the track's forward direction, not sideways", () => {
+    // Regression test for a trig-convention bug: forward direction from
+    // `heading` is (sin(heading), -cos(heading)) in this codebase, not the
+    // (cos(heading), sin(heading)) pair used for lateral offset. Getting
+    // this backwards sent launched cars flying sideways in Z instead of
+    // forward in X.
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const frame = sampleRacingTrackFrame(rampTrack, car.takeoffProgress, 0);
+    const forwardX = Math.sin(frame.heading);
+    const forwardZ = -Math.cos(frame.heading);
+    const speedXZ = Math.hypot(car.velocityX, car.velocityZ) || 1;
+    const forwardAlignment = (car.velocityX * forwardX + car.velocityZ * forwardZ) / speedXZ;
+    expect(forwardAlignment).toBeGreaterThan(0.99);
+  });
+
+  it("captures the ramp's authored jumpSpan at takeoff, not the next segment's default", () => {
+    // Regression test: takeoffProgress must be captured before
+    // stepGroundedCar's forward step carries the car past the ramp's own
+    // segment into the next (gap) segment, which has no jumpSpan of its
+    // own - reading it post-movement silently fell back to the 30-unit
+    // default instead of this fixture's authored 60.
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    expect(rampJumpSpanAt(rampTrack, car.takeoffProgress)).toBe(60);
   });
 });
 
