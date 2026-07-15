@@ -134,6 +134,87 @@ function buildMarshals(density: number): THREE.Group {
   return group;
 }
 
+function buildMascotCheerSquads(density: number): THREE.Group {
+  const group = new THREE.Group();
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const count = Math.max(8, Math.round(14 * density));
+  const bodyColors = ["#38bdf8", "#f97316", "#22c55e", "#ec4899", "#facc15", "#a78bfa"];
+  const faceMaterial = new THREE.MeshStandardMaterial({ color: "#fff7ed", roughness: 0.72 });
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: "#111827" });
+  const cheekMaterial = new THREE.MeshBasicMaterial({ color: "#fb7185", transparent: true, opacity: 0.8 });
+  const stringMaterial = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.5 });
+  const headGeometry = new THREE.SphereGeometry(0.33, 14, 10);
+  const bodyGeometry = new THREE.CapsuleGeometry(0.26, 0.36, 4, 10);
+  const earGeometry = new THREE.SphereGeometry(0.12, 10, 8);
+  const eyeGeometry = new THREE.SphereGeometry(0.035, 8, 6);
+  const cheekGeometry = new THREE.SphereGeometry(0.045, 8, 6);
+  const balloonGeometry = new THREE.SphereGeometry(0.32, 14, 10);
+  const stringGeometry = new THREE.CylinderGeometry(0.012, 0.012, 1.1, 5);
+
+  for (let i = 0; i < count; i++) {
+    const progress = ((i + 0.35) / count) * TEST_OVAL_TRACK.trackLength;
+    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
+    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const nx = Math.cos(angle);
+    const nz = Math.sin(angle);
+    const side = i % 2 === 0 ? 1 : -1;
+    const offset = halfWidth + 10.5 + (i % 3) * 2.6;
+    const squad = new THREE.Group();
+    squad.position.set(center.x + nx * side * offset, 0, center.z + nz * side * offset);
+    squad.rotation.y = -angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+
+    const bodyMaterial = new THREE.MeshStandardMaterial({
+      color: bodyColors[i % bodyColors.length],
+      roughness: 0.5,
+      metalness: 0.02,
+      emissive: bodyColors[i % bodyColors.length],
+      emissiveIntensity: 0.05
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.position.set(0, 0.55, 0);
+    body.castShadow = true;
+    squad.add(body);
+
+    const head = new THREE.Mesh(headGeometry, faceMaterial);
+    head.position.set(0, 1.13, -0.02);
+    head.castShadow = true;
+    squad.add(head);
+
+    for (const x of [-0.18, 0.18]) {
+      const ear = new THREE.Mesh(earGeometry, bodyMaterial);
+      ear.position.set(x, 1.4, 0);
+      squad.add(ear);
+
+      const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+      eye.position.set(x * 0.45, 1.18, -0.31);
+      squad.add(eye);
+
+      const cheek = new THREE.Mesh(cheekGeometry, cheekMaterial);
+      cheek.position.set(x * 0.75, 1.08, -0.3);
+      squad.add(cheek);
+    }
+
+    const balloonMaterial = new THREE.MeshStandardMaterial({
+      color: bodyColors[(i + 2) % bodyColors.length],
+      roughness: 0.38,
+      metalness: 0.03,
+      emissive: bodyColors[(i + 2) % bodyColors.length],
+      emissiveIntensity: 0.12
+    });
+    const balloon = new THREE.Mesh(balloonGeometry, balloonMaterial);
+    balloon.scale.set(1, 1.18, 1);
+    balloon.position.set(side > 0 ? -0.5 : 0.5, 2.15 + (i % 3) * 0.15, 0.05);
+    squad.add(balloon);
+
+    const string = new THREE.Mesh(stringGeometry, stringMaterial);
+    string.position.set(balloon.position.x, 1.48, 0.05);
+    squad.add(string);
+
+    group.add(squad);
+  }
+  return group;
+}
+
 function buildFencing(density: number): THREE.InstancedMesh {
   const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
   const geometry = new THREE.PlaneGeometry(4.4, 1.6);
@@ -516,23 +597,10 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
     vertexColors: true
   });
   const glowPanels = new THREE.InstancedMesh(glowGeometry, glowMaterial, wallCount * 2);
-  const blockMaterial = new THREE.MeshStandardMaterial({
-    color: "#376a86",
-    roughness: 0.68,
-    metalness: 0.04,
-    emissive: "#061e30",
-    emissiveIntensity: 0.16,
-    vertexColors: true
-  });
-  const chunkyBlocks = new THREE.InstancedMesh(wallGeometry, blockMaterial, wallCount * 4);
-
   const matrix = new THREE.Matrix4();
   const glowMatrix = new THREE.Matrix4();
-  const blockMatrix = new THREE.Matrix4();
   const glowColors = ["#22d3ee", "#fb7185", "#facc15", "#a78bfa", "#34d399"];
-  const blockColors = ["#23415b", "#2f6f88", "#4b6f9d", "#325870", "#6d5e94"];
   let index = 0;
-  let blockIndex = 0;
   for (let i = 0; i < wallCount; i++) {
     const progress = (i / wallCount) * trackLength;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
@@ -541,9 +609,9 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
     const nz = Math.sin(angle);
     const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0));
     for (const side of [-1, 1] as const) {
-      const height = 3.8 + ((i + (side > 0 ? 1 : 3)) % 5) * 0.75;
-      const length = 7 + ((i * 5) % 5) * 1.2;
-      const offset = halfWidth + 11 + ((i + (side > 0 ? 0 : 2)) % 3) * 1.9;
+      const height = 2.8 + ((i + (side > 0 ? 1 : 3)) % 5) * 0.45;
+      const length = 5.6 + ((i * 5) % 5) * 0.9;
+      const offset = halfWidth + 16 + ((i + (side > 0 ? 0 : 2)) % 3) * 2.4;
       matrix.compose(
         new THREE.Vector3(center.x + nx * side * offset, height / 2 - 0.04, center.z + nz * side * offset),
         rotation,
@@ -558,33 +626,13 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
       );
       glowPanels.setMatrixAt(index, glowMatrix);
       glowPanels.setColorAt(index, new THREE.Color(glowColors[(i + (side > 0 ? 0 : 2)) % glowColors.length]!));
-      for (let layer = 0; layer < 2; layer++) {
-        const blockOffset = offset + 3.2 + layer * 2.3 + ((i + layer) % 2) * 0.55;
-        const blockHeight = 5.2 + ((i + layer * 3) % 4) * 1.35;
-        const blockLength = 4.5 + ((i * 7 + layer) % 5) * 1.4;
-        blockMatrix.compose(
-          new THREE.Vector3(
-            center.x + nx * side * blockOffset,
-            blockHeight / 2 - 0.05 + layer * 1.8,
-            center.z + nz * side * blockOffset
-          ),
-          rotation,
-          new THREE.Vector3(2.2 + layer * 0.7, blockHeight, blockLength)
-        );
-        chunkyBlocks.setMatrixAt(blockIndex, blockMatrix);
-        chunkyBlocks.setColorAt(blockIndex, new THREE.Color(blockColors[(i + layer + (side > 0 ? 0 : 2)) % blockColors.length]!));
-        blockIndex += 1;
-      }
       index += 1;
     }
   }
   walls.castShadow = true;
   walls.receiveShadow = true;
-  chunkyBlocks.castShadow = true;
-  chunkyBlocks.receiveShadow = true;
   glowPanels.instanceColor!.needsUpdate = true;
-  chunkyBlocks.instanceColor!.needsUpdate = true;
-  group.add(walls, chunkyBlocks, glowPanels);
+  group.add(walls, glowPanels);
 
   const gatePostMaterial = new THREE.MeshStandardMaterial({
     color: "#23415b",
@@ -711,6 +759,7 @@ export function buildTracksideDetails(density: number): THREE.Group {
 
   group.add(buildFencing(density));
   group.add(buildMarshals(density));
+  group.add(buildMascotCheerSquads(density));
   group.add(buildVenueZones(density));
   group.add(buildArcadeCourseSetPieces(density));
 
@@ -753,15 +802,6 @@ export function buildSkyDome(): THREE.Group {
   sun.position.set(-150, 120, -350);
   sun.rotation.y = 0.3;
   group.add(sun);
-
-  const mountainMaterial = new THREE.MeshBasicMaterial({ color: "#2f82b4", transparent: true, opacity: 0.5, side: THREE.DoubleSide });
-  for (let i = 0; i < 8; i++) {
-    const mountain = new THREE.Mesh(new THREE.ConeGeometry(22 + (i % 3) * 9, 38 + (i % 4) * 8, 4), mountainMaterial);
-    mountain.position.set(-170 + i * 48, 18, -330 - (i % 2) * 18);
-    mountain.rotation.y = Math.PI / 4;
-    mountain.scale.z = 0.62;
-    group.add(mountain);
-  }
 
   const cloudMaterial = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.95, transparent: true, opacity: 0.9 });
   for (let i = 0; i < 28; i++) {

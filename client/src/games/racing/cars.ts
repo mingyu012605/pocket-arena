@@ -19,6 +19,8 @@ const RIM = new THREE.MeshStandardMaterial({ color: "#c7f9ff", roughness: 0.2, m
 const ACCENT = new THREE.MeshPhysicalMaterial({ color: "#fbbf24", roughness: 0.18, metalness: 0.12, clearcoat: 0.6 });
 const VISOR = new THREE.MeshBasicMaterial({ color: "#7dd3fc", transparent: true, opacity: 0.82 });
 const HELMET = new THREE.MeshStandardMaterial({ color: "#fef3c7", roughness: 0.36, metalness: 0.02 });
+const DRIVER_EYE = new THREE.MeshBasicMaterial({ color: "#0f172a" });
+const DRIVER_CHEEK = new THREE.MeshBasicMaterial({ color: "#fb7185", transparent: true, opacity: 0.78 });
 const MIRROR = new THREE.MeshStandardMaterial({ color: "#e0f2fe", roughness: 0.22, metalness: 0.55 });
 const HEADLIGHT = new THREE.MeshBasicMaterial({ color: "#dffbff", transparent: true, opacity: 0.88 });
 const MARKER_MATERIAL = new THREE.MeshBasicMaterial({ color: "#ffffff" });
@@ -28,6 +30,8 @@ const NOSE_GEOMETRY = new THREE.ConeGeometry(0.46, 1.7, 8);
 const COCKPIT_GEOMETRY = new THREE.CylinderGeometry(0.4, 0.5, 0.62, 8);
 const HELMET_GEOMETRY = new THREE.SphereGeometry(0.26, 12, 8);
 const VISOR_GEOMETRY = new THREE.SphereGeometry(0.32, 12, 8);
+const DRIVER_EYE_GEOMETRY = new THREE.SphereGeometry(0.035, 8, 6);
+const DRIVER_CHEEK_GEOMETRY = new THREE.SphereGeometry(0.045, 8, 6);
 const HALO_GEOMETRY = new THREE.TorusGeometry(0.44, 0.045, 8, 16, Math.PI * 1.35);
 const SIDEPOD_GEOMETRY = new THREE.CylinderGeometry(0.16, 0.24, 1.5, 6);
 const FRONT_WING_GEOMETRY = new THREE.BoxGeometry(3.6, 0.1, 0.44);
@@ -241,6 +245,16 @@ export function buildCarMesh(color: string): CarVisual {
   visor.scale.set(1, 0.4, 0.5);
   visor.position.set(0, 1.16, -0.66);
   body.add(visor);
+
+  for (const x of [-0.09, 0.09]) {
+    const eye = new THREE.Mesh(DRIVER_EYE_GEOMETRY, DRIVER_EYE);
+    eye.position.set(x, 1.18, -0.96);
+    body.add(eye);
+
+    const cheek = new THREE.Mesh(DRIVER_CHEEK_GEOMETRY, DRIVER_CHEEK);
+    cheek.position.set(x * 1.55, 1.1, -0.91);
+    body.add(cheek);
+  }
 
   const wheels: THREE.Mesh[] = [];
   const frontWheels: THREE.Mesh[] = [];

@@ -69,6 +69,25 @@ function isLocalOrPrivateHost(hostname: string): boolean {
   );
 }
 
+function parseBaseUrl(value: string | null): URL | null {
+  if (!value) return null;
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isPublicBaseUrl(value: string | null): boolean {
+  const parsed = parseBaseUrl(value);
+  return parsed !== null && !isLocalOrPrivateHost(parsed.hostname);
+}
+
+function isPublicHttpsBaseUrl(value: string | null): boolean {
+  const parsed = parseBaseUrl(value);
+  return parsed !== null && parsed.protocol === "https:" && !isLocalOrPrivateHost(parsed.hostname);
+}
+
 function shouldPreferForwardedHttps(origin: string | null, forwarded: string | null): boolean {
   if (!origin || !forwarded) return false;
   try {
@@ -88,9 +107,6 @@ export function resolvePublicBaseUrl(options: {
   fallbackPort: number;
   fallbackProtocol?: string;
 }): string {
-  const override = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
-  if (override) return override;
-
   const origin = normalizeBaseUrl(options.requestOrigin);
 
   const forwardedProto = firstHeader(options.forwardedProto);
@@ -99,15 +115,25 @@ export function resolvePublicBaseUrl(options: {
   if (forwardedProto && forwardedHost) {
     fromProxy = normalizeBaseUrl(`${forwardedProto}://${forwardedHost}`);
   }
+
+  if (isPublicHttpsBaseUrl(origin)) return origin!;
   if (shouldPreferForwardedHttps(origin, fromProxy)) return fromProxy!;
-  if (origin) return origin;
+  if (isPublicHttpsBaseUrl(fromProxy)) return fromProxy!;
+
+  const override = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
+  if (override) {
+    if (isPublicBaseUrl(override)) return override;
+    if (isPublicBaseUrl(origin)) return origin!;
+  }
+
+  if (isPublicBaseUrl(origin)) return origin!;
   if (fromProxy) return fromProxy;
 
   const host = firstHeader(options.host);
   if (host) {
     const protocol = options.fallbackProtocol ?? "http";
     const fromHost = normalizeBaseUrl(`${protocol}://${host}`);
-    if (fromHost) return fromHost;
+    if (isPublicBaseUrl(fromHost)) return fromHost!;
   }
 
   return resolveUrls(options.fallbackPort, options.fallbackProtocol ?? "http").publicUrl;

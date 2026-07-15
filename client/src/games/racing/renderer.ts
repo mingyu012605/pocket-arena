@@ -16,19 +16,30 @@ import { RacingInterpolationBuffer } from "./interpolation";
 import type { RacingCarFrame } from "./interpolation";
 import { RacingDevHelpers } from "./devHelpers";
 import { RacingEffects } from "./effects";
-import { buildImportedCarVisual, buildStadiumProps, loadRacingAssetLibrary } from "./assetScene";
+import { buildImportedCarVisual, buildStadiumProps, loadRacingAssetLibrary, loadRacingCarScene } from "./assetScene";
 import type { RacingAssetLibrary } from "./assetScene";
 
 type CameraMode = "chase" | "wide" | "hood" | "spectator";
+type CameraConfig = {
+  distance: number;
+  height: number;
+  lookHeight: number;
+  lookAhead: number;
+  fov: number;
+  damping: number;
+  spectator: boolean;
+  avoidScenery: boolean;
+  avoidCars: boolean;
+};
 
 // Chase camera tuned so the whole car sits in the lower-center of frame with
 // a clear view of the road ahead - distance/height pulled back and raised
 // from values that put the camera almost on top of the car, and look-ahead
 // increased so it targets a point well down the road instead of the car
 // itself.
-const CAMERA_DISTANCE = 13.5;
-const CAMERA_HEIGHT = 5.4;
-const CAMERA_LOOK_AHEAD = 9;
+const CAMERA_DISTANCE = 17;
+const CAMERA_HEIGHT = 5.8;
+const CAMERA_LOOK_AHEAD = 3.4;
 const CAMERA_MODES: CameraMode[] = ["chase", "wide", "hood", "spectator"];
 const SNAPSHOT_HZ_WINDOW_MS = 5000;
 const FRAME_BUDGET_MS = 1000 / 55;
@@ -38,8 +49,8 @@ const BOT_FALLBACK_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15", "#38bdf
 const CAMERA_CAR_CLEARANCE = 2.6;
 /** Gap kept between the camera and any scenery it collision-corrects against, so it stops just short of the surface instead of clipping into it. */
 const CAMERA_COLLISION_MARGIN = 1.25;
-/** Floor on how close collision correction may pull the camera in - keeps the car from ever filling the whole frame even when scenery crowds the track. */
-const CAMERA_MIN_DISTANCE = 4.6;
+/** Floor on how close collision correction may pull the camera in. This must stay longer than the look-ahead distance, or the corrected camera can end up in front of the followed car. */
+const CAMERA_MIN_DISTANCE = CAMERA_LOOK_AHEAD + 5.5;
 /** Collision raycasts touch large instanced scenery, so keep them below frame rate to avoid adding camera-related stutter. */
 const CAMERA_COLLISION_SCAN_MS = 90;
 const DEV_MODE = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("dev") === "1";
@@ -122,6 +133,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private lastFrameAt = 0;
   private lastQualityAdjustAt = 0;
   private assetLibrary: RacingAssetLibrary | null = null;
+  private carAssetScene: THREE.Group | null = null;
   private assetLoadCancelled = false;
   private stadiumProps: THREE.Group | null = null;
   private assetLoadState: "loading" | "ready" | "fallback" = "loading";
@@ -238,6 +250,20 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     }
 
     this.assetLoadState = "loading";
+    loadRacingCarScene()
+      .then((carScene) => {
+        if (this.assetLoadCancelled || this.scene !== scene) return;
+        this.carAssetScene = carScene;
+        this.assetLoadState = "ready";
+        for (const [playerNumber, car] of this.cars) {
+          this.applyImportedCarVisual(playerNumber, car);
+        }
+      })
+      .catch((err: unknown) => {
+        if (this.assetLoadCancelled || this.scene !== scene) return;
+        this.assetLoadState = "fallback";
+        if (DEV_MODE) console.warn("Racing car asset load failed; using procedural fallback", err);
+      });
     loadRacingAssetLibrary()
       .then((library) => {
         if (this.assetLoadCancelled || this.scene !== scene) return;
@@ -252,7 +278,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       })
       .catch((err: unknown) => {
         if (this.assetLoadCancelled || this.scene !== scene) return;
-        this.assetLoadState = "fallback";
+        if (!this.carAssetScene) this.assetLoadState = "fallback";
         if (DEV_MODE) console.warn("Racing asset load failed; using procedural fallback", err);
       });
 
@@ -478,13 +504,13 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         config.spectator ? target.z + 34 : behindZ
       );
       const desiredLook = new THREE.Vector3(
-        target.x + forwardX * CAMERA_LOOK_AHEAD,
+        target.x + forwardX * config.lookAhead,
         config.lookHeight,
-        target.z + forwardZ * CAMERA_LOOK_AHEAD
+        target.z + forwardZ * config.lookAhead
       );
       if (!config.spectator) {
-        this.pushCameraClearOfOtherCars(desired, target.playerNumber, otherCarPositions);
-        this.raycastCameraCollision(desired, desiredLook, _timestamp);
+        if (config.avoidCars) this.pushCameraClearOfOtherCars(desired, target.playerNumber, otherCarPositions);
+        if (config.avoidScenery) this.raycastCameraCollision(desired, desiredLook, _timestamp);
       }
       if (!this.cameraInitialized) {
         camera.position.copy(desired);
@@ -613,14 +639,40 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     return this.cameraMode;
   }
 
-  private cameraConfig(speed: number): { distance: number; height: number; lookHeight: number; fov: number; damping: number; spectator: boolean } {
-    if (this.cameraMode === "wide") return { distance: 19, height: 9.5, lookHeight: 1.8, fov: 66, damping: 0.16, spectator: false };
-    if (this.cameraMode === "hood") return { distance: -1.6, height: 1.55, lookHeight: 1.15, fov: 76, damping: 0.34, spectator: false };
-    if (this.cameraMode === "spectator") return { distance: 0, height: 24 + speed * 0.03, lookHeight: 1.8, fov: 58, damping: 0.08, spectator: true };
+  private cameraConfig(speed: number): CameraConfig {
+    if (this.cameraMode === "wide") {
+      return { distance: 19, height: 9.5, lookHeight: 1.8, lookAhead: 7.2, fov: 66, damping: 0.16, spectator: false, avoidScenery: true, avoidCars: false };
+    }
+    if (this.cameraMode === "hood") {
+      return { distance: -1.6, height: 1.55, lookHeight: 1.15, lookAhead: 8.5, fov: 76, damping: 0.34, spectator: false, avoidScenery: true, avoidCars: true };
+    }
+    if (this.cameraMode === "spectator") {
+      return {
+        distance: 0,
+        height: 24 + speed * 0.03,
+        lookHeight: 1.8,
+        lookAhead: 10,
+        fov: 58,
+        damping: 0.08,
+        spectator: true,
+        avoidScenery: false,
+        avoidCars: false
+      };
+    }
     // Moderate FOV (was 68, +8 more at top speed - a wide-angle look the
     // brief explicitly asked to avoid). 60 base, capped well inside the
     // requested 55-65deg range even at the highest in-race speeds.
-    return { distance: CAMERA_DISTANCE, height: CAMERA_HEIGHT, lookHeight: 1.05, fov: 60, damping: 0.32, spectator: false };
+    return {
+      distance: CAMERA_DISTANCE,
+      height: CAMERA_HEIGHT,
+      lookHeight: 1.1,
+      lookAhead: 2.2,
+      fov: 60,
+      damping: 0.32,
+      spectator: false,
+      avoidScenery: false,
+      avoidCars: false
+    };
   }
 
   private containerSize(): { width: number; height: number } {
@@ -691,9 +743,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   }
 
   private applyImportedCarVisual(playerNumber: number, car: CarVisual): void {
-    if (!this.assetLibrary || car.importedRoot) return;
+    const carScene = this.assetLibrary?.carScene ?? this.carAssetScene;
+    if (!carScene || car.importedRoot) return;
     const color = this.colors.get(playerNumber) ?? BOT_FALLBACK_COLORS[Math.abs(playerNumber) % BOT_FALLBACK_COLORS.length] ?? "#f97316";
-    const imported = buildImportedCarVisual(this.assetLibrary, color);
+    const imported = buildImportedCarVisual({ carScene }, color);
     imported.root.position.y = -0.2;
     car.body.visible = false;
     car.root.add(imported.root);
@@ -745,6 +798,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.effects = null;
     this.assetLoadCancelled = true;
     this.assetLibrary = null;
+    this.carAssetScene = null;
     this.stadiumProps = null;
     this.renderer?.dispose();
     this.renderer?.domElement.remove();

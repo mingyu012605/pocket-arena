@@ -4,7 +4,8 @@ let socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io();
+    const devQuery = new URLSearchParams(window.location.search).get("dev") === "1" ? { dev: "1" } : undefined;
+    socket = io({ query: devQuery });
   }
   return socket;
 }

@@ -41,6 +41,17 @@
   color: #166534;
 }
 
+.racing-connection-stage {
+  margin: 0.5rem auto 0;
+  max-width: 320px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--player-color, var(--color-cyan)) 26%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--color-text);
+  font-weight: 900;
+}
+
 .racing-synthetic-warning {
   margin: 1rem auto 0;
   padding: 0.6rem 1rem;
@@ -122,6 +133,44 @@
   width: 100%;
   max-width: 300px;
   margin: 0 auto 1rem;
+}
+
+.racing-touch-fallback {
+  width: min(100%, 360px);
+  margin: 0.9rem auto 0;
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--player-color, var(--color-cyan)) 26%, var(--color-border));
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.86);
+}
+
+.racing-touch-fallback p {
+  margin: 0 0 0.65rem;
+  color: var(--color-text);
+  font-weight: 900;
+}
+
+.racing-touch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.racing-touch-grid button {
+  min-height: 58px;
+  border: 1px solid color-mix(in srgb, var(--player-color, var(--color-cyan)) 36%, var(--color-border));
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--player-color, var(--color-cyan)) 14%, #eff6ff));
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 900;
+  touch-action: none;
+  user-select: none;
+}
+
+.racing-touch-grid button:active {
+  transform: translateY(1px);
+  background: color-mix(in srgb, var(--player-color, var(--color-cyan)) 28%, #ffffff);
 }
 
 .telemetry-bar {

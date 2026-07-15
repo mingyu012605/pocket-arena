@@ -284,7 +284,7 @@ describe("room lifecycle", () => {
       expect(started.ok).toBe(true);
       expect(roundId).not.toBeNull();
 
-      // Held during the countdown, well before "go" fires (~3s later).
+      // Held during the countdown, well before "go" fires (~4s later).
       p1.emit(SOCKET_EVENTS.INPUT_ACTION, { action: "left-start", sequence: 1, roundId });
 
       const firstState = await new Promise<{
@@ -454,7 +454,7 @@ describe("room lifecycle", () => {
     expect(started.ok).toBe(true);
     expect(getRoom(created.roomId)?.physicsInterval).toBeNull();
 
-    await new Promise((resolve) => setTimeout(resolve, 3200));
+    await new Promise((resolve) => setTimeout(resolve, 4300));
     const room = getRoom(created.roomId);
     expect(room?.status).toBe("in-progress");
     expect(room?.gameState?.gameType).toBe("racing");
@@ -462,7 +462,7 @@ describe("room lifecycle", () => {
 
     host.close();
     p1.close();
-  }, 8000);
+  }, 10000);
 
   it("racing throttle packets after GO increase authoritative speed/progress and emitted state", async () => {
     const host = connect();
@@ -491,7 +491,7 @@ describe("room lifecycle", () => {
     expect(started.ok).toBe(true);
     expect(roundId).not.toBeNull();
 
-    await new Promise((resolve) => setTimeout(resolve, 3200));
+    await new Promise((resolve) => setTimeout(resolve, 4300));
     for (let sequence = 1; sequence <= 12; sequence++) {
       p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 0, throttle: 1, brake: 0, sequence, roundId });
       await new Promise((resolve) => setTimeout(resolve, 35));
@@ -540,7 +540,7 @@ describe("room lifecycle", () => {
     expect(started.ok).toBe(true);
     expect(roundId).not.toBeNull();
 
-    await new Promise((resolve) => setTimeout(resolve, 3200));
+    await new Promise((resolve) => setTimeout(resolve, 4300));
     for (let sequence = 1; sequence <= 16; sequence++) {
       p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 1, throttle: 1, brake: 0, sequence, roundId });
       await new Promise((resolve) => setTimeout(resolve, 35));
@@ -675,7 +675,7 @@ describe("room lifecycle", () => {
     expect(roundId).not.toBeNull();
     p1.emit(SOCKET_EVENTS.RACING_INPUT, { steering: 1, throttle: 1, brake: 0, sequence: 1, roundId });
 
-    await new Promise((resolve) => setTimeout(resolve, 3200));
+    await new Promise((resolve) => setTimeout(resolve, 4300));
     expect(getRoom(created.roomId)?.physicsInterval).not.toBeNull();
     host.close();
     await new Promise((resolve) => setTimeout(resolve, 50));

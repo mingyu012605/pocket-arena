@@ -1,6 +1,6 @@
 import type { Server } from "socket.io";
 import { describe, expect, it } from "vitest";
-import { TEST_OVAL_TRACK } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
 import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload } from "./racing";
@@ -18,6 +18,7 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     throttle: 0,
     brake: 0,
     lastInputAt: Date.now(),
+    lastControllerInputAt: null,
     lastSequence: 0,
     lastCollisionAt: 0,
     rank: 1,
@@ -235,7 +236,39 @@ describe("stepPhysics", () => {
       stepPhysics(room, 1 / 60);
 
       const separation = carB.lateralOffset - carA.lateralOffset;
-      expect(separation).toBeGreaterThan(1);
+      expect(separation).toBeGreaterThan(2.2);
+    });
+
+    it("pushes identical-position cars fully apart instead of leaving them stacked", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = 300;
+      carB.progress = 300;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 0;
+
+      stepPhysics(room, 0);
+
+      expect(Math.abs(carB.lateralOffset - carA.lateralOffset)).toBeGreaterThan(2.2);
+    });
+
+    it("separates nose-to-tail overlap so cars cannot penetrate longitudinally", () => {
+      const room = createRoom("racing", 2);
+      const gameState = createRacingGameState(room);
+      room.gameState = gameState;
+      const carA = gameState.cars.get(1)!;
+      const carB = gameState.cars.get(2)!;
+      carA.progress = 300;
+      carB.progress = 303.4;
+      carA.lateralOffset = 0;
+      carB.lateralOffset = 0;
+
+      stepPhysics(room, 0);
+
+      expect(Math.abs(shortestProgressDelta(TEST_OVAL_TRACK, carA.progress, carB.progress))).toBeGreaterThan(4.6);
     });
 
     it("reduces speed on both cars in a collision", () => {

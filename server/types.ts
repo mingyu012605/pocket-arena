@@ -26,6 +26,7 @@ export interface RacingCarState {
   throttle: number;
   brake: number;
   lastInputAt: number;
+  lastControllerInputAt: number | null;
   lastSequence: number;
   lastCollisionAt: number;
   rank: number;

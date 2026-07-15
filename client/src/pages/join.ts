@@ -159,7 +159,7 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
   const onCountdownTick = (payload: CountdownTickPayload) => {
     const el = document.getElementById("phone-countdown");
     if (!el) return;
-    el.textContent = String(payload.value).toUpperCase();
+    el.textContent = payload.value === 4 ? "READY" : String(payload.value).toUpperCase();
     if (payload.value === "go") window.setTimeout(() => (el.textContent = ""), 650);
   };
   socket.on(SOCKET_EVENTS.ROOM_STATE, onRoomState);
@@ -224,7 +224,7 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
   const onCountdownTick = (payload: CountdownTickPayload) => {
     const el = document.getElementById("phone-countdown");
     if (!el) return;
-    el.textContent = String(payload.value).toUpperCase();
+    el.textContent = payload.value === 4 ? "READY" : String(payload.value).toUpperCase();
     if (payload.value === "go") window.setTimeout(() => (el.textContent = ""), 650);
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);

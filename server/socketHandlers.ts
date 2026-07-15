@@ -83,7 +83,7 @@ function endRound(room: InternalRoom): void {
 }
 
 function runCountdown(io: Server, room: InternalRoom): void {
-  const ticks: Array<3 | 2 | 1 | "go"> = [3, 2, 1, "go"];
+  const ticks: Array<4 | 3 | 2 | 1 | "go"> = [4, 3, 2, 1, "go"];
   const roundId = room.roundId;
   let index = 0;
 
@@ -111,6 +111,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
   io.on("connection", (socket: AppSocket) => {
     // Optional one-socket diagnostic logging; it never affects gameplay or URL routing.
     const racingInputDevLogEnabled = socket.handshake.query.dev === "1";
+    let racingFirstInputLogged = false;
     socket.on(
       SOCKET_EVENTS.HOST_CREATE_ROOM,
       async (payload: CreateRoomRequest, ack: (res: Ack<CreateRoomResponse>) => void) => {
@@ -127,6 +128,12 @@ export function registerSocketHandlers(io: Server, port: number): void {
           forwardedHost: socket.handshake.headers["x-forwarded-host"],
           host: socket.handshake.headers.host,
           fallbackPort: port
+        });
+        console.info("[host:create-room]", {
+          roomId: room.id,
+          gameType: room.gameType,
+          requestOrigin: payload.publicOrigin ?? socket.handshake.headers.origin,
+          publicUrl
         });
         const slots = await buildSlotQrData(room, publicUrl);
         ack({ ok: true, roomId: room.id, hostToken: room.hostToken, slots, room: toPublicRoomState(room) });
@@ -216,6 +223,13 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (isReconnect) {
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.PLAYER_RECONNECTED, { playerNumber: player.playerNumber });
         }
+        console.info("[controller:join-room]", {
+          roomId: room.id,
+          playerNumber: player.playerNumber,
+          gameType: room.gameType,
+          isReconnect,
+          controllerType: controllerTypeForGame(room.gameType)
+        });
         broadcastRoomState(io, room);
         ack({ ok: true, room: toPublicRoomState(room), color: player.color });
       }
@@ -252,6 +266,13 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (isReconnect) {
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.PLAYER_RECONNECTED, { playerNumber: player.playerNumber });
         }
+        console.info("[controller:join-room]", {
+          roomId: room.id,
+          playerNumber: player.playerNumber,
+          gameType: room.gameType,
+          isReconnect,
+          controllerType
+        });
         broadcastRoomState(io, room);
         ack({
           ok: true,
@@ -316,7 +337,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       }
       room.roundId = createToken();
       room.status = "countdown";
-      room.countdownEndsAt = Date.now() + 3000;
+      room.countdownEndsAt = Date.now() + 4000;
       room.gameState = room.gameType === "racing" ? createRacingGameState(room) : createControllerTestGameState(room);
       broadcastRoomState(io, room);
       if (room.gameType === "racing") {
@@ -414,9 +435,24 @@ export function registerSocketHandlers(io: Server, port: number): void {
       }
       car.lastSequence = payload.sequence;
       car.lastInputAt = Date.now();
+      car.lastControllerInputAt = car.lastInputAt;
       car.steering = Math.max(-1, Math.min(1, payload.steering));
       car.throttle = Math.max(0, Math.min(1, payload.throttle));
       car.brake = Math.max(0, Math.min(1, payload.brake));
+      if (!racingFirstInputLogged) {
+        racingFirstInputLogged = true;
+        console.info("[racing:input] first accepted", {
+          socketId: socket.id,
+          playerNumber: session.playerNumber,
+          roomId: room.id,
+          roundId: payload.roundId,
+          sequence: payload.sequence,
+          steering: car.steering,
+          throttle: car.throttle,
+          brake: car.brake,
+          receivedAt: car.lastInputAt
+        });
+      }
       if (racingInputDevLogEnabled) {
         console.log("[racing:input] accepted", {
           socketId: socket.id,

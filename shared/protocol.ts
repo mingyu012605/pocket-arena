@@ -157,7 +157,7 @@ export interface RacingInputPayload {
 }
 
 export interface CountdownTickPayload {
-  value: 3 | 2 | 1 | "go";
+  value: 4 | 3 | 2 | 1 | "go";
   roundId: string;
 }
 
@@ -185,6 +185,7 @@ export interface RacingPlayerState {
   throttle?: number;
   brake?: number;
   inputStale?: boolean;
+  lastInputAt?: number;
   collided?: boolean;
   rank: number;
   lap: number;

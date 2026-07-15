@@ -154,6 +154,28 @@ export class RacingEffects {
     }
   }
 
+  /** Short celebratory pop at race start, lighter than the finish burst. */
+  triggerStartBurst(x: number, z: number): void {
+    let spawned = 0;
+    for (const slot of this.burstParticles) {
+      if (slot.active) continue;
+      slot.active = true;
+      slot.x = x + (Math.random() - 0.5) * 2.8;
+      slot.y = 0.75 + Math.random() * 0.8;
+      slot.z = z + (Math.random() - 0.5) * 2.8;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.2 + Math.random() * 2.1;
+      slot.vx = Math.cos(angle) * speed;
+      slot.vy = 2 + Math.random() * 2.2;
+      slot.vz = Math.sin(angle) * speed;
+      slot.maxLife = 0.7 + Math.random() * 0.45;
+      slot.life = slot.maxLife;
+      slot.scale = 0.55 + Math.random() * 0.35;
+      spawned += 1;
+      if (spawned >= 18) return;
+    }
+  }
+
   update(timestamp: number): void {
     const dt = this.lastUpdateAt === 0 ? 1 / 60 : Math.min(0.1, (timestamp - this.lastUpdateAt) / 1000);
     this.lastUpdateAt = timestamp;

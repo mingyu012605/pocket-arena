@@ -27,9 +27,9 @@ interface RacingViewOptions {
 
 const STATE_COPY: Record<MotionState, string> = {
   "insecure-context": "Motion controls need a secure connection. Open this page with HTTPS or localhost.",
-  unavailable: "Motion sensors are not available in this browser.",
-  "permission-required": "Tap Enable Motion to use your phone as a steering wheel.",
-  "permission-denied": "Motion access was denied. Check browser permissions and reload.",
+  unavailable: "Motion sensors are not available in this browser. Touch controls are available below.",
+  "permission-required": "Tap Enable Motion Controls to use your phone as a steering wheel.",
+  "permission-denied": "Motion access was denied. Check browser permissions and reload, or use touch controls below.",
   "await-landscape": "Rotate your phone sideways to use it as a steering wheel.",
   "await-calibration": "Calibrating...",
   "sensor-timeout": "No motion data was detected. Check browser permissions or try recalibrating.",
@@ -61,6 +61,7 @@ export function mountRacingView(
         <li data-badge="calibrated">Calibrated</li>
         <li data-badge="ready">Ready</li>
       </ul>
+      <p class="racing-connection-stage" id="racing-connection-stage">Connecting</p>
       <p id="racing-state-copy" class="hero-copy"></p>
       <div id="racing-action-slot"></div>
       <div id="racing-calibration-slot"></div>
@@ -73,6 +74,15 @@ export function mountRacingView(
           <div class="telemetry-bar"><span>Throttle</span><progress id="throttle-bar" max="1" value="0"></progress></div>
           <div class="telemetry-bar"><span>Brake</span><progress id="brake-bar" max="1" value="0"></progress></div>
           <p id="speed-readout">Speed: 0 km/h</p>
+        </div>
+        <div class="racing-touch-fallback" id="racing-touch-fallback">
+          <p>Touch fallback</p>
+          <div class="racing-touch-grid">
+            <button type="button" data-touch="left">Left</button>
+            <button type="button" data-touch="throttle">Gas</button>
+            <button type="button" data-touch="brake">Back</button>
+            <button type="button" data-touch="right">Right</button>
+          </div>
         </div>
         <div class="racing-verification" id="racing-verification" hidden>
           <p>Confirm motion before ready</p>
@@ -114,8 +124,10 @@ export function mountRacingView(
   const readyActionSlot = container.querySelector<HTMLDivElement>("#racing-ready-action")!;
   const readyHelpEl = container.querySelector<HTMLParagraphElement>("#racing-ready-help")!;
   const indicator = container.querySelector<HTMLSpanElement>("#racing-conn-indicator")!;
+  const connectionStageEl = container.querySelector<HTMLParagraphElement>("#racing-connection-stage")!;
   const playerBadge = container.querySelector<HTMLParagraphElement>("#racing-player-badge")!;
   const statusBadges = container.querySelector<HTMLUListElement>("#racing-status-badges")!;
+  const touchFallback = container.querySelector<HTMLDivElement>("#racing-touch-fallback")!;
   const diagnostics = container.querySelector<HTMLDetailsElement>("#racing-dev-diagnostics")!;
   const syntheticWarning = container.querySelector<HTMLParagraphElement>("#racing-synthetic-warning")!;
   const diagnosticsReadout = container.querySelector<HTMLPreElement>("#racing-dev-readout")!;
@@ -138,6 +150,8 @@ export function mountRacingView(
   let playerReady = opts.initialReady ?? false;
   let readyBusy = false;
   let readyButton: HTMLButtonElement | null = null;
+  let hasConnected = getSocket().connected;
+  const cleanupFns: Array<() => void> = [];
   if (devDiagnostics) diagnostics.hidden = false;
 
   function activeRoundId(): string {
@@ -173,6 +187,22 @@ export function mountRacingView(
                 : false;
       li.classList.toggle("is-complete", done);
     }
+    updateConnectionStage();
+  }
+
+  function updateConnectionStage(): void {
+    const connected = getSocket().connected;
+    const stage = !connected
+      ? hasConnected
+        ? "Disconnected/error"
+        : "Connecting"
+      : packetsSent > 0
+        ? "Controller active"
+        : opts.preflight
+          ? "Room joined"
+          : "Connected";
+    connectionStageEl.textContent = stage;
+    connectionStageEl.dataset.stage = stage.toLowerCase().replace(/[^a-z]+/g, "-");
   }
 
   function updateDiagnostics(): void {
@@ -265,13 +295,7 @@ export function mountRacingView(
     if (opts.preflight && playerReady) void setPlayerReady(false);
   }
 
-  function sendDevReading(reading: MotionReading): void {
-    // Synthetic controls only exist at all behind ?dev=1 (see the `devDiagnostics`
-    // guard around where these buttons are created) and only ever fire from an
-    // explicit click here - never automatically. This banner makes that
-    // impossible to miss while it's happening, and clears itself is reset by a
-    // page reload since it's just in-memory state.
-    syntheticWarning.hidden = false;
+  function sendControllerReading(reading: MotionReading): void {
     lastReading = reading;
     const roundId = syncRoundId();
     if (roundId) {
@@ -284,7 +308,18 @@ export function mountRacingView(
     brakeBar.value = reading.brake;
     steeringReadout.textContent = `Steering ${Math.round(reading.steering * 100)}%`;
     updateVerification(reading);
+    updateConnectionStage();
     updateDiagnostics();
+  }
+
+  function sendDevReading(reading: MotionReading): void {
+    // Synthetic controls only exist at all behind ?dev=1 (see the `devDiagnostics`
+    // guard around where these buttons are created) and only ever fire from an
+    // explicit click here - never automatically. This banner makes that
+    // impossible to miss while it's happening, and clears itself is reset by a
+    // page reload since it's just in-memory state.
+    syntheticWarning.hidden = false;
+    sendControllerReading(reading);
   }
 
   function appendCalibrationButton(label: string, body: string, onClick: () => void): void {
@@ -294,17 +329,70 @@ export function mountRacingView(
     calibrationSlot.appendChild(createButton({ label, variant: "primary", onClick }));
   }
 
+  function touchReadingForControl(control: string | undefined): MotionReading {
+    switch (control) {
+      case "left":
+        return { steering: -1, throttle: 0.45, brake: 0 };
+      case "right":
+        return { steering: 1, throttle: 0.45, brake: 0 };
+      case "throttle":
+        return { steering: 0, throttle: 1, brake: 0 };
+      case "brake":
+        return { steering: 0, throttle: 0, brake: 1 };
+      default:
+        return { steering: 0, throttle: 0, brake: 0 };
+    }
+  }
+
+  function bindTouchFallbackControls(): void {
+    const stopReading: MotionReading = { steering: 0, throttle: 0, brake: 0 };
+    for (const button of touchFallback.querySelectorAll<HTMLButtonElement>("[data-touch]")) {
+      const start = (event: PointerEvent) => {
+        event.preventDefault();
+        try {
+          button.setPointerCapture?.(event.pointerId);
+        } catch {
+          // Synthetic test events and a few mobile browser edge cases can make
+          // pointer capture unavailable even though the button press itself is
+          // valid. The fallback input should still be sent.
+        }
+        sendControllerReading(touchReadingForControl(button.dataset.touch));
+      };
+      const stop = (event: PointerEvent) => {
+        event.preventDefault();
+        sendControllerReading(stopReading);
+      };
+      button.addEventListener("pointerdown", start);
+      button.addEventListener("pointerup", stop);
+      button.addEventListener("pointercancel", stop);
+      button.addEventListener("pointerleave", stop);
+      cleanupFns.push(() => {
+        button.removeEventListener("pointerdown", start);
+        button.removeEventListener("pointerup", stop);
+        button.removeEventListener("pointercancel", stop);
+        button.removeEventListener("pointerleave", stop);
+      });
+    }
+  }
+
   function renderForState(state: MotionState): void {
     stateCopyEl.textContent = STATE_COPY[state];
     actionSlot.innerHTML = "";
     calibrationSlot.innerHTML = "";
-    readySlot.hidden = state !== "ready";
-    if (opts.preflight && state !== "ready") clearPreflightReady();
+    const fallbackCapable =
+      state === "permission-required" ||
+      state === "permission-denied" ||
+      state === "unavailable" ||
+      state === "insecure-context" ||
+      state === "sensor-timeout";
+    readySlot.hidden = state !== "ready" && !fallbackCapable;
+    touchFallback.hidden = false;
+    if (opts.preflight && state !== "ready" && !fallbackCapable) clearPreflightReady();
     updateStatusBadges();
 
     if (state === "permission-required") {
       actionSlot.appendChild(
-        createButton({ label: "Enable Motion", variant: "primary", onClick: () => void motion.requestPermission() })
+        createButton({ label: "Enable Motion Controls", variant: "primary", onClick: () => void motion.requestPermission() })
       );
     } else if (state === "sensor-timeout") {
       actionSlot.appendChild(
@@ -344,23 +432,12 @@ export function mountRacingView(
     } else if (state === "ready") {
       renderReadyAction();
     }
+    if (fallbackCapable) renderReadyAction();
   }
 
   const offState = motion.onStateChange(renderForState);
   const offReading = motion.onReading((reading: MotionReading) => {
-    lastReading = reading;
-    const roundId = syncRoundId();
-    if (roundId) {
-      input.send(reading);
-      packetsSent += 1;
-    }
-    lastSendAt = performance.now();
-    wheelRimEl.style.setProperty("--steer", String(reading.steering));
-    throttleBar.value = reading.throttle;
-    brakeBar.value = reading.brake;
-    steeringReadout.textContent = `Steering ${Math.round(reading.steering * 100)}%`;
-    updateVerification(reading);
-    updateDiagnostics();
+    sendControllerReading(reading);
   });
 
   const onRecalibrate = () => {
@@ -390,6 +467,7 @@ export function mountRacingView(
       diagnosticsControls.appendChild(button);
     }
   }
+  bindTouchFallbackControls();
 
   const socket = getSocket();
   let wasCollided = false;
@@ -422,10 +500,13 @@ export function mountRacingView(
     }
     indicator.classList.add("offline");
     updateStatusBadges();
+    updateConnectionStage();
   };
   const onConnect = () => {
+    hasConnected = true;
     indicator.classList.remove("offline");
     updateStatusBadges();
+    updateConnectionStage();
   };
   const onBlur = () => {
     const roundId = syncRoundId();
@@ -453,9 +534,11 @@ export function mountRacingView(
   document.addEventListener("visibilitychange", onVisibility);
 
   renderForState(motion.getState());
+  updateConnectionStage();
   updateDiagnostics();
 
   return () => {
+    for (const cleanup of cleanupFns) cleanup();
     offState();
     offReading();
     recalibrateButton.removeEventListener("click", onRecalibrate);

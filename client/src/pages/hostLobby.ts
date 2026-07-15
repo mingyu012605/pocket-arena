@@ -47,6 +47,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       </header>
       <div class="lobby-grid" id="lobby-grid"></div>
       <p class="reconnecting-banner" id="reconnecting" hidden>Reconnecting…</p>
+      <aside class="host-connection-diagnostics" id="host-connection-diagnostics"></aside>
       <div class="lobby-footer" id="lobby-footer"></div>
     </section>
   `;
@@ -55,6 +56,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   const gridEl = container.querySelector<HTMLDivElement>("#lobby-grid")!;
   const footerEl = container.querySelector<HTMLDivElement>("#lobby-footer")!;
   const reconnectingEl = container.querySelector<HTMLParagraphElement>("#reconnecting")!;
+  const diagnosticsEl = container.querySelector<HTMLElement>("#host-connection-diagnostics")!;
 
   const startButton = createButton({
     label: "Start Game",
@@ -134,6 +136,58 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     }
     footerEl.appendChild(startButton);
     footerEl.appendChild(leaveButton);
+  }
+
+  function generatedJoinUrl(): string {
+    return session.slots[0]?.joinUrl ?? "No QR URL generated";
+  }
+
+  function latestHumanInputAt(state: RacingGameStatePayload | null = lastRacingState): number | null {
+    if (!state) return null;
+    const humanSlots = new Set(lastRoom.players.map((player) => player.playerNumber));
+    const humanInputs = state.players
+      .filter((player) => !player.isBot && humanSlots.has(player.playerNumber) && typeof player.lastInputAt === "number")
+      .map((player) => player.lastInputAt as number);
+    if (humanInputs.length === 0) return null;
+    return Math.max(...humanInputs);
+  }
+
+  function formatInputTimestamp(timestamp: number | null): string {
+    if (timestamp === null) return "No input received";
+    const ageMs = Math.max(0, Date.now() - timestamp);
+    const ageLabel = ageMs < 1000 ? `${ageMs}ms ago` : `${(ageMs / 1000).toFixed(1)}s ago`;
+    return `${new Date(timestamp).toLocaleTimeString()} (${ageLabel})`;
+  }
+
+  function appendDiagnosticRow(list: HTMLDListElement, label: string, value: string): void {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = value;
+    list.append(term, detail);
+  }
+
+  function buildHostDiagnostics(state: RacingGameStatePayload | null = lastRacingState): HTMLElement {
+    const panel = document.createElement("section");
+    panel.className = "host-connection-diagnostics-panel";
+    const title = document.createElement("h2");
+    title.textContent = "Phone connection diagnostics";
+    const list = document.createElement("dl");
+    const socket = getSocket();
+    const connectedControllers = lastRoom.players.filter((player) => player.connected).length;
+    appendDiagnosticRow(list, "Browser origin", window.location.origin);
+    appendDiagnosticRow(list, "QR join URL", generatedJoinUrl());
+    appendDiagnosticRow(list, "Room ID", roomId);
+    appendDiagnosticRow(list, "Socket", socket.connected ? "Connected" : "Connecting/disconnected");
+    appendDiagnosticRow(list, "Controllers", `${connectedControllers} / ${lastRoom.maxPlayers}`);
+    appendDiagnosticRow(list, "Last input", formatInputTimestamp(latestHumanInputAt(state)));
+    panel.append(title, list);
+    return panel;
+  }
+
+  function renderHostDiagnostics(state: RacingGameStatePayload | null = lastRacingState): void {
+    diagnosticsEl.innerHTML = "";
+    diagnosticsEl.appendChild(buildHostDiagnostics(state));
   }
 
   async function startGameView(room: PublicRoomState): Promise<void> {
@@ -406,6 +460,10 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     );
     hud.appendChild(controls);
 
+    const connectionDiagnostics = buildHostDiagnostics(state);
+    connectionDiagnostics.classList.add("race-hud-panel", "race-host-diagnostics");
+    hud.appendChild(connectionDiagnostics);
+
     if (devMode) {
       const diagnostics = document.createElement("section");
       diagnostics.className = "race-hud-panel race-host-diagnostics";
@@ -481,6 +539,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
 
   function renderRoom(room: PublicRoomState): void {
     lastRoom = room;
+    renderHostDiagnostics(lastRacingState);
     const isRaceResults = room.gameType === "racing" && room.status === "results";
     const isPlaying = room.status === "countdown" || room.status === "in-progress" || isRaceResults;
     const wasPlaying =
@@ -550,6 +609,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
 
   const socket = getSocket();
   const onRoomState = (room: PublicRoomState) => renderRoom(room);
+  const onSocketConnectionChange = () => renderHostDiagnostics(lastRacingState);
   const onRoomClosed = (payload: RoomClosedPayload) => {
     alert(payload.reason);
     sessionStorage.removeItem(`pocket-arena:host:${roomId}`);
@@ -562,6 +622,14 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       if (payload.value === "go") {
         el.innerHTML = `<div class="countdown-lights is-go"><span>GO</span></div>`;
         window.setTimeout(() => (el.textContent = ""), 650);
+      } else if (payload.value === 4) {
+        el.innerHTML = `
+          <div class="race-intro-card">
+            <span class="race-intro-kicker">Phone controllers locked</span>
+            <strong class="race-intro-title">Ready?</strong>
+            <span class="race-intro-subtitle">Engines warm. Eyes forward.</span>
+          </div>
+        `;
       } else {
         const active = 4 - Number(payload.value);
         el.innerHTML = `<div class="countdown-lights">${[1, 2, 3]
@@ -570,6 +638,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       }
     }
     if (payload.value === "go") racingAudio.playCountdownGo();
+    else if (payload.value === 4) racingAudio.playIntroRise();
     else racingAudio.playCountdownTick();
   };
   const onGameState = (payload: GameStatePayload) => {
@@ -585,6 +654,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       }
       if (racingRendererControls) racingRendererControls.applyState(payload);
       updateRacingHud(payload);
+      renderHostDiagnostics(payload);
 
       if (payload.raceStatus === "finished" && lastRaceStatus !== "finished") racingAudio.playFinish();
       lastRaceStatus = payload.raceStatus;
@@ -604,6 +674,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);
   socketGameStateListeners += 1;
   publishRacingDebugCounters();
+  socket.on("connect", onSocketConnectionChange);
+  socket.on("disconnect", onSocketConnectionChange);
   socket.on(SOCKET_EVENTS.ROOM_STATE, onRoomState);
   socket.on(SOCKET_EVENTS.ROOM_CLOSED, onRoomClosed);
 
@@ -612,6 +684,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     socket.off(SOCKET_EVENTS.ROOM_CLOSED, onRoomClosed);
     socket.off(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
     socket.off(SOCKET_EVENTS.GAME_STATE, onGameState);
+    socket.off("connect", onSocketConnectionChange);
+    socket.off("disconnect", onSocketConnectionChange);
     socketGameStateListeners = Math.max(0, socketGameStateListeners - 1);
     publishRacingDebugCounters();
     stopGameView();

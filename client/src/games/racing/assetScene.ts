@@ -25,6 +25,7 @@ export interface ImportedCarVisual {
 }
 
 let assetPromise: Promise<RacingAssetLibrary> | null = null;
+let carScenePromise: Promise<THREE.Group> | null = null;
 
 async function loadGltfScene(loader: GLTFLoader, url: string): Promise<THREE.Group> {
   const gltf = await loader.loadAsync(url);
@@ -52,12 +53,20 @@ function prepareScene(scene: THREE.Group): THREE.Group {
  * style for the car and every venue prop, so they read as one coherent
  * design rather than several unrelated projects stitched together.
  */
+export function loadRacingCarScene(): Promise<THREE.Group> {
+  if (!carScenePromise) {
+    const loader = new GLTFLoader();
+    carScenePromise = loadGltfScene(loader, carUrl).then((scene) => prepareScene(scene));
+  }
+  return carScenePromise;
+}
+
 export function loadRacingAssetLibrary(): Promise<RacingAssetLibrary> {
   if (!assetPromise) {
     assetPromise = (async () => {
       const loader = new GLTFLoader();
       const [carScene, grandstandScene, flagScene, treeLargeScene, treeSmallScene, lightpostScene] = await Promise.all([
-        loadGltfScene(loader, carUrl),
+        loadRacingCarScene(),
         loadGltfScene(loader, grandstandUrl),
         loadGltfScene(loader, flagUrl),
         loadGltfScene(loader, treeLargeUrl),
@@ -65,7 +74,7 @@ export function loadRacingAssetLibrary(): Promise<RacingAssetLibrary> {
         loadGltfScene(loader, lightpostUrl)
       ]);
       return {
-        carScene: prepareScene(carScene),
+        carScene,
         grandstandScene: prepareScene(grandstandScene),
         flagScene: prepareScene(flagScene),
         treeLargeScene: prepareScene(treeLargeScene),
@@ -198,15 +207,32 @@ function buildDriverBust(color: string): THREE.Group {
   visor.position.set(0, 0.335, 0.03);
   driver.add(visor);
 
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
+  const cheekMaterial = new THREE.MeshBasicMaterial({ color: "#fb7185", transparent: true, opacity: 0.78 });
+  for (const x of [-0.024, 0.024]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0075, 8, 6), eyeMaterial);
+    eye.position.set(x, 0.344, -0.026);
+    driver.add(eye);
+
+    const cheek = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), cheekMaterial);
+    cheek.position.set(x * 1.55, 0.326, -0.02);
+    driver.add(cheek);
+  }
+
   return driver;
 }
 
-export function buildImportedCarVisual(library: RacingAssetLibrary, color: string): ImportedCarVisual {
+export function buildImportedCarVisual(library: Pick<RacingAssetLibrary, "carScene">, color: string): ImportedCarVisual {
   const root = cloneWithUniqueMaterials(library.carScene, color) as THREE.Group;
   root.name = "imported-arcade-car";
   root.scale.setScalar(CAR_SCALE);
   root.rotation.y = Math.PI;
   root.add(buildDriverBust(color));
+  const bounds = new THREE.Box3().setFromObject(root);
+  const center = new THREE.Vector3();
+  bounds.getCenter(center);
+  root.position.x = -center.x;
+  root.position.z = -center.z;
 
   const wheels: THREE.Object3D[] = [];
   const frontWheels: THREE.Object3D[] = [];

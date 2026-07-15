@@ -23,6 +23,7 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     throttle: 0,
     brake: 0,
     lastInputAt: Date.now(),
+    lastControllerInputAt: null,
     lastSequence: -1,
     lastCollisionAt: 0,
     rank: 1,
@@ -83,11 +84,12 @@ const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
 const MAX_HEADING_ERROR = Math.PI * (80 / 180);
 const RACE_SAFETY_TIMEOUT_MS = 180_000;
-// Arcade car "footprint" for collision purposes - roughly the car's real length/width
-// (see the art bible proportions), not a full rigid-body hull.
-const COLLISION_LONGITUDINAL_RADIUS = 3.2;
-const COLLISION_LATERAL_RADIUS = 1.7;
-const COLLISION_SPEED_FACTOR = 0.82;
+// Arcade car "footprint" for collision purposes - roughly the visible car's
+// wheelbase/track after client scaling, not a full rigid-body hull.
+const COLLISION_LONGITUDINAL_RADIUS = 4.9;
+const COLLISION_LATERAL_RADIUS = 2.35;
+const COLLISION_RESOLUTION_PASSES = 4;
+const COLLISION_SPEED_FACTOR = 0.78;
 const COLLISION_FEEDBACK_WINDOW_MS = 220;
 
 export const RACING = {
@@ -220,40 +222,90 @@ function updateRanks(gameState: RacingGameState): void {
   });
 }
 
+function clampCollisionLateral(track: TrackDefinition, car: RacingCarState): void {
+  const barrierLimit = track.trackHalfWidth + RACING.barrierOffset - 0.04;
+  car.lateralOffset = Math.max(-barrierLimit, Math.min(barrierLimit, car.lateralOffset));
+}
+
+function resolveCollisionPair(
+  track: TrackDefinition,
+  playerNumberA: number,
+  carA: RacingCarState,
+  playerNumberB: number,
+  carB: RacingCarState,
+  now: number,
+  applyImpulse: boolean
+): boolean {
+  const longitudinal = shortestProgressDelta(track, carA.progress, carB.progress);
+  const lateral = carB.lateralOffset - carA.lateralOffset;
+  const normalizedLongitudinal = longitudinal / COLLISION_LONGITUDINAL_RADIUS;
+  const normalizedLateral = lateral / COLLISION_LATERAL_RADIUS;
+  const normalizedDistance = Math.hypot(normalizedLongitudinal, normalizedLateral);
+  if (normalizedDistance >= 1) return false;
+
+  let normalLongitudinal = 0;
+  let normalLateral = playerNumberA < playerNumberB ? 1 : -1;
+  if (normalizedDistance > 0.0001) {
+    normalLongitudinal = normalizedLongitudinal / normalizedDistance;
+    normalLateral = normalizedLateral / normalizedDistance;
+  }
+
+  const separationRatio = 1 - normalizedDistance;
+  const progressPush = normalLongitudinal * COLLISION_LONGITUDINAL_RADIUS * separationRatio * 0.55;
+  const lateralPush = normalLateral * COLLISION_LATERAL_RADIUS * separationRatio * 0.55;
+  carA.progress = Math.max(0, carA.progress - progressPush);
+  carB.progress = Math.max(0, carB.progress + progressPush);
+  carA.lateralOffset -= lateralPush;
+  carB.lateralOffset += lateralPush;
+  clampCollisionLateral(track, carA);
+  clampCollisionLateral(track, carB);
+
+  if (applyImpulse) {
+    carA.speed *= COLLISION_SPEED_FACTOR;
+    carB.speed *= COLLISION_SPEED_FACTOR;
+    carA.yawRate += -normalLateral * 0.32;
+    carB.yawRate += normalLateral * 0.32;
+    carA.headingError += -normalLateral * 0.035;
+    carB.headingError += normalLateral * 0.035;
+    carA.lastCollisionAt = now;
+    carB.lastCollisionAt = now;
+  }
+  return true;
+}
+
 /**
- * Simple arcade car-to-car collisions: a circle/capsule-style overlap check
- * in track-relative space (progress = longitudinal, lateralOffset =
- * lateral), resolved by separating cars sideways and shaving some speed off
- * both - never a full rigid-body simulation, and never touching progress
- * itself so ranking/finish order stay exactly as authoritative physics
- * already produced them. Uses shortestProgressDelta so two cars sitting a
- * few meters apart right across the start/finish seam are correctly
- * treated as close, not almost a full lap apart.
+ * Arcade car-to-car collisions in track-relative space (progress =
+ * longitudinal, lateralOffset = lateral). This is still intentionally lighter
+ * than a rigid-body solver, but it now resolves both side and nose-to-tail
+ * overlap so cars cannot sit visually inside each other.
  */
 function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, now: number): void {
   const entries = [...gameState.cars.entries()];
-  for (let i = 0; i < entries.length; i++) {
-    const [playerNumberA, carA] = entries[i]!;
-    if (carA.finished) continue;
-    for (let j = i + 1; j < entries.length; j++) {
-      const [playerNumberB, carB] = entries[j]!;
-      if (carB.finished) continue;
-      const longitudinal = shortestProgressDelta(track, carA.progress, carB.progress);
-      if (Math.abs(longitudinal) >= COLLISION_LONGITUDINAL_RADIUS) continue;
-      const lateral = carB.lateralOffset - carA.lateralOffset;
-      if (Math.abs(lateral) >= COLLISION_LATERAL_RADIUS) continue;
-
-      const overlap = COLLISION_LATERAL_RADIUS - Math.abs(lateral);
-      const pushDirection = lateral !== 0 ? Math.sign(lateral) : playerNumberA < playerNumberB ? -1 : 1;
-      const push = overlap / 2 + 0.02;
-      carB.lateralOffset += push * pushDirection;
-      carA.lateralOffset -= push * pushDirection;
-
-      carA.speed *= COLLISION_SPEED_FACTOR;
-      carB.speed *= COLLISION_SPEED_FACTOR;
-      carA.lastCollisionAt = now;
-      carB.lastCollisionAt = now;
+  const impulseApplied = new Set<string>();
+  for (let pass = 0; pass < COLLISION_RESOLUTION_PASSES; pass++) {
+    let resolvedAny = false;
+    for (let i = 0; i < entries.length; i++) {
+      const [playerNumberA, carA] = entries[i]!;
+      if (carA.finished) continue;
+      for (let j = i + 1; j < entries.length; j++) {
+        const [playerNumberB, carB] = entries[j]!;
+        if (carB.finished) continue;
+        const pairKey = `${Math.min(playerNumberA, playerNumberB)}:${Math.max(playerNumberA, playerNumberB)}`;
+        const resolved = resolveCollisionPair(
+          track,
+          playerNumberA,
+          carA,
+          playerNumberB,
+          carB,
+          now,
+          !impulseApplied.has(pairKey)
+        );
+        if (!resolved) continue;
+        impulseApplied.add(pairKey);
+        resolvedAny = true;
+      }
     }
+    if (!resolvedAny) break;
   }
 }
 
@@ -328,6 +380,7 @@ export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
         throttle: car.throttle,
         brake: car.brake,
         inputStale: !car.isBot && now - car.lastInputAt > INPUT_TIMEOUT_MS,
+        lastInputAt: car.lastControllerInputAt ?? undefined,
         collided: now - car.lastCollisionAt < COLLISION_FEEDBACK_WINDOW_MS,
         rank: car.rank,
         lap: car.lap,
