@@ -15,10 +15,11 @@ import {
   RESPAWN_DELAY_MS,
   RESPAWN_SPEED_FACTOR,
   checkpointsFor,
-  advanceCheckpoint
+  advanceCheckpoint,
+  resolveCollisions
 } from "./racing";
 import { createRoom, findPlayer } from "../rooms";
-import type { RacingCarState } from "../types";
+import type { RacingCarState, RacingGameState } from "../types";
 
 function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
   return {
@@ -761,5 +762,114 @@ describe("checkpoints", () => {
       -1
     );
     expect(car.lastCheckpointIndex).toBe(expectedIndex);
+  });
+});
+
+function makeGameState(cars: Array<[number, RacingCarState]>): RacingGameState {
+  return {
+    gameType: "racing",
+    trackId: "test",
+    cars: new Map(cars),
+    finishOrder: [],
+    focusedPlayerNumber: cars[0]?.[0] ?? null,
+    startedAt: Date.now(),
+    endedAt: null
+  };
+}
+
+describe("elevation-aware collisions", () => {
+  const flatTrack = createTrack(
+    "test-flat-collision",
+    [
+      { x: 0, z: 0, y: 0, segmentType: "flat" },
+      { x: 100, z: 0, y: 0, segmentType: "flat" }
+    ],
+    12
+  );
+
+  it("does not collide two grounded cars at very different track elevations", () => {
+    const elevatedTrack = createTrack(
+      "test-elevated-pair",
+      [
+        { x: 0, z: 0, y: 0, segmentType: "flat" },
+        { x: 100, z: 0, y: 10, segmentType: "flat" },
+        { x: 200, z: 0, y: 10, segmentType: "flat" },
+        { x: 300, z: 0, y: 0, segmentType: "flat" }
+      ],
+      12
+    );
+    const carA = makeCar({ progress: 5, lateralOffset: 1, speed: 20 });
+    const carB = makeCar({ progress: elevatedTrack.trackLength * 0.5 + 5, lateralOffset: 1, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(elevatedTrack, gameState, Date.now());
+    expect(carA.speed).toBe(20);
+    expect(carB.speed).toBe(20);
+  });
+
+  it("still collides two grounded cars at the same elevation", () => {
+    const carA = makeCar({ progress: 5, lateralOffset: 0, speed: 20 });
+    const carB = makeCar({ progress: 6, lateralOffset: 0.5, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(flatTrack, gameState, Date.now());
+    expect(carA.speed).toBeLessThan(20);
+  });
+
+  it("excludes airborne cars from collision resolution entirely", () => {
+    const carA = makeCar({ progress: 5, lateralOffset: 0, speed: 20, airborne: true });
+    const carB = makeCar({ progress: 6, lateralOffset: 0.5, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(flatTrack, gameState, Date.now());
+    expect(carA.speed).toBe(20);
+    expect(carB.speed).toBe(20);
+  });
+
+  it("uses the actual bank-adjusted world height for the gate, not the bare centerline height", () => {
+    // Numerically verified fixture (waypoints spaced closely enough that a
+    // real y/bankAngle swing happens within the ~2-unit progress window the
+    // two cars sit in - waypoints 100 units apart interpolate far too
+    // smoothly for two cars only ~1-2 progress apart to ever see a large
+    // swing between them). At progress 4.5 vs 6.5, the bare centerline
+    // height (lateralOffset=0) differs by ~4.1 - a centerline-only read
+    // would exceed COLLISION_VERTICAL_SEPARATION and wrongly skip the
+    // collision. But both cars share the same lateralOffset (2.924) on
+    // opposing banks (+1.2 rad then -1.2 rad between the middle waypoints),
+    // which brings their *actual* bank-adjusted world height to within
+    // ~0.003 of each other - verified directly against
+    // sampleRacingTrackFrame before writing this test, not derived by hand.
+    // Progress difference (2) and lateral difference (0) both stay well
+    // within the existing collision radii on their own, so this isolates
+    // the height-gate's use of lateralOffset specifically: a broken
+    // (centerline-only) gate would leave both speeds untouched at 20; a
+    // correct one collides.
+    const bankAngle = 1.2;
+    const bankedTrack = createTrack(
+      "test-banked-collision",
+      [
+        { x: 0, z: 0, y: 0, bankAngle: 0 },
+        { x: 3, z: 0, y: 0, bankAngle },
+        { x: 6, z: 0, y: 5, bankAngle: -bankAngle },
+        { x: 9, z: 0, y: 5, bankAngle: 0 },
+        { x: 12, z: 0, y: 0, bankAngle: 0 }
+      ],
+      20
+    );
+    const lat = 2.924;
+    const carA = makeCar({ progress: 4.5, lateralOffset: lat, speed: 20 });
+    const carB = makeCar({ progress: 6.5, lateralOffset: lat, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(bankedTrack, gameState, Date.now());
+    expect(carA.speed).toBeLessThan(20);
   });
 });

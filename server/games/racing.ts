@@ -108,6 +108,7 @@ const COLLISION_LATERAL_RADIUS = 2.35;
 const COLLISION_RESOLUTION_PASSES = 4;
 const COLLISION_SPEED_FACTOR = 0.78;
 const COLLISION_FEEDBACK_WINDOW_MS = 220;
+const COLLISION_VERTICAL_SEPARATION = 3.2;
 
 export const RACING = {
   trackHalfWidth: TEST_OVAL_TRACK.trackHalfWidth,
@@ -503,6 +504,14 @@ function resolveCollisionPair(
   now: number,
   applyImpulse: boolean
 ): boolean {
+  // Bank-adjusted (not bare centerline) height, at each car's own
+  // lateralOffset - a stacked-road pair (e.g. the Skyline Leap landing
+  // platform over an earlier lower section) can have deceptively close
+  // track-relative coordinates despite being meters apart vertically.
+  const heightA = sampleRacingTrackFrame(track, carA.progress, carA.lateralOffset).y;
+  const heightB = sampleRacingTrackFrame(track, carB.progress, carB.lateralOffset).y;
+  if (Math.abs(heightA - heightB) > COLLISION_VERTICAL_SEPARATION) return false;
+
   const longitudinal = shortestProgressDelta(track, carA.progress, carB.progress);
   const lateral = carB.lateralOffset - carA.lateralOffset;
   const normalizedLongitudinal = longitudinal / COLLISION_LONGITUDINAL_RADIUS;
@@ -546,8 +555,12 @@ function resolveCollisionPair(
  * than a rigid-body solver, but it now resolves both side and nose-to-tail
  * overlap so cars cannot sit visually inside each other.
  */
-function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, now: number): void {
-  const entries = [...gameState.cars.entries()];
+export function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, now: number): void {
+  // Airborne cars are excluded from collision resolution entirely for
+  // Cycle 4 - a flying car and anything beneath or around it never
+  // interact, the simplest correct answer given the arcade (not rigid-body)
+  // collision model.
+  const entries = [...gameState.cars.entries()].filter(([, car]) => !car.airborne);
   const impulseApplied = new Set<string>();
   for (let pass = 0; pass < COLLISION_RESOLUTION_PASSES; pass++) {
     let resolvedAny = false;
