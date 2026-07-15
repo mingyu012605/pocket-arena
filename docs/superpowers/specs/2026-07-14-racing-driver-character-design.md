@@ -1,8 +1,10 @@
 # Racing Driver Character & Cute Polish Design
 
 Date: 2026-07-14
-Status: Draft for review before implementation
-Cycle: Racing Cycle 3
+Status: Approved for implementation (amended 2026-07-15 for Cycle 4 compatibility - see Section 3 note)
+Cycle: Racing Cycle 3, implemented after Cycle 4 (see Section 3 note). Prerequisite
+for the Cycle 5 Seoul/Tokyo city environment work, which explicitly preserves
+this cycle's chibi driver and pastel-arcade identity.
 
 ## 1. Purpose
 
@@ -47,6 +49,14 @@ Out of scope (explicitly not this cycle):
 
 ## 3. Current Baseline
 
+> **2026-07-15 note:** this spec was written before Racing Cycle 4
+> (elevation, jumps, the graybox obstacle circuit) was implemented. Cycle 4
+> shipped first, so the baseline below is refreshed to match the current
+> code rather than the pre-Cycle-4 snapshot this spec originally described.
+> Nothing in Cycle 4 changes the plan in Sections 4-8; it adds one new input
+> signal (`airborne`) that Section 4 now accounts for (see 4.1, 4.2, 4.9)
+> and one new trigger case for the landing squash/stretch in Section 6.
+
 - `client/src/games/racing/cars.ts` builds a fully procedural open-wheel
   fallback car (`buildCarMesh()`), shown briefly while the GLTF loads. It
   already has a tiny helmet/visor/eyes/cheeks driver bust built from
@@ -58,10 +68,16 @@ Out of scope (explicitly not this cycle):
   (`buildDriverBust()`). This is the car players see almost all the time.
 - `client/src/games/racing/renderer.ts` drives per-frame car visuals
   (position, yaw, lean, wheel steering, brake light, speed trail, underglow,
-  skid marks, dust) from interpolated snapshot state
-  (`progress, lateralOffset, headingError, speed, steering, rank, stale`) —
-  see `render()` starting at line 372. Drift/skid is already detected there
-  via `Math.abs(pos.headingError) > 0.2 && pos.speed > 6`.
+  skid marks, dust) from interpolated snapshot state — see the per-car loop
+  around lines 380-490. Drift/skid is already detected there via
+  `Math.abs(pos.headingError) > 0.2 && pos.speed > 6`.
+- As of Cycle 4, that interpolated snapshot
+  (`RacingInterpolationBuffer`/`RacingCarFrame` in `interpolation.ts`) also
+  carries `progress, lateralOffset, headingError, speed, steering, rank,
+  stale, airborne` plus a track-frame `bankAngle` sampled alongside it.
+  `airborne` is already used to pick a world-space vs. track-relative
+  render path for the car body; the character system below is the first
+  consumer that needs it for a pose decision.
 - `client/src/games/racing/effects.ts` provides pooled particle systems
   (dust, confetti burst, skid marks) and `client/src/games/racing/audio.ts`
   provides Web-Audio-only synthesis (no imported/licensed audio, per the
@@ -90,6 +106,7 @@ export interface DriverInput {
   acceleration: number;    // caller-smoothed, see 4.3
   driftAmount: number;     // 0..1 continuous, see 4.4
   impactStrength: number;  // 0..1, see 4.5
+  airborne: boolean;       // pos.airborne from the interpolated snapshot, see 4.9
   finished: boolean;
   deltaTime: number;
 }
@@ -126,11 +143,15 @@ highest first:
 
 1. Finish celebration (see 4.6)
 2. Collision reaction
-3. Drift excitement (scaled by `driftAmount`)
-4. Normal steering/acceleration lean
+3. Airtime pose (`airborne`, see 4.9)
+4. Drift excitement (scaled by `driftAmount`)
+5. Normal steering/acceleration lean
 
 Lower-priority animations don't fight higher ones — e.g. once celebration
 starts, steering-driven arm rotation stops applying until celebration ends.
+Airtime sits above drift because `headingError` can stay large through a
+jump's launch rotation, which would otherwise read as a drift pose while
+airborne.
 
 ### 4.3 Smoothed acceleration
 
@@ -226,6 +247,30 @@ scale is confirmed should the remaining 3 hairstyle variants and full
 reactivity (drift/collision/celebration) be built out. This avoids spending
 effort on four characters that turn out to still read as tiny bumps.
 
+### 4.9 Airtime pose (added 2026-07-15 for Cycle 4 compatibility)
+
+Cycle 4 added ramp jumps as a core part of the circuit, so the character
+needs a distinct pose for time spent airborne rather than holding its
+last grounded steering pose through the flight. Driven directly by the
+`airborne` boolean already present on the interpolated snapshot (no new
+derived signal needed, unlike drift/impact):
+
+- On the rising edge of `airborne` (false -> true), blend within ~150ms to
+  an "airtime" pose: arms drawn in slightly off the wheel, a small forward
+  lean, hair/suit trim given extra flutter amplitude. Reuses the same
+  primitive-toggle approach as the face-state swap in 4.7 — no new mesh
+  parts.
+- Holds that pose for the full duration `airborne` stays true (flight time
+  varies per jump; no fixed timer).
+- On the falling edge (true -> false, i.e. landing), the pose immediately
+  yields to whichever animation `impactStrength` produces that frame (see
+  4.5/4.6) — a hard landing reads as an impact reaction, a soft one settles
+  straight back to the steering pose. Airtime never fights the landing
+  reaction because priority order (4.2) resolves collision above airtime.
+- Face state during airtime uses the existing "excited" state (4.7) rather
+  than adding a fourth face; a jump is a positive, high-energy moment, same
+  register as drift.
+
 ## 5. Car Shape Softening
 
 - **Procedural fallback (`cars.ts`):** shrink/round the front and rear wing
@@ -253,8 +298,11 @@ Instead, "personality" comes from:
 - **Squash-and-stretch on the car mesh itself** (not the camera): a brief
   scale animation (~150ms) on `car.root` — compress vertically / stretch
   laterally — triggered by the same `impactStrength` signal the character
-  uses, and on landing after an off-track excursion. Classic arcade-kart
-  physicality that reads as "alive" without moving the camera.
+  uses. Originally scoped for landing after an off-track excursion; as of
+  Cycle 4 the primary trigger is landing from a ramp jump (the falling edge
+  of `airborne` in 4.9), scaled by fall distance/impact speed the same way
+  a collision impact is scaled. Classic arcade-kart physicality that reads
+  as "alive" without moving the camera.
 - **Drift sparkle:** brighter, more colorful particles layered onto the
   existing pooled dust/burst system in `effects.ts`, spawned using the same
   continuous `driftAmount` signal from Section 4.4, within the existing
