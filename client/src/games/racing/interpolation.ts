@@ -140,7 +140,14 @@ export class RacingInterpolationBuffer {
           steering: nextFrame.steering,
           rank: nextFrame.rank,
           stale: nextFrame.stale,
-          airborne: nextFrame.airborne,
+          // true for the *whole* mixed-pair window (not just when nextFrame
+          // itself is airborne) - during a landing transition nextFrame.airborne
+          // is false, but the blended worldX/Y/Z above are still the correct
+          // thing to render for every t in this window. Using nextFrame.airborne
+          // directly would make the consumer discard the blend and jump straight
+          // to the landed position for the entire transition instead of easing
+          // into it.
+          airborne: true,
           worldX: prevWorld.worldX! + (nextWorld.worldX! - prevWorld.worldX!) * t,
           worldY: prevWorld.worldY! + (nextWorld.worldY! - prevWorld.worldY!) * t,
           worldZ: prevWorld.worldZ! + (nextWorld.worldZ! - prevWorld.worldZ!) * t

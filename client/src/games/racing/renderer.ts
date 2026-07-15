@@ -114,6 +114,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private effects: RacingEffects | null = null;
   private environmentTexture: THREE.Texture | null = null;
   private finishedPlayers = new Set<number>();
+  /** Players whose respawn flag arrived since the last render() call - consumed (and cleared) once, so the camera snaps cleanly instead of easing through the teleport exactly once per respawn. */
+  private respawnedPlayers = new Set<number>();
   private snapshotTimes: number[] = [];
   private lastSnapshotAt = 0;
   private readonly quality: RacingQualitySettings = getDefaultRacingQuality();
@@ -336,11 +338,16 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
           speed: p.speed,
           steering: p.steering ?? 0,
           rank: p.rank,
-          stale: p.inputStale ?? false
+          stale: p.inputStale ?? false,
+          airborne: p.airborne ?? false,
+          worldX: p.worldX,
+          worldY: p.worldY,
+          worldZ: p.worldZ
         }
       ])
     );
     for (const player of state.players) {
+      if (player.respawned) this.respawnedPlayers.add(player.playerNumber);
       this.ensureCarVisual(player.playerNumber, player.color);
       if (state.raceStatus === "racing" && this.lastRaceStatus === "countdown") {
         const { x, z } = computeRacingCarWorldTransform(player);
@@ -363,6 +370,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.snapshotTimes = [];
     this.lastSnapshotAt = 0;
     this.finishedPlayers.clear();
+    this.respawnedPlayers.clear();
     this.lastSkidSpawn.clear();
     this.visualYaw.clear();
     this.visualWheelSteer.clear();
@@ -387,12 +395,12 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         continue;
       }
 
-      const { x, z, heading } = computeRacingCarWorldTransform(pos);
-      if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(heading)) {
-        if (DEV_MODE) console.warn("Invalid Racing car transform", { playerNumber, pos, x, z, heading });
+      const { x, y, z, heading } = computeRacingCarWorldTransform(pos);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(heading)) {
+        if (DEV_MODE) console.warn("Invalid Racing car transform", { playerNumber, pos, x, y, z, heading });
         continue;
       }
-      car.root.position.set(x, 0, z);
+      car.root.position.set(x, y, z);
       const steering = pos.steering ?? 0;
       const visualSlip = clamp(pos.headingError * 0.85 + steering * 0.16, -0.62, 0.62);
       const targetYaw = -(heading + visualSlip);
