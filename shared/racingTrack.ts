@@ -27,23 +27,34 @@ export interface RacingTrackFrame {
   segmentType: TrackSegmentType;
 }
 
+// Elevation/segment authoring for Cycle 4 (esses climb -> Jump 1 -> banked
+// sweeper -> technical chicane -> Jump 2 "Skyline Leap" -> downhill return).
+// The gap/landing waypoints around each ramp were pulled closer to the ramp
+// itself (vs. a first draft that kept the original flat oval's wider
+// spacing) after empirically measuring that the wider gaps were physically
+// impossible to clear: launch velocityY is bounded (Section 8 of the
+// design spec) to keep hangtime reasonable, which caps the maximum
+// horizontal distance a launch can cover well under a ~150-unit gap.
+// jumpSpan values were set against this track's actual measured gap widths
+// (verified with a real launch-and-land physics run, not just arc-length
+// arithmetic), not guessed.
 const TEST_OVAL_WAYPOINTS: TrackPoint[] = [
-  { x: 0, z: 0 },
-  { x: 175, z: -16 },
-  { x: 355, z: -42 },
-  { x: 455, z: -145 },
-  { x: 418, z: -270 },
-  { x: 285, z: -338 },
-  { x: 145, z: -304 },
-  { x: 42, z: -360 },
-  { x: -150, z: -366 },
-  { x: -310, z: -306 },
-  { x: -405, z: -205 },
-  { x: -356, z: -86 },
-  { x: -448, z: 26 },
-  { x: -306, z: 132 },
-  { x: -126, z: 94 },
-  { x: -24, z: 34 }
+  { x: 0, z: 0, y: 0, segmentType: "flat" },
+  { x: 175, z: -16, y: 0, segmentType: "flat" },
+  { x: 355, z: -42, y: 4, segmentType: "flat" },
+  { x: 455, z: -145, y: 9, segmentType: "ramp", jumpSpan: 50 },
+  { x: 442, z: -189, y: 7, segmentType: "gap" },
+  { x: 424, z: -235, y: 5, segmentType: "landing" },
+  { x: 145, z: -304, y: 5, segmentType: "bank", bankAngle: 0.35 },
+  { x: 42, z: -360, y: 3, segmentType: "bank", bankAngle: 0.35 },
+  { x: -150, z: -366, y: 0, segmentType: "flat" },
+  { x: -310, z: -306, y: 0, segmentType: "flat" },
+  { x: -405, z: -205, y: 6, segmentType: "ramp", jumpSpan: 65 },
+  { x: -385, z: -157, y: 4, segmentType: "gap" },
+  { x: -422, z: -112, y: 1, segmentType: "landing" },
+  { x: -306, z: 132, y: 1, segmentType: "flat" },
+  { x: -126, z: 94, y: 0, segmentType: "flat" },
+  { x: -24, z: 34, y: 0, segmentType: "flat" }
 ];
 
 const SEGMENT_SAMPLES = 40;
