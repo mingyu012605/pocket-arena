@@ -11,9 +11,9 @@ export interface SketchRelayHostView {
 }
 
 function phaseLabel(state: SketchRelayGameStatePayload): string {
-  if (state.phase === "prompt-entry") return "Secret prompts";
-  if (state.phase === "drawing") return "Drawing round";
-  if (state.phase === "guessing") return "Guessing round";
+  if (state.phase === "prompt-entry") return "Secret word";
+  if (state.phase === "drawing") return state.phaseIndex === 1 ? "Player 1 is drawing" : "Next player is drawing";
+  if (state.phase === "guessing") return "Next player is guessing";
   if (state.phase === "reveal") return "Reveal time";
   return "Finished";
 }
@@ -24,7 +24,8 @@ function secondsLeft(deadlineAt: number | null): string {
 }
 
 function entryTitle(entry: SketchRelayEntry): string {
-  return entry.type === "drawing" ? "became a drawing by" : entry.phaseIndex === 0 ? "started as" : "became a guess by";
+  if (entry.phaseIndex === 0) return "secret word:";
+  return entry.type === "drawing" ? "drawn by" : "guessed by";
 }
 
 export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHostView {
@@ -55,7 +56,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
     card.className = `sketch-reveal-entry is-${entry.type}`;
     const kicker = document.createElement("p");
     kicker.className = "sketch-kicker";
-    kicker.textContent = `${entryTitle(entry)} ${entry.contributorName}`;
+    kicker.textContent = entry.phaseIndex === 0 ? entryTitle(entry) : `${entryTitle(entry)} ${entry.contributorName}`;
     card.appendChild(kicker);
     if (entry.type === "drawing" && entry.drawing) {
       const canvas = document.createElement("canvas");
@@ -83,7 +84,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
         <header>
           <div>
             <p class="sketch-kicker">Sketch Relay reveal</p>
-            <h1>${state.phase === "finished" ? "That was the final chain!" : `Chain ${state.revealChainIndex + 1} / ${state.chains?.length ?? 0}`}</h1>
+            <h1>${state.phase === "finished" ? "That was the final relay!" : "How it changed"}</h1>
           </div>
           <div class="sketch-reveal-controls" id="sketch-reveal-controls"></div>
         </header>

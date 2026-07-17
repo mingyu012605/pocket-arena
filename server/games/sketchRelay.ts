@@ -17,20 +17,25 @@ import type {
 import { findPlayer, roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalPlayer, InternalRoom, SketchRelayGameState } from "../types";
 
-const PROMPT_SECONDS = 45;
 const DRAW_SECONDS = 75;
 const GUESS_SECONDS = 45;
 const MAX_TEXT_LENGTH = 80;
 const MAX_STROKES = 120;
 const MAX_POINTS_PER_STROKE = 240;
 const MAX_TOTAL_POINTS = 3600;
-const FALLBACK_PROMPTS = [
-  "A banana driving a taxi",
-  "A sleepy robot making pancakes",
-  "A dragon at karaoke",
-  "A superhero losing their shoe",
-  "A pizza going on vacation",
-  "A moon wearing sunglasses"
+const SECRET_WORDS = [
+  "Blue-haired kart racer",
+  "Giant rainbow loop",
+  "Yellow turbo kart",
+  "Cheering stadium crowd",
+  "Road monster eating cones",
+  "Palm tree race track",
+  "Flying confetti tunnel",
+  "Funny robot driver",
+  "Seoul night market",
+  "Dancing traffic light",
+  "Rocket boost banana",
+  "Sleepy dragon taxi"
 ];
 
 export function sanitizeSketchText(input: string): string {
@@ -38,7 +43,11 @@ export function sanitizeSketchText(input: string): string {
 }
 
 function fallbackPrompt(playerNumber: number): string {
-  return FALLBACK_PROMPTS[(playerNumber - 1) % FALLBACK_PROMPTS.length]!;
+  return SECRET_WORDS[(playerNumber - 1) % SECRET_WORDS.length]!;
+}
+
+function randomSecretWord(): string {
+  return SECRET_WORDS[Math.floor(Math.random() * SECRET_WORDS.length)] ?? SECRET_WORDS[0]!;
 }
 
 function entryId(chainId: string, phaseIndex: number): string {
@@ -54,11 +63,10 @@ export function assignmentPlayerForChain(chainIndex: number, phaseIndex: number,
 }
 
 export function entryTypeForPhase(phaseIndex: number): SketchRelayEntryType {
-  return phaseIndex % 2 === 0 ? "text" : "drawing";
+  return phaseIndex % 2 === 1 ? "drawing" : "text";
 }
 
 function phaseNameForIndex(phaseIndex: number): Exclude<SketchRelayPhase, "reveal" | "finished"> {
-  if (phaseIndex === 0) return "prompt-entry";
   return entryTypeForPhase(phaseIndex) === "drawing" ? "drawing" : "guessing";
 }
 
@@ -95,16 +103,31 @@ function latestEntry(chain: SketchRelayChain): SketchRelayEntry | undefined {
 }
 
 export function createSketchRelayGameState(room: InternalRoom, roundId: string): SketchRelayGameState {
-  const chains: SketchRelayChain[] = room.players.map((player) => ({
-    id: `chain-${player.playerNumber}`,
-    ownerPlayerNumber: player.playerNumber,
-    entries: []
-  }));
+  const firstPlayer = room.players[0];
+  const secretWord = randomSecretWord();
+  const chains: SketchRelayChain[] = [
+    {
+      id: "chain-main",
+      ownerPlayerNumber: firstPlayer?.playerNumber ?? 1,
+      entries: [
+        {
+          id: entryId("chain-main", 0),
+          chainId: "chain-main",
+          phaseIndex: 0,
+          type: "text",
+          contributorPlayerNumber: 0,
+          contributorName: "Secret word",
+          text: secretWord,
+          timestamp: Date.now()
+        }
+      ]
+    }
+  ];
   return {
     gameType: "sketch-relay",
     roundId,
-    phase: "prompt-entry",
-    phaseIndex: 0,
+    phase: "drawing",
+    phaseIndex: 1,
     deadlineAt: null,
     chains,
     assignments: new Map(),
@@ -156,27 +179,28 @@ function buildAssignments(room: InternalRoom, state: SketchRelayGameState): void
   const playerNumbers = room.players.map((player) => player.playerNumber);
   const phase = phaseNameForIndex(state.phaseIndex);
   const entryType = entryTypeForPhase(state.phaseIndex);
+  const chain = state.chains[0];
+  if (!chain) return;
+  const assigneeIndex = Math.min(playerNumbers.length - 1, Math.floor(state.phaseIndex / 2));
+  const playerNumber = playerNumbers[assigneeIndex];
+  if (!playerNumber) return;
+  const previous = latestEntry(chain);
   state.phase = phase;
   state.submissions.clear();
   state.assignments.clear();
-  for (let chainIndex = 0; chainIndex < state.chains.length; chainIndex++) {
-    const chain = state.chains[chainIndex]!;
-    const playerNumber = assignmentPlayerForChain(chainIndex, state.phaseIndex, playerNumbers);
-    const previous = latestEntry(chain);
-    state.assignments.set(playerNumber, {
-      roundId: state.roundId,
-      phase,
-      phaseIndex: state.phaseIndex,
-      entryType,
-      deadlineAt: state.deadlineAt ?? Date.now(),
-      submitted: false,
-      submittedCount: 0,
-      totalCount: state.chains.length,
-      chainId: chain.id,
-      prompt: entryType === "drawing" ? previous?.text ?? fallbackPrompt(playerNumber) : undefined,
-      drawing: entryType === "text" && state.phaseIndex > 0 ? previous?.drawing ?? blankDrawing() : undefined
-    });
-  }
+  state.assignments.set(playerNumber, {
+    roundId: state.roundId,
+    phase,
+    phaseIndex: state.phaseIndex,
+    entryType,
+    deadlineAt: state.deadlineAt ?? Date.now(),
+    submitted: false,
+    submittedCount: 0,
+    totalCount: 1,
+    chainId: chain.id,
+    prompt: entryType === "drawing" ? previous?.text ?? fallbackPrompt(playerNumber) : undefined,
+    drawing: entryType === "text" ? previous?.drawing ?? blankDrawing() : undefined
+  });
 }
 
 function assignmentWithProgress(assignment: SketchRelayAssignmentPayload, state: SketchRelayGameState): SketchRelayAssignmentPayload {
@@ -236,7 +260,7 @@ function autoSubmitMissing(room: InternalRoom, state: SketchRelayGameState): voi
 
 function beginPhase(io: Server, room: InternalRoom, state: SketchRelayGameState): void {
   if (state.phaseTimer) clearTimeout(state.phaseTimer);
-  const seconds = state.phaseIndex === 0 ? PROMPT_SECONDS : entryTypeForPhase(state.phaseIndex) === "drawing" ? DRAW_SECONDS : GUESS_SECONDS;
+  const seconds = entryTypeForPhase(state.phaseIndex) === "drawing" ? DRAW_SECONDS : GUESS_SECONDS;
   state.deadlineAt = Date.now() + seconds * 1000;
   buildAssignments(room, state);
   refreshAssignments(io, room);
@@ -255,7 +279,8 @@ function completePhase(io: Server, room: InternalRoom): void {
   if (room.gameState?.gameType !== "sketch-relay") return;
   const state = room.gameState;
   autoSubmitMissing(room, state);
-  if (state.phaseIndex >= room.players.length - 1) {
+  const finalPhaseIndex = room.players.length * 2 - 1;
+  if (state.phaseIndex >= finalPhaseIndex) {
     if (state.phaseTimer) clearTimeout(state.phaseTimer);
     state.phaseTimer = null;
     state.phase = "reveal";

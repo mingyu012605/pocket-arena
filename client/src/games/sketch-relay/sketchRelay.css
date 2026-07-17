@@ -6,6 +6,7 @@
     linear-gradient(145deg, #fff7d6, #dff7ff 58%, #ffe4ef);
   color: #1f2937;
   touch-action: manipulation;
+  overscroll-behavior: contain;
 }
 .sketch-phone-header {
   display: flex;
@@ -72,6 +73,9 @@
   border-radius: 18px;
   background: #fffdf7;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .sketch-tools {
   display: grid;

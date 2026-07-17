@@ -4,7 +4,6 @@ import { SOCKET_EVENTS } from "../../shared/protocol";
 import { createRoom } from "../rooms";
 import type { InternalRoom } from "../types";
 import {
-  assignmentPlayerForChain,
   createSketchRelayGameState,
   entryTypeForPhase,
   handleSketchSubmission,
@@ -36,27 +35,12 @@ function sketchRoom(players: number): InternalRoom {
   return room;
 }
 
-describe("Sketch Relay chain rotation", () => {
-  for (const count of [3, 4, 5, 12]) {
-    it(`assigns every chain exactly once per phase with ${count} players`, () => {
-      const players = Array.from({ length: count }, (_, index) => index + 1);
-      for (let phase = 0; phase < count; phase++) {
-        const assignments = players.map((_, chainIndex) => assignmentPlayerForChain(chainIndex, phase, players));
-        expect(new Set(assignments).size).toBe(count);
-        if (phase > 0) {
-          for (let chainIndex = 0; chainIndex < count; chainIndex++) {
-            expect(assignments[chainIndex]).not.toBe(players[chainIndex]);
-          }
-        }
-      }
-    });
-  }
-
+describe("Sketch Relay phase order", () => {
   it("alternates text and drawing phases", () => {
-    expect(entryTypeForPhase(0)).toBe("text");
     expect(entryTypeForPhase(1)).toBe("drawing");
     expect(entryTypeForPhase(2)).toBe("text");
     expect(entryTypeForPhase(3)).toBe("drawing");
+    expect(entryTypeForPhase(4)).toBe("text");
   });
 });
 
@@ -82,64 +66,96 @@ describe("Sketch Relay validation", () => {
 });
 
 describe("Sketch Relay phase flow", () => {
-  it("restores a current assignment from game state", () => {
+  it("starts with one server word and one relay chain", () => {
     const room = sketchRoom(3);
     const state = createSketchRelayGameState(room, "round-1");
     room.gameState = state;
-    expect(state.chains).toHaveLength(3);
-    expect(state.phase).toBe("prompt-entry");
+    expect(state.chains).toHaveLength(1);
+    expect(state.chains[0]?.entries[0]?.type).toBe("text");
+    expect(state.chains[0]?.entries[0]?.contributorName).toBe("Secret word");
+    expect(state.phase).toBe("drawing");
+    expect(state.phaseIndex).toBe(1);
     stopSketchRelay(room);
   });
 
-  it("rejects duplicate submissions and advances phases", () => {
+  it("assigns Player 1 to draw the random word first", () => {
     const { io, emissions } = fakeIo();
     const room = sketchRoom(3);
     room.roundId = "round-1";
     startSketchRelay(io, room, room.roundId);
     expect(room.gameState?.gameType).toBe("sketch-relay");
-    if (room.gameState?.gameType === "sketch-relay") expect(room.gameState.phase).toBe("prompt-entry");
-
-    expect(handleSketchSubmission(io, room, 1, { roundId: "round-1", text: "space taco" }).ok).toBe(true);
-    expect(handleSketchSubmission(io, room, 1, { roundId: "round-1", text: "duplicate" }).ok).toBe(false);
-    expect(handleSketchSubmission(io, room, 2, { roundId: "round-1", text: "" }).ok).toBe(true);
-    expect(handleSketchSubmission(io, room, 3, { roundId: "round-1", text: "wizard bus" }).ok).toBe(true);
-
-    expect(room.gameState?.gameType).toBe("sketch-relay");
     if (room.gameState?.gameType === "sketch-relay") {
       expect(room.gameState.phase).toBe("drawing");
       expect(room.gameState.phaseIndex).toBe(1);
-      expect([...room.gameState.assignments.values()].every((assignment) => assignment.prompt)).toBe(true);
+      expect(room.gameState.assignments.size).toBe(1);
+      const assignment = room.gameState.assignments.get(1);
+      expect(assignment?.entryType).toBe("drawing");
+      expect(assignment?.prompt).toBeTruthy();
     }
     expect(emissions.some((emission) => emission.event === SOCKET_EVENTS.GAME_STATE)).toBe(true);
     stopSketchRelay(room);
   });
 
-  it("completes reveal ordering after all phases", () => {
+  it("rejects duplicate submissions and advances one player at a time", () => {
     const { io } = fakeIo();
     const room = sketchRoom(3);
     room.roundId = "round-2";
     startSketchRelay(io, room, room.roundId);
 
-    for (const player of [1, 2, 3]) {
-      expect(handleSketchSubmission(io, room, player, { roundId: "round-2", text: `prompt ${player}` }).ok).toBe(true);
+    const drawing = { strokes: [{ color: "#111827", width: 5, points: [{ x: 0.2, y: 0.3 }] }] };
+    expect(handleSketchSubmission(io, room, 1, { roundId: "round-2", drawing }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 1, { roundId: "round-2", drawing }).ok).toBe(false);
+    expect(room.gameState?.gameType).toBe("sketch-relay");
+    if (room.gameState?.gameType === "sketch-relay") {
+      expect(room.gameState.phase).toBe("guessing");
+      expect(room.gameState.phaseIndex).toBe(2);
+      expect(room.gameState.assignments.get(2)?.entryType).toBe("text");
     }
-    for (const player of [1, 2, 3]) {
-      expect(
-        handleSketchSubmission(io, room, player, {
-          roundId: "round-2",
-          drawing: { strokes: [{ color: "#111827", width: 5, points: [{ x: 0.2, y: 0.3 }] }] }
-        }).ok
-      ).toBe(true);
-    }
-    for (const player of [1, 2, 3]) {
-      expect(handleSketchSubmission(io, room, player, { roundId: "round-2", text: `guess ${player}` }).ok).toBe(true);
-    }
+    stopSketchRelay(room);
+  });
+
+  it("reveals secret word, drawing, guess, drawing, guess, drawing", () => {
+    const { io } = fakeIo();
+    const room = sketchRoom(3);
+    room.roundId = "round-3";
+    startSketchRelay(io, room, room.roundId);
+
+    const drawing = { strokes: [{ color: "#111827", width: 5, points: [{ x: 0.2, y: 0.3 }] }] };
+    expect(handleSketchSubmission(io, room, 1, { roundId: "round-3", drawing }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 2, { roundId: "round-3", text: "yellow kart" }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 2, { roundId: "round-3", drawing }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 3, { roundId: "round-3", text: "banana car" }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 3, { roundId: "round-3", drawing }).ok).toBe(true);
 
     expect(room.status).toBe("results");
     expect(room.gameState?.gameType).toBe("sketch-relay");
     if (room.gameState?.gameType === "sketch-relay") {
+      const entries = room.gameState.chains[0]?.entries ?? [];
       expect(room.gameState.phase).toBe("reveal");
-      expect(room.gameState.chains[0]?.entries.map((entry) => entry.type)).toEqual(["text", "drawing", "text"]);
+      expect(entries.map((entry) => entry.type)).toEqual(["text", "drawing", "text", "drawing", "text", "drawing"]);
+      expect(entries.map((entry) => entry.contributorPlayerNumber)).toEqual([0, 1, 2, 2, 3, 3]);
+    }
+    stopSketchRelay(room);
+  });
+
+  it("supports the same relay pattern with more players", () => {
+    const { io } = fakeIo();
+    const room = sketchRoom(4);
+    room.roundId = "round-4";
+    startSketchRelay(io, room, room.roundId);
+
+    const drawing = { strokes: [{ color: "#111827", width: 5, points: [{ x: 0.2, y: 0.3 }] }] };
+    expect(handleSketchSubmission(io, room, 1, { roundId: "round-4", drawing }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 2, { roundId: "round-4", text: "guess 2" }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 2, { roundId: "round-4", drawing }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 3, { roundId: "round-4", text: "guess 3" }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 3, { roundId: "round-4", drawing }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 4, { roundId: "round-4", text: "guess 4" }).ok).toBe(true);
+    expect(handleSketchSubmission(io, room, 4, { roundId: "round-4", drawing }).ok).toBe(true);
+
+    expect(room.status).toBe("results");
+    if (room.gameState?.gameType === "sketch-relay") {
+      expect(room.gameState.chains[0]?.entries).toHaveLength(8);
     }
     stopSketchRelay(room);
   });

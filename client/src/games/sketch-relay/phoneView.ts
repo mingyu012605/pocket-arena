@@ -20,6 +20,10 @@ function storageKey(assignment: SketchRelayAssignmentPayload): string {
   return `pocket-arena:sketch:${assignment.roundId}:${assignment.chainId}:${assignment.phaseIndex}`;
 }
 
+function sameAssignment(a: SketchRelayAssignmentPayload | null, b: SketchRelayAssignmentPayload): boolean {
+  return Boolean(a && a.roundId === b.roundId && a.chainId === b.chainId && a.phaseIndex === b.phaseIndex);
+}
+
 export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions): () => void {
   const socket = getSocket();
   let assignment: SketchRelayAssignmentPayload | null = null;
@@ -70,9 +74,9 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
         <span id="sketch-timer">${secondsLeft(current.deadlineAt)}</span>
       </header>
       <main class="sketch-text-task">
-        <p class="sketch-kicker">${isGuess ? "What is this drawing?" : "Write a funny secret prompt"}</p>
+        <p class="sketch-kicker">${isGuess ? "What is this drawing?" : "Type the word"}</p>
         <div id="sketch-reference"></div>
-        <textarea id="sketch-text-input" maxlength="80" placeholder="${isGuess ? "Type your guess..." : "A taco astronaut..." }"></textarea>
+        <textarea id="sketch-text-input" maxlength="80" placeholder="${isGuess ? "Type your guess..." : "Type the word..." }"></textarea>
         <div id="sketch-submit-slot"></div>
       </main>
     `;
@@ -94,8 +98,10 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
           await emitWithAck(SOCKET_EVENTS.SKETCH_SUBMIT_TEXT, { roundId: current.roundId, text: input.value });
           localStorage.removeItem(storageKey(current));
           vibrate(35);
-          assignment = { ...current, submitted: true };
-          renderWaiting();
+          if (sameAssignment(assignment, current)) {
+            assignment = { ...current, submitted: true };
+            renderWaiting();
+          }
         }
       })
     );
@@ -142,15 +148,22 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
     window.addEventListener("resize", resize);
     render();
 
-    const pointerPoint = (event: PointerEvent) => {
+    const pointFromClient = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
       return {
-        x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-        y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
+        x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
       };
     };
+    const pointerPoint = (event: PointerEvent) => pointFromClient(event.clientX, event.clientY);
+    const touchPoint = (event: TouchEvent) => {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      return touch ? pointFromClient(touch.clientX, touch.clientY) : null;
+    };
+    let activePointerId: number | null = null;
     const start = (event: PointerEvent) => {
       event.preventDefault();
+      activePointerId = event.pointerId;
       canvas.setPointerCapture?.(event.pointerId);
       redo = [];
       activeStroke = { color: brushColor, width: brushSize, eraser, points: [pointerPoint(event)] };
@@ -158,13 +171,38 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
       render();
     };
     const move = (event: PointerEvent) => {
-      if (!activeStroke) return;
+      if (!activeStroke || (activePointerId !== null && event.pointerId !== activePointerId)) return;
       event.preventDefault();
       activeStroke.points.push(pointerPoint(event));
       render();
     };
     const end = (event: PointerEvent) => {
-      if (!activeStroke) return;
+      if (!activeStroke || (activePointerId !== null && event.pointerId !== activePointerId)) return;
+      event.preventDefault();
+      activePointerId = null;
+      activeStroke = null;
+      persist();
+    };
+    const touchStart = (event: TouchEvent) => {
+      if (activePointerId !== null || activeStroke) return;
+      event.preventDefault();
+      const point = touchPoint(event);
+      if (!point) return;
+      redo = [];
+      activeStroke = { color: brushColor, width: brushSize, eraser, points: [point] };
+      strokes.push(activeStroke);
+      render();
+    };
+    const touchMove = (event: TouchEvent) => {
+      if (activePointerId !== null || !activeStroke) return;
+      event.preventDefault();
+      const point = touchPoint(event);
+      if (!point) return;
+      activeStroke.points.push(point);
+      render();
+    };
+    const touchEnd = (event: TouchEvent) => {
+      if (activePointerId !== null || !activeStroke) return;
       event.preventDefault();
       activeStroke = null;
       persist();
@@ -173,6 +211,10 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
     canvas.addEventListener("pointermove", move);
     canvas.addEventListener("pointerup", end);
     canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("touchstart", touchStart, { passive: false });
+    canvas.addEventListener("touchmove", touchMove, { passive: false });
+    canvas.addEventListener("touchend", touchEnd, { passive: false });
+    canvas.addEventListener("touchcancel", touchEnd, { passive: false });
 
     for (const button of root.querySelectorAll<HTMLButtonElement>("[data-color]")) {
       button.addEventListener("click", () => {
@@ -213,8 +255,10 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
           await emitWithAck(SOCKET_EVENTS.SKETCH_SUBMIT_DRAWING, { roundId: current.roundId, drawing });
           localStorage.removeItem(storageKey(current));
           vibrate(35);
-          assignment = { ...current, submitted: true };
-          renderWaiting();
+          if (sameAssignment(assignment, current)) {
+            assignment = { ...current, submitted: true };
+            renderWaiting();
+          }
         }
       })
     );
@@ -225,6 +269,10 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", end);
       canvas.removeEventListener("pointercancel", end);
+      canvas.removeEventListener("touchstart", touchStart);
+      canvas.removeEventListener("touchmove", touchMove);
+      canvas.removeEventListener("touchend", touchEnd);
+      canvas.removeEventListener("touchcancel", touchEnd);
     };
   }
 
