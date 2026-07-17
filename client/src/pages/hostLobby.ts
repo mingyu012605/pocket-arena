@@ -5,6 +5,7 @@ import { SOCKET_EVENTS } from "../../../shared/protocol";
 import type { CreateRoomSlot, PublicRoomState, RoomClosedPayload } from "../../../shared/protocol";
 import type { CountdownTickPayload, GameStatePayload } from "../../../shared/protocol";
 import type { HostReconnectResponse } from "../../../shared/protocol";
+import type { SketchRelayGameStatePayload } from "../../../shared/protocol";
 import { createQrCard } from "../components/qrCard";
 import { createPlayerCard } from "../components/playerCard";
 import { createButton } from "../components/button";
@@ -15,6 +16,7 @@ import type { RacingRenderer } from "../games/racing/renderer";
 import { RacingAudio } from "../games/racing/audio";
 import { RACING_QUALITY_STORAGE_KEY } from "../games/racing/quality";
 import type { RacingQualitySelection } from "../games/racing/quality";
+import type { SketchRelayHostView } from "../games/sketch-relay/hostView";
 
 const RACING_MAX_SPEED_ESTIMATE = 42;
 const RACING_AUDIO_MUTE_KEY = "pocket-arena:racingAudioMuted";
@@ -94,9 +96,11 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   let lastStatus: PublicRoomState["status"] | null = null;
   let lastRoom: PublicRoomState = session.room;
   let lastRacingState: RacingGameStatePayload | null = null;
+  let lastSketchState: SketchRelayGameStatePayload | null = null;
   let focusedRacingPlayer: number | null = null;
   let racingCameraMode = "chase";
   let racingRendererControls: RacingRenderer | null = null;
+  let sketchHostView: SketchRelayHostView | null = null;
   let lastRacingHudAt = 0;
   let racingSnapshotCount = 0;
   let lastRacingSnapshotAt = 0;
@@ -197,11 +201,12 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     footerEl.hidden = true;
     gameSectionEl.hidden = false;
     gameSectionEl.classList.toggle("race-viewport", room.gameType === "racing");
+    gameSectionEl.classList.toggle("sketch-viewport", room.gameType === "sketch-relay");
     gameSectionEl.innerHTML = `
       <div class="countdown-overlay" id="countdown"></div>
       <div class="racing-hud" id="racing-hud" hidden></div>
       <div class="race-results-overlay" id="race-results-overlay" hidden></div>
-      <p class="race-loading" id="race-loading" hidden>Loading Racing...</p>
+      <p class="race-loading" id="race-loading" hidden>Loading Game...</p>
       <p class="race-error" id="race-error" hidden></p>
     `;
     const loadingEl = gameSectionEl.querySelector<HTMLParagraphElement>("#race-loading");
@@ -214,6 +219,13 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         const racingRenderer = new LoadedRacingRenderer(room);
         renderer = racingRenderer;
         racingRendererControls = racingRenderer;
+      } else if (room.gameType === "sketch-relay") {
+        const { mountSketchRelayHostView } = await import("../games/sketch-relay/hostView");
+        if (generation !== gameViewGeneration) return;
+        renderer = null;
+        racingRendererControls = null;
+        sketchHostView = mountSketchRelayHostView(gameSectionEl);
+        if (lastSketchState) sketchHostView.applyState(lastSketchState);
       } else {
         renderer = new ControllerTestRenderer(room);
         racingRendererControls = null;
@@ -229,6 +241,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     } finally {
       if (generation === gameViewGeneration && loadingEl) loadingEl.hidden = true;
     }
+    if (room.gameType === "sketch-relay") return;
     if (generation !== gameViewGeneration || !renderer) return;
     renderer.mount(gameSectionEl);
     if (racingRendererControls && focusedRacingPlayer !== null) {
@@ -270,10 +283,13 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     rafHandle = null;
     renderer?.destroy();
     renderer = null;
+    sketchHostView?.destroy();
+    sketchHostView = null;
     racingRendererControls = null;
     racingAudio.update({ speed: 0, maxSpeed: RACING_MAX_SPEED_ESTIMATE, offTrack: false, steeringMagnitude: 0, braking: false });
     pageSectionEl.classList.remove("is-game-active");
     gameSectionEl.classList.remove("race-viewport");
+    gameSectionEl.classList.remove("sketch-viewport");
     gameSectionEl.hidden = true;
     gridEl.hidden = false;
     footerEl.hidden = false;
@@ -541,10 +557,20 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     lastRoom = room;
     renderHostDiagnostics(lastRacingState);
     const isRaceResults = room.gameType === "racing" && room.status === "results";
-    const isPlaying = room.status === "countdown" || room.status === "in-progress" || isRaceResults;
+    const isSketchResults = room.gameType === "sketch-relay" && room.status === "results";
+    const isPlaying = room.status === "countdown" || room.status === "in-progress" || isRaceResults || isSketchResults;
     const wasPlaying =
       lastStatus === "countdown" || lastStatus === "in-progress" || (room.gameType === "racing" && lastStatus === "results");
 
+    if (room.status === "results" && room.gameType === "sketch-relay") {
+      if (!wasPlaying) void startGameView(room);
+      gridEl.hidden = true;
+      footerEl.hidden = true;
+      reconnectingEl.hidden = true;
+      gameSectionEl.hidden = false;
+      lastStatus = room.status;
+      return;
+    }
     if (room.status === "results") {
       if (room.gameType === "racing" && !wasPlaying) void startGameView(room);
       gridEl.hidden = true;
@@ -668,6 +694,9 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
           braking: (focusedCar.brake ?? 0) > 0.1
         });
       }
+    } else if (payload.gameType === "sketch-relay") {
+      lastSketchState = payload;
+      sketchHostView?.applyState(payload);
     }
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);

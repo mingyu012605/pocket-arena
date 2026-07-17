@@ -4,7 +4,8 @@ export type GameType =
   | "table-tennis"
   | "bowling"
   | "tennis"
-  | "racing";
+  | "racing"
+  | "sketch-relay";
 
 export type ControllerType =
   | "button-controller"
@@ -12,7 +13,8 @@ export type ControllerType =
   | "motion-paddle"
   | "motion-throw"
   | "motion-swing"
-  | "touch-motion";
+  | "touch-motion"
+  | "drawing-pad";
 
 export type RoomStatus =
   | "lobby"
@@ -21,10 +23,23 @@ export type RoomStatus =
   | "host-disconnected"
   | "results";
 
-export const PLAYER_COLORS = ["#22d3ee", "#f97316", "#22c55e", "#a855f7"] as const;
+export const PLAYER_COLORS = [
+  "#22d3ee",
+  "#f97316",
+  "#22c55e",
+  "#a855f7",
+  "#f43f5e",
+  "#eab308",
+  "#14b8a6",
+  "#6366f1",
+  "#ec4899",
+  "#84cc16",
+  "#0ea5e9",
+  "#fb7185"
+] as const;
 
 export const MIN_PLAYERS = 1;
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 12;
 
 export const ARENA = {
   width: 800,
@@ -205,7 +220,87 @@ export interface RacingGameStatePayload {
   players: RacingPlayerState[];
 }
 
-export type GameStatePayload = ControllerTestGameStatePayload | RacingGameStatePayload;
+export interface SketchPoint {
+  x: number;
+  y: number;
+}
+export interface SketchStroke {
+  color: string;
+  width: number;
+  points: SketchPoint[];
+  eraser?: boolean;
+}
+export interface SketchDrawing {
+  strokes: SketchStroke[];
+}
+export type SketchRelayPhase = "prompt-entry" | "drawing" | "guessing" | "reveal" | "finished";
+export type SketchRelayEntryType = "text" | "drawing";
+export interface SketchRelayEntry {
+  id: string;
+  chainId: string;
+  phaseIndex: number;
+  type: SketchRelayEntryType;
+  contributorPlayerNumber: number;
+  contributorName: string;
+  text?: string;
+  drawing?: SketchDrawing;
+  timestamp: number;
+}
+export interface SketchRelayChain {
+  id: string;
+  ownerPlayerNumber: number;
+  entries: SketchRelayEntry[];
+}
+export interface SketchRelayGameStatePayload {
+  gameType: "sketch-relay";
+  roundId: string;
+  phase: SketchRelayPhase;
+  phaseIndex: number;
+  entryType: SketchRelayEntryType | null;
+  deadlineAt: number | null;
+  submittedCount: number;
+  totalCount: number;
+  revealChainIndex: number;
+  revealEntryIndex: number;
+  chains?: SketchRelayChain[];
+}
+export interface SketchRelayAssignmentPayload {
+  roundId: string;
+  phase: Exclude<SketchRelayPhase, "reveal" | "finished">;
+  phaseIndex: number;
+  entryType: SketchRelayEntryType;
+  deadlineAt: number;
+  submitted: boolean;
+  submittedCount: number;
+  totalCount: number;
+  chainId: string;
+  prompt?: string;
+  drawing?: SketchDrawing;
+}
+export interface SketchRelayTextSubmission {
+  roundId: string;
+  text: string;
+}
+export interface SketchRelayDrawingSubmission {
+  roundId: string;
+  drawing: SketchDrawing;
+}
+export type SketchRelayReaction = "😂" | "❤️" | "😱" | "👏";
+export interface SketchRelayReactionPayload {
+  roundId: string;
+  reaction: SketchRelayReaction;
+}
+export interface SketchRelayReactionPopPayload extends SketchRelayReactionPayload {
+  playerNumber: number;
+  nickname: string;
+  color: string;
+}
+export interface SketchRelayRevealControlPayload {
+  roundId: string;
+  action: "next" | "previous" | "skip-chain" | "restart" | "finish";
+}
+
+export type GameStatePayload = ControllerTestGameStatePayload | RacingGameStatePayload | SketchRelayGameStatePayload;
 
 export interface RoomClosedPayload {
   reason: string;
@@ -227,6 +322,13 @@ export const SOCKET_EVENTS = {
   GAME_END: "game:end",
   INPUT_ACTION: "input:action",
   RACING_INPUT: "racing:input",
+  SKETCH_SUBMIT_TEXT: "sketch:submit-text",
+  SKETCH_SUBMIT_DRAWING: "sketch:submit-drawing",
+  SKETCH_REQUEST_ASSIGNMENT: "sketch:request-assignment",
+  SKETCH_ASSIGNMENT: "sketch:assignment",
+  SKETCH_REACTION: "sketch:reaction",
+  SKETCH_REACTION_POP: "sketch:reaction-pop",
+  SKETCH_REVEAL_CONTROL: "sketch:reveal-control",
   ROOM_STATE: "room:state",
   ROOM_CLOSED: "room:closed",
   PLAYER_DISCONNECTED: "player:disconnected",

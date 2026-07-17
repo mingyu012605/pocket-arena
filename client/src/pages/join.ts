@@ -15,6 +15,7 @@ import type {
 import { createButton } from "../components/button";
 import { mountControllerView } from "../controller/controllerView";
 import { mountRacingView } from "../controller/racingView";
+import { mountSketchRelayView } from "../games/sketch-relay/phoneView";
 import "../styles/controller.css";
 import "../styles/racing.css";
 
@@ -32,6 +33,7 @@ function controllerLabel(gameType: GameType): string {
   if (gameType === "bowling") return "Bowling Throw";
   if (gameType === "tennis") return "Tennis Swing";
   if (gameType === "rhythm-battle") return "Rhythm Controller";
+  if (gameType === "sketch-relay") return "Sketch Pad";
   return "Button Controller";
 }
 
@@ -111,8 +113,13 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
     if (!active) return;
     const self = room.players.find((p) => p.playerNumber === active!.playerNumber);
     const isPlaying = room.status === "countdown" || room.status === "in-progress";
+    const isSketchPlaying = room.gameType === "sketch-relay" && (room.status === "in-progress" || room.status === "results");
     const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
 
+    if (isSketchPlaying && controllerCleanup) {
+      lastStatus = room.status;
+      return;
+    }
     if (room.gameType === "racing" && isPlaying && controllerCleanup) {
       racingRoundId = room.roundId ?? "";
       lastStatus = room.status;
@@ -129,6 +136,15 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
     if (room.status === "host-disconnected") {
       section.classList.add("centered");
       section.innerHTML = `<h1>Reconnecting to Host...</h1><p class="hero-copy">Your Player ${active.playerNumber} slot is saved.</p>`;
+    } else if (isSketchPlaying) {
+      section.classList.remove("centered");
+      section.innerHTML = `<div id="controller-mount"></div>`;
+      const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
+      controllerCleanup = mountSketchRelayView(mountEl, {
+        nickname: self?.nickname ?? `Player ${active.playerNumber}`,
+        color: active.playerColor,
+        playerNumber: active.playerNumber
+      });
     } else if (isPlaying) {
       racingRoundId = room.roundId ?? "";
       section.classList.remove("centered");
@@ -300,7 +316,12 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     // button mid-hold (the new DOM element never receives the ongoing pointer contact)
     // right at the "go" instant — exactly when a pre-emptive hold is most likely.
     const isPlaying = room.status === "countdown" || room.status === "in-progress";
+    const isSketchPlaying = room.gameType === "sketch-relay" && (room.status === "in-progress" || room.status === "results");
     const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
+    if (isSketchPlaying && controllerCleanup) {
+      lastStatus = room.status;
+      return;
+    }
     if (room.gameType === "racing" && isPlaying && controllerCleanup) {
       racingRoundId = room.roundId ?? "";
       lastStatus = room.status;
@@ -316,6 +337,15 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
 
     if (room.status === "host-disconnected") {
       section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
+    } else if (isSketchPlaying) {
+      section.classList.remove("centered");
+      section.innerHTML = `<div id="controller-mount"></div>`;
+      const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
+      controllerCleanup = mountSketchRelayView(mountEl, {
+        nickname: self?.nickname ?? "Player",
+        color: self?.color ?? "#22d3ee",
+        playerNumber: Number(playerNumber)
+      });
     } else if (isPlaying) {
       racingRoundId = room.roundId ?? "";
       section.innerHTML = `<div class="countdown-overlay" id="phone-countdown"></div><div id="controller-mount"></div>`;

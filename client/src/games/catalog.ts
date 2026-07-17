@@ -64,5 +64,14 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     maxPlayers: 4,
     playable: true,
     icon: "🏎️"
+  },
+  {
+    id: "sketch-relay",
+    title: "Sketch Relay",
+    description: "Draw, guess, and reveal hilarious chains using phones as private sketch pads.",
+    minPlayers: 3,
+    maxPlayers: 12,
+    playable: true,
+    icon: "✏️"
   }
 ];

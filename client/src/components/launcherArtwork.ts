@@ -2,7 +2,7 @@ import type { GameType } from "../../../shared/protocol";
 
 type ArtworkKind = GameType | "hero-table-tennis" | "hero-racing" | "hero-bowling";
 
-const artworkUrls: Record<GameType, string> = {
+const artworkUrls: Partial<Record<GameType, string>> = {
   racing: new URL("../assets/launcher/card-racing.webp", import.meta.url).href,
   "table-tennis": new URL("../assets/launcher/card-table-tennis.webp", import.meta.url).href,
   bowling: new URL("../assets/launcher/card-bowling.webp", import.meta.url).href,
@@ -210,6 +210,50 @@ function controllerArtwork(): string {
   `;
 }
 
+function sketchRelayArtwork(hero: boolean): string {
+  const id = hero ? "hero-sketch-relay" : "card-sketch-relay";
+  return `
+    <svg class="pa-art-svg" viewBox="0 0 640 360" role="img" aria-label="Sketch Relay drawing party with pencils and paper">
+      <defs>
+        <linearGradient id="${id}-bg" x1="0" x2="1" y1="0" y2="1">
+          <stop stop-color="#FFE8A3"/>
+          <stop offset=".52" stop-color="#DDF7FF"/>
+          <stop offset="1" stop-color="#FFD6E7"/>
+        </linearGradient>
+        <filter id="${id}-soft" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#7C3AED" flood-opacity=".18"/>
+        </filter>
+      </defs>
+      <rect width="640" height="360" rx="28" fill="url(#${id}-bg)"/>
+      <g opacity=".45" fill="none" stroke-linecap="round">
+        <path d="M44 72c44-28 86-28 126 0s83 28 130 0" stroke="#38BDF8" stroke-width="9"/>
+        <path d="M378 78c29-24 67-24 115 0s78 24 91 0" stroke="#FB7185" stroke-width="8"/>
+        <path d="M63 288c86-50 164-48 235 8s157 50 258-18" stroke="#22C55E" stroke-width="10"/>
+      </g>
+      <g filter="url(#${id}-soft)">
+        <rect x="176" y="66" width="292" height="224" rx="24" fill="#FFFDF7" stroke="#FDE68A" stroke-width="10"/>
+        <path d="M214 116h176M214 154h128M214 226h178" stroke="#CBD5E1" stroke-width="9" stroke-linecap="round"/>
+        <path d="M235 192c32-35 75-35 99 0 22 30 66 28 92-8" fill="none" stroke="#0EA5E9" stroke-width="13" stroke-linecap="round"/>
+        <g transform="translate(104 199) rotate(-22)">
+          <rect x="0" y="24" width="178" height="34" rx="17" fill="#FACC15"/>
+          <path d="M168 24l42 17-42 17z" fill="#92400E"/>
+          <path d="M183 31l27 10-27 10z" fill="#111827"/>
+          <rect x="20" y="24" width="42" height="34" rx="12" fill="#FB7185"/>
+        </g>
+        <g transform="translate(430 182) rotate(19)">
+          <rect x="0" y="18" width="138" height="30" rx="15" fill="#38BDF8"/>
+          <path d="M130 18l35 15-35 15z" fill="#92400E"/>
+          <path d="M144 24l21 9-21 9z" fill="#111827"/>
+          <rect x="15" y="18" width="36" height="30" rx="11" fill="#A78BFA"/>
+        </g>
+        <circle cx="143" cy="106" r="25" fill="#22C55E"/>
+        <circle cx="497" cy="104" r="21" fill="#FB7185"/>
+        <text x="320" y="272" text-anchor="middle" font-family="Arial, sans-serif" font-size="33" font-weight="900" fill="#334155">SKETCH RELAY</text>
+      </g>
+    </svg>
+  `;
+}
+
 export function createSportArtwork(kind: ArtworkKind, compact = false): HTMLDivElement {
   const art = document.createElement("div");
   art.className = `pa-art ${compact ? "is-compact" : "is-hero"} pa-art-${kind}`;
@@ -230,6 +274,7 @@ export function createSportArtwork(kind: ArtworkKind, compact = false): HTMLDivE
   else if (kind === "bowling" || kind === "hero-bowling") art.innerHTML = bowlingArtwork(hero);
   else if (kind === "tennis") art.innerHTML = tennisArtwork();
   else if (kind === "rhythm-battle") art.innerHTML = rhythmArtwork();
+  else if (kind === "sketch-relay") art.innerHTML = sketchRelayArtwork(hero);
   else art.innerHTML = controllerArtwork();
   return art;
 }

@@ -31,6 +31,18 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     status: "Available Now",
     artwork: "racing"
   },
+  "sketch-relay": {
+    id: "sketch-relay",
+    title: "Sketch Relay",
+    heroTitle: "Sketch",
+    heroAccent: "Relay!",
+    kicker: "Party Drawing",
+    description: "Secret prompts become drawings, guesses, and ridiculous reveal chains.",
+    players: "3-12 Players",
+    control: "Phone Drawing",
+    status: "Available Now",
+    artwork: "sketch-relay"
+  },
   "table-tennis": {
     id: "table-tennis",
     title: "Table Tennis",
@@ -122,7 +134,7 @@ function playableMap(catalog: GameCatalogEntry[]): Map<GameType, boolean> {
 
 export function createLauncherGameViews(catalog: GameCatalogEntry[]): LauncherGameView[] {
   const playables = playableMap(catalog);
-  const order: GameType[] = ["racing", "table-tennis", "bowling", "tennis", "rhythm-battle", "controller-test"];
+  const order: GameType[] = ["racing", "sketch-relay", "table-tennis", "bowling", "tennis", "rhythm-battle", "controller-test"];
   return order.map((id) => ({ ...GAME_INFO[id], playable: playables.get(id) ?? false }));
 }
 
@@ -163,7 +175,7 @@ export function createFeaturedCarousel(slides: LauncherGameView[], onPlay: (id: 
   hero.className = "pa-hero";
   hero.setAttribute("aria-label", "Featured games");
 
-  const preferredOrder: GameType[] = ["table-tennis", "racing", "bowling"];
+  const preferredOrder: GameType[] = ["sketch-relay", "table-tennis", "racing"];
   const slidesToShow = preferredOrder
     .map((id) => slides.find((slide) => slide.id === id))
     .filter((slide): slide is LauncherGameView => Boolean(slide));

@@ -1,5 +1,5 @@
 import type { Socket } from "socket.io";
-import type { GameType, RoomStatus } from "../shared/protocol";
+import type { GameType, RoomStatus, SketchRelayAssignmentPayload, SketchRelayChain, SketchRelayPhase } from "../shared/protocol";
 
 export interface ControllerTestPhysics {
   x: number;
@@ -59,7 +59,21 @@ export interface RacingGameState {
   endedAt: number | null;
 }
 
-export type InternalGameState = ControllerTestGameState | RacingGameState;
+export interface SketchRelayGameState {
+  gameType: "sketch-relay";
+  roundId: string;
+  phase: SketchRelayPhase;
+  phaseIndex: number;
+  deadlineAt: number | null;
+  chains: SketchRelayChain[];
+  assignments: Map<number, SketchRelayAssignmentPayload>;
+  submissions: Set<number>;
+  revealChainIndex: number;
+  revealEntryIndex: number;
+  phaseTimer: NodeJS.Timeout | null;
+}
+
+export type InternalGameState = ControllerTestGameState | RacingGameState | SketchRelayGameState;
 
 export interface InternalPlayer {
   playerNumber: number;
