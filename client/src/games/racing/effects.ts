@@ -74,13 +74,12 @@ export class RacingEffects {
     this.group.add(this.dustMesh);
 
     const burstGeometry = new THREE.PlaneGeometry(0.3, 0.3);
-    const burstMaterial = new THREE.MeshBasicMaterial({ color: "#ffffff", side: THREE.DoubleSide, vertexColors: true });
+    const burstMaterial = new THREE.MeshBasicMaterial({ color: "#ff5d7a", side: THREE.DoubleSide });
     this.burstMesh = new THREE.InstancedMesh(burstGeometry, burstMaterial, Math.max(1, maxBurst));
     this.burstParticles = makePool(Math.max(1, maxBurst));
     this.burstColors = ["#f97316", "#facc15", "#22c55e", "#38bdf8", "#ec4899", "#8b5cf6"].map((color) => new THREE.Color(color));
     for (let i = 0; i < this.burstParticles.length; i++) {
       this.burstMesh.setMatrixAt(i, this.matrix.makeScale(0, 0, 0));
-      this.burstMesh.setColorAt(i, this.burstColors[i % this.burstColors.length]!);
     }
     this.group.add(this.burstMesh);
 

@@ -260,6 +260,248 @@ function tracksidePosition(progress: number, side: -1 | 1, offset: number): { po
   };
 }
 
+function buildPocketCityBillboardTexture(seed = 0): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d")!;
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  sky.addColorStop(0, "#28a9ff");
+  sky.addColorStop(0.55, "#67d8ff");
+  sky.addColorStop(1, "#d7fff5");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.globalAlpha = 0.32;
+  ctx.fillStyle = "#ffffff";
+  for (let i = 0; i < 9; i++) {
+    const x = 40 + ((i * 173 + seed * 47) % 920);
+    const y = 28 + ((i * 59 + seed * 23) % 135);
+    ctx.beginPath();
+    ctx.ellipse(x, y, 70 + (i % 3) * 18, 22 + (i % 2) * 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  const confetti = ["#ff5d7a", "#ffd93d", "#38bdf8", "#a78bfa", "#22c55e"];
+  for (let i = 0; i < 55; i++) {
+    ctx.save();
+    ctx.translate((i * 97 + seed * 41) % canvas.width, 40 + ((i * 43 + seed * 17) % 330));
+    ctx.rotate(((i * 31) % 180) * (Math.PI / 180));
+    ctx.fillStyle = confetti[i % confetti.length]!;
+    ctx.fillRect(-9, -3, 18, 6);
+    ctx.restore();
+  }
+
+  const buildingGradient = ctx.createLinearGradient(0, 160, 0, canvas.height);
+  buildingGradient.addColorStop(0, "#0e8de8");
+  buildingGradient.addColorStop(1, "#1064c8");
+  ctx.fillStyle = buildingGradient;
+  ctx.roundRect(52, 156, 920, 318, 36);
+  ctx.fill();
+  ctx.fillStyle = "#162b8f";
+  ctx.roundRect(72, 176, 880, 278, 28);
+  ctx.fill();
+  ctx.fillStyle = "#2ee6ff";
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 17; col++) {
+      if ((row + col + seed) % 4 === 0) continue;
+      ctx.globalAlpha = 0.72;
+      ctx.fillRect(110 + col * 48, 207 + row * 38, 28, 20);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "#fff8e7";
+  ctx.beginPath();
+  ctx.arc(420, 316, 94, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ff6b6b";
+  ctx.roundRect(360, 318, 120, 128, 55);
+  ctx.fill();
+  ctx.fillStyle = "#111827";
+  ctx.beginPath();
+  ctx.ellipse(394, 314, 16, 24, 0, 0, Math.PI * 2);
+  ctx.ellipse(448, 314, 16, 24, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(421, 337, 38, 0.12 * Math.PI, 0.88 * Math.PI);
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 74px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("POCKET CITY", 675, 285);
+  ctx.font = "900 42px Arial";
+  ctx.fillStyle = "#ffd93d";
+  ctx.fillText("RALLY FESTIVAL", 675, 344);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 26px Arial";
+  ctx.fillText("CUTE KART ARCADE", 675, 388);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function buildPocketCityDistrict(density: number): THREE.Group {
+  const group = new THREE.Group();
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const pastelMaterials = ["#7dd3fc", "#a78bfa", "#f9a8d4", "#fde68a", "#86efac", "#fdba74"].map(
+    (color) =>
+      new THREE.MeshToonMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.04
+      })
+  );
+  const glassMaterial = new THREE.MeshBasicMaterial({ color: "#dbf7ff", transparent: true, opacity: 0.72 });
+  const trimMaterial = new THREE.MeshToonMaterial({ color: "#ffffff" });
+  const roadSignMaterial = new THREE.MeshBasicMaterial({ color: "#1d4ed8" });
+  const stripeMaterial = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+  const towerCount = Math.max(16, Math.round(24 * density));
+
+  for (let i = 0; i < towerCount; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const progress = TEST_OVAL_TRACK.trackLength * (0.1 + ((i * 0.071) % 0.78));
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 48 + (i % 4) * 7);
+    const height = 15 + ((i * 13) % 32);
+    const width = 5.2 + (i % 3) * 1.7;
+    const block = new THREE.Group();
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(width, height, width * 0.74), pastelMaterials[i % pastelMaterials.length]);
+    lower.position.y = height / 2;
+    lower.castShadow = true;
+    lower.receiveShadow = true;
+    block.add(lower);
+
+    const roundedTop = new THREE.Mesh(new THREE.SphereGeometry(width * 0.52, 14, 8), pastelMaterials[i % pastelMaterials.length]);
+    roundedTop.scale.set(1, 0.34, 0.74);
+    roundedTop.position.y = height + 0.15;
+    block.add(roundedTop);
+
+    const windows = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.72, height * 0.62), glassMaterial);
+    windows.position.set(0, height * 0.55, -width * 0.38 - 0.03);
+    block.add(windows);
+    for (let row = 0; row < 4; row++) {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(width * 0.82, 0.08, 0.08), trimMaterial);
+      trim.position.set(0, height * (0.28 + row * 0.14), -width * 0.4 - 0.05);
+      block.add(trim);
+    }
+
+    block.position.copy(position);
+    block.rotation.y = -angle + (side > 0 ? Math.PI : 0) + (i % 3 - 1) * 0.08;
+    group.add(block);
+  }
+
+  for (const [i, progress, side] of [
+    [0, TEST_OVAL_TRACK.trackLength * 0.16, 1],
+    [1, TEST_OVAL_TRACK.trackLength * 0.38, -1],
+    [2, TEST_OVAL_TRACK.trackLength * 0.68, 1]
+  ] as const) {
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 22);
+    const billboard = new THREE.Group();
+    const heroScale = 0.82;
+    const frameMaterial = new THREE.MeshToonMaterial({ color: "#1d4ed8" });
+    const texture = buildPocketCityBillboardTexture(i);
+    const screen = new THREE.Mesh(
+      new THREE.PlaneGeometry(23 * heroScale, 11.3 * heroScale),
+      new THREE.MeshBasicMaterial({ map: side < 0 ? mirrorTextureU(texture) : texture, side: THREE.DoubleSide })
+    );
+    screen.position.set(0, 9.55 * heroScale, -0.08);
+    const topRail = new THREE.Mesh(new THREE.BoxGeometry(25.2 * heroScale, 0.55 * heroScale, 0.32), frameMaterial);
+    topRail.position.set(0, 15.55 * heroScale, 0);
+    const bottomRail = topRail.clone();
+    bottomRail.position.y = 3.55 * heroScale;
+    const leftRail = new THREE.Mesh(new THREE.BoxGeometry(0.55 * heroScale, 12.5 * heroScale, 0.32), frameMaterial);
+    leftRail.position.set(-12.45 * heroScale, 9.55 * heroScale, 0);
+    const rightRail = leftRail.clone();
+    rightRail.position.x = 12.45 * heroScale;
+    const base = new THREE.Mesh(new THREE.BoxGeometry(7 * heroScale, 5.4 * heroScale, 1.2), new THREE.MeshToonMaterial({ color: "#38bdf8" }));
+    base.position.y = 2.7 * heroScale;
+    billboard.add(base, screen, topRail, bottomRail, leftRail, rightRail);
+    billboard.position.copy(position);
+    billboard.rotation.y = -angle + (side > 0 ? -0.18 : Math.PI + 0.18);
+    group.add(billboard);
+  }
+
+  for (let i = 0; i < Math.max(10, Math.round(16 * density)); i++) {
+    const progress = (i / 16) * TEST_OVAL_TRACK.trackLength + 8;
+    const side = i % 2 === 0 ? 1 : -1;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 5.2);
+    const sign = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 4.8, 8), trimMaterial);
+    pole.position.y = 2.4;
+    const panel = new THREE.Mesh(new THREE.CircleGeometry(0.9, 24), roadSignMaterial);
+    panel.position.y = 4.65;
+    panel.rotation.y = Math.PI / 2;
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.7, 3), stripeMaterial);
+    arrow.position.set(0.04, 4.65, -0.05);
+    arrow.rotation.set(0, Math.PI / 2, -Math.PI / 2);
+    sign.add(pole, panel, arrow);
+    sign.position.copy(position);
+    sign.rotation.y = -angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    group.add(sign);
+  }
+
+  return group;
+}
+
+function buildKartRiderCityBlocks(density: number): THREE.Group {
+  const group = new THREE.Group();
+  const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
+  const trackLength = TEST_OVAL_TRACK.trackLength;
+  const buildingColors = ["#6ecbff", "#8b8cff", "#ff8fc7", "#ffd166", "#71e6a6", "#ff9f6e", "#b794f4"];
+  const windowMaterial = new THREE.MeshBasicMaterial({ color: "#e6fbff", transparent: true, opacity: 0.82 });
+  const awningColors = ["#ff5d7a", "#38bdf8", "#ffd93d", "#22c55e"];
+  const trim = new THREE.MeshToonMaterial({ color: "#ffffff" });
+
+  for (let i = 0; i < Math.max(28, Math.round(42 * density)); i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const progress = (i / 42) * trackLength + 18;
+    const { position, angle } = tracksidePosition(progress, side, halfWidth + 17 + (i % 3) * 4);
+    const width = 7 + (i % 4) * 2.2;
+    const depth = 6 + (i % 3) * 1.8;
+    const height = 10 + ((i * 17) % 34);
+    const block = new THREE.Group();
+    const material = new THREE.MeshToonMaterial({ color: buildingColors[i % buildingColors.length] });
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+    tower.position.y = height / 2;
+    tower.castShadow = true;
+    tower.receiveShadow = true;
+    block.add(tower);
+
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(width * 1.08, 0.6, depth * 1.08), trim);
+    cap.position.y = height + 0.32;
+    block.add(cap);
+
+    const windows = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.72, height * 0.62), windowMaterial);
+    windows.position.set(0, height * 0.55, -depth / 2 - 0.04);
+    block.add(windows);
+
+    for (let row = 0; row < 4; row++) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(width * 0.7, 0.08, 0.08), trim);
+      line.position.set(0, height * (0.32 + row * 0.13), -depth / 2 - 0.08);
+      block.add(line);
+    }
+
+    const shop = new THREE.Mesh(new THREE.BoxGeometry(width * 0.85, 1.8, 0.3), new THREE.MeshToonMaterial({ color: "#123b8f" }));
+    shop.position.set(0, 1.25, -depth / 2 - 0.22);
+    block.add(shop);
+    const awning = new THREE.Mesh(new THREE.BoxGeometry(width * 0.9, 0.28, 0.85), new THREE.MeshBasicMaterial({ color: awningColors[i % awningColors.length] }));
+    awning.position.set(0, 2.3, -depth / 2 - 0.55);
+    block.add(awning);
+
+    block.position.copy(position);
+    block.rotation.y = -angle + (side > 0 ? Math.PI : 0);
+    group.add(block);
+  }
+
+  return group;
+}
+
 function buildVenueZones(density: number): THREE.Group {
   const group = new THREE.Group();
   const halfWidth = TEST_OVAL_TRACK.trackHalfWidth;
@@ -758,10 +1000,10 @@ export function buildTracksideDetails(density: number): THREE.Group {
   }
 
   group.add(buildFencing(density));
-  group.add(buildMarshals(density));
+  group.add(buildMarshals(density * 0.55));
   group.add(buildMascotCheerSquads(density));
-  group.add(buildVenueZones(density));
-  group.add(buildArcadeCourseSetPieces(density));
+  group.add(buildKartRiderCityBlocks(density));
+  group.add(buildPocketCityDistrict(density));
 
   return group;
 }
@@ -773,10 +1015,10 @@ export function buildSkyDome(): THREE.Group {
   skyCanvas.height = 512;
   const skyCtx = skyCanvas.getContext("2d")!;
   const skyGradient = skyCtx.createLinearGradient(0, 0, 0, skyCanvas.height);
-  skyGradient.addColorStop(0, "#0875de");
-  skyGradient.addColorStop(0.34, "#1bb9ff");
-  skyGradient.addColorStop(0.68, "#7cf0ff");
-  skyGradient.addColorStop(1, "#ffd7a3");
+  skyGradient.addColorStop(0, "#0f8cff");
+  skyGradient.addColorStop(0.34, "#32b7ff");
+  skyGradient.addColorStop(0.72, "#92e2ff");
+  skyGradient.addColorStop(1, "#dff8ff");
   skyCtx.fillStyle = skyGradient;
   skyCtx.fillRect(0, 0, skyCanvas.width, skyCanvas.height);
   const skyTexture = new THREE.CanvasTexture(skyCanvas);
@@ -838,7 +1080,7 @@ export function buildSkyDome(): THREE.Group {
 
 export function buildConfettiField(count: number): THREE.InstancedMesh {
   const geometry = new THREE.PlaneGeometry(0.28, 0.75);
-  const material = new THREE.MeshBasicMaterial({ color: "#ffffff", side: THREE.DoubleSide, vertexColors: true });
+  const material = new THREE.MeshBasicMaterial({ color: "#ffd93d", side: THREE.DoubleSide });
   const mesh = new THREE.InstancedMesh(geometry, material, count);
   const matrix = new THREE.Matrix4();
   const colors = ["#f97316", "#facc15", "#22c55e", "#38bdf8", "#ec4899", "#8b5cf6"];
@@ -852,7 +1094,6 @@ export function buildConfettiField(count: number): THREE.InstancedMesh {
       new THREE.Vector3(1, 1, 1)
     );
     mesh.setMatrixAt(i, matrix);
-    mesh.setColorAt(i, new THREE.Color(colors[i % colors.length]!));
   }
   return mesh;
 }

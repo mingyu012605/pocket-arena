@@ -40,21 +40,27 @@ export interface RacingTrackFrame {
 // arithmetic), not guessed.
 const TEST_OVAL_WAYPOINTS: TrackPoint[] = [
   { x: 0, z: 0, y: 0, segmentType: "flat" },
-  { x: 175, z: -16, y: 0, segmentType: "flat" },
-  { x: 355, z: -42, y: 4, segmentType: "flat" },
-  { x: 455, z: -145, y: 9, segmentType: "ramp", jumpSpan: 50 },
-  { x: 442, z: -189, y: 7, segmentType: "gap" },
-  { x: 424, z: -235, y: 5, segmentType: "landing" },
-  { x: 145, z: -304, y: 5, segmentType: "bank", bankAngle: 0.35 },
-  { x: 42, z: -360, y: 3, segmentType: "bank", bankAngle: 0.35 },
-  { x: -150, z: -366, y: 0, segmentType: "flat" },
-  { x: -310, z: -306, y: 0, segmentType: "flat" },
-  { x: -405, z: -205, y: 6, segmentType: "ramp", jumpSpan: 65 },
-  { x: -385, z: -157, y: 4, segmentType: "gap" },
-  { x: -422, z: -112, y: 1, segmentType: "landing" },
-  { x: -306, z: 132, y: 1, segmentType: "flat" },
-  { x: -126, z: 94, y: 0, segmentType: "flat" },
-  { x: -24, z: 34, y: 0, segmentType: "flat" }
+  { x: 110, z: -8, y: 0, segmentType: "flat" },
+  { x: 218, z: -54, y: 2, segmentType: "bank", bankAngle: 0.18 },
+  { x: 315, z: -18, y: 5, segmentType: "bank", bankAngle: -0.24 },
+  { x: 410, z: -94, y: 12, segmentType: "flat" },
+  { x: 445, z: -144, y: 13, segmentType: "flat" },
+  { x: 414, z: -190, y: 9, segmentType: "flat" },
+  { x: 342, z: -249, y: 6, segmentType: "bank", bankAngle: 0.28 },
+  { x: 224, z: -316, y: 6, segmentType: "bank", bankAngle: 0.42 },
+  { x: 78, z: -374, y: 4, segmentType: "bank", bankAngle: 0.44 },
+  { x: -52, z: -342, y: 2, segmentType: "bank", bankAngle: -0.26 },
+  { x: -185, z: -390, y: 0, segmentType: "flat" },
+  { x: -310, z: -330, y: 0, segmentType: "flat" },
+  { x: -392, z: -250, y: 6, segmentType: "flat" },
+  { x: -430, z: -198, y: 8, segmentType: "flat" },
+  { x: -410, z: -145, y: 4, segmentType: "flat" },
+  { x: -350, z: -70, y: 2, segmentType: "bank", bankAngle: -0.34 },
+  { x: -372, z: 68, y: 1, segmentType: "bank", bankAngle: -0.36 },
+  { x: -260, z: 152, y: 0, segmentType: "flat" },
+  { x: -145, z: 105, y: 0, segmentType: "bank", bankAngle: 0.22 },
+  { x: -58, z: 142, y: 2, segmentType: "bank", bankAngle: 0.3 },
+  { x: -18, z: 46, y: 0, segmentType: "flat" }
 ];
 
 const SEGMENT_SAMPLES = 40;
