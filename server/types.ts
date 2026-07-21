@@ -1,5 +1,5 @@
 import type { Socket } from "socket.io";
-import type { GameType, RoomStatus, SketchRelayAssignmentPayload, SketchRelayChain, SketchRelayPhase } from "../shared/protocol";
+import type { GameType, RoomStatus, SketchRelayAssignmentPayload, SketchRelayChain, SketchRelayPhase, SketchRelaySettings } from "../shared/protocol";
 
 export interface ControllerTestPhysics {
   x: number;
@@ -66,6 +66,7 @@ export interface SketchRelayGameState {
   phaseIndex: number;
   deadlineAt: number | null;
   chains: SketchRelayChain[];
+  settings: SketchRelaySettings;
   assignments: Map<number, SketchRelayAssignmentPayload>;
   submissions: Set<number>;
   revealChainIndex: number;

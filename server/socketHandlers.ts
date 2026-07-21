@@ -14,6 +14,7 @@ import type {
   CreateRoomRequest,
   CreateRoomResponse,
   ErrorPayload,
+  GameStartRequest,
   HostReconnectRequest,
   HostReconnectResponse,
   InputActionPayload,
@@ -347,7 +348,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       ack({ ok: true } as Ack<Record<string, never>>);
     });
 
-    socket.on(SOCKET_EVENTS.GAME_START, (_payload: unknown, ack: (res: Ack<Record<string, never>>) => void) => {
+    socket.on(SOCKET_EVENTS.GAME_START, (payload: GameStartRequest | undefined, ack: (res: Ack<Record<string, never>>) => void) => {
       const session = socket.data.session;
       if (!session || session.role !== "host") return ack(errorAck("not-host", "Only the host can start the game."));
       const room = getRoom(session.roomId);
@@ -360,7 +361,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       }
       room.roundId = createToken();
       if (room.gameType === "sketch-relay") {
-        startSketchRelay(io, room, room.roundId);
+        startSketchRelay(io, room, room.roundId, payload?.sketchRelay);
         ack({ ok: true } as Ack<Record<string, never>>);
         return;
       }

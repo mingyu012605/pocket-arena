@@ -157,6 +157,16 @@ export interface PlayerReadyRequest {
   ready: boolean;
 }
 
+export type SketchRelayWordDifficulty = "easy" | "medium" | "hard";
+export type SketchRelayTurnSeconds = 30 | 60 | 90;
+export interface SketchRelaySettings {
+  difficulty: SketchRelayWordDifficulty;
+  turnSeconds: SketchRelayTurnSeconds;
+}
+export interface GameStartRequest {
+  sketchRelay?: Partial<SketchRelaySettings>;
+}
+
 export interface InputActionPayload {
   action: ControllerAction;
   sequence: number;
@@ -257,6 +267,7 @@ export interface SketchRelayGameStatePayload {
   phase: SketchRelayPhase;
   phaseIndex: number;
   entryType: SketchRelayEntryType | null;
+  settings: SketchRelaySettings;
   deadlineAt: number | null;
   submittedCount: number;
   totalCount: number;

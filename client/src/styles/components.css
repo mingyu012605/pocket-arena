@@ -272,6 +272,34 @@
   font-size: 0.8rem;
 }
 
+.sketch-lobby-settings {
+  display: grid;
+  flex-basis: min(100%, 640px);
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.76);
+}
+.sketch-setting-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.sketch-setting-row span {
+  min-width: 4rem;
+  font-weight: 900;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-size: 0.78rem;
+}
+.sketch-setting-row .btn {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+}
+
 .nickname-form {
   display: flex;
   flex-direction: column;

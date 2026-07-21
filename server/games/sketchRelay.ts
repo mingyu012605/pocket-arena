@@ -11,43 +11,84 @@ import type {
   SketchRelayPhase,
   SketchRelayReactionPayload,
   SketchRelayRevealControlPayload,
+  SketchRelaySettings,
   SketchRelayTextSubmission,
+  SketchRelayTurnSeconds,
+  SketchRelayWordDifficulty,
   SketchStroke
 } from "../../shared/protocol";
 import { findPlayer, roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalPlayer, InternalRoom, SketchRelayGameState } from "../types";
 
-const DRAW_SECONDS = 75;
-const GUESS_SECONDS = 45;
+const DEFAULT_SKETCH_RELAY_SETTINGS: SketchRelaySettings = {
+  difficulty: "medium",
+  turnSeconds: 60
+};
+const VALID_DIFFICULTIES = new Set<SketchRelayWordDifficulty>(["easy", "medium", "hard"]);
+const VALID_TURN_SECONDS = new Set<SketchRelayTurnSeconds>([30, 60, 90]);
 const MAX_TEXT_LENGTH = 80;
 const MAX_STROKES = 120;
 const MAX_POINTS_PER_STROKE = 240;
 const MAX_TOTAL_POINTS = 3600;
-const SECRET_WORDS = [
-  "Blue-haired kart racer",
-  "Giant rainbow loop",
-  "Yellow turbo kart",
-  "Cheering stadium crowd",
-  "Road monster eating cones",
-  "Palm tree race track",
-  "Flying confetti tunnel",
-  "Funny robot driver",
-  "Seoul night market",
-  "Dancing traffic light",
-  "Rocket boost banana",
-  "Sleepy dragon taxi"
-];
+const SECRET_WORDS: Record<SketchRelayWordDifficulty, string[]> = {
+  easy: [
+    "Yellow car",
+    "Pizza",
+    "Robot",
+    "Rainbow",
+    "Dinosaur",
+    "Soccer ball",
+    "Ice cream",
+    "Rocket",
+    "Cat driver",
+    "Palm tree"
+  ],
+  medium: [
+    "Blue-haired kart racer",
+    "Giant rainbow loop",
+    "Yellow turbo kart",
+    "Cheering stadium crowd",
+    "Road monster eating cones",
+    "Palm tree race track",
+    "Flying confetti tunnel",
+    "Funny robot driver",
+    "Seoul night market",
+    "Dancing traffic light",
+    "Rocket boost banana",
+    "Sleepy dragon taxi"
+  ],
+  hard: [
+    "A penguin DJ drifting through Seoul",
+    "A haunted vending machine selling boosts",
+    "A moon parade inside a racing tunnel",
+    "A tiny chef driving a noodle kart",
+    "A dragon traffic cop at rush hour",
+    "A superhero banana missing a wheel",
+    "A karaoke robot chasing confetti",
+    "A space taxi jumping over a stadium",
+    "A sleepy wizard fixing a turbo engine",
+    "A monster bus stuck in a rainbow loop"
+  ]
+};
 
 export function sanitizeSketchText(input: string): string {
   return input.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT_LENGTH);
 }
 
 function fallbackPrompt(playerNumber: number): string {
-  return SECRET_WORDS[(playerNumber - 1) % SECRET_WORDS.length]!;
+  return SECRET_WORDS.medium[(playerNumber - 1) % SECRET_WORDS.medium.length]!;
 }
 
-function randomSecretWord(): string {
-  return SECRET_WORDS[Math.floor(Math.random() * SECRET_WORDS.length)] ?? SECRET_WORDS[0]!;
+export function normalizeSketchRelaySettings(settings?: Partial<SketchRelaySettings>): SketchRelaySettings {
+  const difficulty = settings?.difficulty && VALID_DIFFICULTIES.has(settings.difficulty) ? settings.difficulty : DEFAULT_SKETCH_RELAY_SETTINGS.difficulty;
+  const turnSeconds =
+    settings?.turnSeconds && VALID_TURN_SECONDS.has(settings.turnSeconds) ? settings.turnSeconds : DEFAULT_SKETCH_RELAY_SETTINGS.turnSeconds;
+  return { difficulty, turnSeconds };
+}
+
+function randomSecretWord(settings: SketchRelaySettings): string {
+  const words = SECRET_WORDS[settings.difficulty] ?? SECRET_WORDS.medium;
+  return words[Math.floor(Math.random() * words.length)] ?? words[0]!;
 }
 
 function entryId(chainId: string, phaseIndex: number): string {
@@ -102,9 +143,10 @@ function latestEntry(chain: SketchRelayChain): SketchRelayEntry | undefined {
   return chain.entries[chain.entries.length - 1];
 }
 
-export function createSketchRelayGameState(room: InternalRoom, roundId: string): SketchRelayGameState {
+export function createSketchRelayGameState(room: InternalRoom, roundId: string, settings?: Partial<SketchRelaySettings>): SketchRelayGameState {
   const firstPlayer = room.players[0];
-  const secretWord = randomSecretWord();
+  const normalizedSettings = normalizeSketchRelaySettings(settings);
+  const secretWord = randomSecretWord(normalizedSettings);
   const chains: SketchRelayChain[] = [
     {
       id: "chain-main",
@@ -130,6 +172,7 @@ export function createSketchRelayGameState(room: InternalRoom, roundId: string):
     phaseIndex: 1,
     deadlineAt: null,
     chains,
+    settings: normalizedSettings,
     assignments: new Map(),
     submissions: new Set(),
     revealChainIndex: 0,
@@ -145,6 +188,7 @@ export function toSketchRelayPublicState(state: SketchRelayGameState, reveal = f
     phase: state.phase,
     phaseIndex: state.phaseIndex,
     entryType: state.phase === "reveal" || state.phase === "finished" ? null : entryTypeForPhase(state.phaseIndex),
+    settings: state.settings,
     deadlineAt: state.deadlineAt,
     submittedCount: state.submissions.size,
     totalCount: state.assignments.size,
@@ -260,7 +304,7 @@ function autoSubmitMissing(room: InternalRoom, state: SketchRelayGameState): voi
 
 function beginPhase(io: Server, room: InternalRoom, state: SketchRelayGameState): void {
   if (state.phaseTimer) clearTimeout(state.phaseTimer);
-  const seconds = entryTypeForPhase(state.phaseIndex) === "drawing" ? DRAW_SECONDS : GUESS_SECONDS;
+  const seconds = state.settings.turnSeconds;
   state.deadlineAt = Date.now() + seconds * 1000;
   buildAssignments(room, state);
   refreshAssignments(io, room);
@@ -268,8 +312,8 @@ function beginPhase(io: Server, room: InternalRoom, state: SketchRelayGameState)
   state.phaseTimer = setTimeout(() => completePhase(io, room), seconds * 1000 + 250);
 }
 
-export function startSketchRelay(io: Server, room: InternalRoom, roundId: string): void {
-  const state = createSketchRelayGameState(room, roundId);
+export function startSketchRelay(io: Server, room: InternalRoom, roundId: string, settings?: Partial<SketchRelaySettings>): void {
+  const state = createSketchRelayGameState(room, roundId, settings);
   room.gameState = state;
   room.status = "in-progress";
   beginPhase(io, room, state);

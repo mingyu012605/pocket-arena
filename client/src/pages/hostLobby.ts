@@ -6,6 +6,7 @@ import type { CreateRoomSlot, PublicRoomState, RoomClosedPayload } from "../../.
 import type { CountdownTickPayload, GameStatePayload } from "../../../shared/protocol";
 import type { HostReconnectResponse } from "../../../shared/protocol";
 import type { SketchRelayGameStatePayload } from "../../../shared/protocol";
+import type { GameStartRequest, SketchRelayTurnSeconds, SketchRelayWordDifficulty } from "../../../shared/protocol";
 import { createQrCard } from "../components/qrCard";
 import { createPlayerCard } from "../components/playerCard";
 import { createButton } from "../components/button";
@@ -21,6 +22,10 @@ import type { SketchRelayHostView } from "../games/sketch-relay/hostView";
 const RACING_MAX_SPEED_ESTIMATE = 42;
 const RACING_AUDIO_MUTE_KEY = "pocket-arena:racingAudioMuted";
 const RACING_QUALITY_OPTIONS: RacingQualitySelection[] = ["auto", "low", "medium", "high"];
+const SKETCH_DIFFICULTY_KEY = "pocket-arena:sketchDifficulty";
+const SKETCH_TURN_SECONDS_KEY = "pocket-arena:sketchTurnSeconds";
+const SKETCH_DIFFICULTIES: SketchRelayWordDifficulty[] = ["easy", "medium", "hard"];
+const SKETCH_TURN_SECONDS: SketchRelayTurnSeconds[] = [30, 60, 90];
 
 type MountedRenderer = ControllerTestRenderer | RacingRenderer;
 
@@ -59,6 +64,8 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   const footerEl = container.querySelector<HTMLDivElement>("#lobby-footer")!;
   const reconnectingEl = container.querySelector<HTMLParagraphElement>("#reconnecting")!;
   const diagnosticsEl = container.querySelector<HTMLElement>("#host-connection-diagnostics")!;
+  let sketchDifficulty: SketchRelayWordDifficulty = readSketchDifficulty();
+  let sketchTurnSeconds: SketchRelayTurnSeconds = readSketchTurnSeconds();
 
   const startButton = createButton({
     label: "Start Game",
@@ -67,7 +74,11 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     onClick: async () => {
       racingAudio.start();
       try {
-        await emitWithAck(SOCKET_EVENTS.GAME_START, {});
+        const payload: GameStartRequest =
+          lastRoom.gameType === "sketch-relay"
+            ? { sketchRelay: { difficulty: sketchDifficulty, turnSeconds: sketchTurnSeconds } }
+            : {};
+        await emitWithAck(SOCKET_EVENTS.GAME_START, payload);
       } catch (err) {
         alert((err as { message?: string }).message ?? "Could not start the game.");
       }
@@ -111,6 +122,16 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   const racingAudio = new RacingAudio();
   racingAudio.setMuted(localStorage.getItem(RACING_AUDIO_MUTE_KEY) === "1");
 
+  function readSketchDifficulty(): SketchRelayWordDifficulty {
+    const saved = localStorage.getItem(SKETCH_DIFFICULTY_KEY);
+    return SKETCH_DIFFICULTIES.includes(saved as SketchRelayWordDifficulty) ? (saved as SketchRelayWordDifficulty) : "medium";
+  }
+
+  function readSketchTurnSeconds(): SketchRelayTurnSeconds {
+    const saved = Number(localStorage.getItem(SKETCH_TURN_SECONDS_KEY));
+    return SKETCH_TURN_SECONDS.includes(saved as SketchRelayTurnSeconds) ? (saved as SketchRelayTurnSeconds) : 60;
+  }
+
   function publishRacingDebugCounters(): void {
     window.__pocketArenaRacingDebug = {
       ...(window.__pocketArenaRacingDebug ?? {}),
@@ -137,6 +158,51 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         qualityRow.appendChild(button);
       }
       footerEl.appendChild(qualityRow);
+    }
+    if (lastRoom.gameType === "sketch-relay") {
+      const settings = document.createElement("div");
+      settings.className = "sketch-lobby-settings";
+
+      const difficultyRow = document.createElement("div");
+      difficultyRow.className = "sketch-setting-row";
+      const difficultyLabel = document.createElement("span");
+      difficultyLabel.textContent = "Words";
+      difficultyRow.appendChild(difficultyLabel);
+      for (const option of SKETCH_DIFFICULTIES) {
+        difficultyRow.appendChild(
+          createButton({
+            label: option[0]!.toUpperCase() + option.slice(1),
+            variant: option === sketchDifficulty ? "primary" : "secondary",
+            onClick: () => {
+              sketchDifficulty = option;
+              localStorage.setItem(SKETCH_DIFFICULTY_KEY, option);
+              renderLobbyFooter();
+            }
+          })
+        );
+      }
+
+      const timeRow = document.createElement("div");
+      timeRow.className = "sketch-setting-row";
+      const timeLabel = document.createElement("span");
+      timeLabel.textContent = "Time";
+      timeRow.appendChild(timeLabel);
+      for (const seconds of SKETCH_TURN_SECONDS) {
+        timeRow.appendChild(
+          createButton({
+            label: seconds === 90 ? "1:30" : `${seconds}s`,
+            variant: seconds === sketchTurnSeconds ? "primary" : "secondary",
+            onClick: () => {
+              sketchTurnSeconds = seconds;
+              localStorage.setItem(SKETCH_TURN_SECONDS_KEY, String(seconds));
+              renderLobbyFooter();
+            }
+          })
+        );
+      }
+
+      settings.append(difficultyRow, timeRow);
+      footerEl.appendChild(settings);
     }
     footerEl.appendChild(startButton);
     footerEl.appendChild(leaveButton);

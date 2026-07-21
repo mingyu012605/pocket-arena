@@ -7,6 +7,7 @@ import {
   createSketchRelayGameState,
   entryTypeForPhase,
   handleSketchSubmission,
+  normalizeSketchRelaySettings,
   sanitizeSketchText,
   startSketchRelay,
   stopSketchRelay,
@@ -45,6 +46,14 @@ describe("Sketch Relay phase order", () => {
 });
 
 describe("Sketch Relay validation", () => {
+  it("normalizes host settings", () => {
+    expect(normalizeSketchRelaySettings({ difficulty: "hard", turnSeconds: 90 })).toEqual({ difficulty: "hard", turnSeconds: 90 });
+    expect(normalizeSketchRelaySettings({ difficulty: "wild" as never, turnSeconds: 999 as never })).toEqual({
+      difficulty: "medium",
+      turnSeconds: 60
+    });
+  });
+
   it("sanitizes text", () => {
     expect(sanitizeSketchText("  hello\n\n<script>  world  ")).toBe("hello <script> world");
     expect(sanitizeSketchText("x".repeat(200))).toHaveLength(80);
@@ -73,8 +82,16 @@ describe("Sketch Relay phase flow", () => {
     expect(state.chains).toHaveLength(1);
     expect(state.chains[0]?.entries[0]?.type).toBe("text");
     expect(state.chains[0]?.entries[0]?.contributorName).toBe("Secret word");
+    expect(state.settings).toEqual({ difficulty: "medium", turnSeconds: 60 });
     expect(state.phase).toBe("drawing");
     expect(state.phaseIndex).toBe(1);
+    stopSketchRelay(room);
+  });
+
+  it("stores selected settings on the active relay state", () => {
+    const room = sketchRoom(3);
+    const state = createSketchRelayGameState(room, "round-settings", { difficulty: "easy", turnSeconds: 30 });
+    expect(state.settings).toEqual({ difficulty: "easy", turnSeconds: 30 });
     stopSketchRelay(room);
   });
 
