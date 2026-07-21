@@ -261,6 +261,11 @@ export interface SketchRelayChain {
   ownerPlayerNumber: number;
   entries: SketchRelayEntry[];
 }
+export interface SketchRelayResult {
+  originalWord: string;
+  finalGuess: string;
+  success: boolean;
+}
 export interface SketchRelayGameStatePayload {
   gameType: "sketch-relay";
   roundId: string;
@@ -271,9 +276,14 @@ export interface SketchRelayGameStatePayload {
   deadlineAt: number | null;
   submittedCount: number;
   totalCount: number;
+  playerOrder: number[];
+  activePlayerNumber: number | null;
+  turnIndex: number;
+  totalTurns: number;
   revealChainIndex: number;
   revealEntryIndex: number;
   chains?: SketchRelayChain[];
+  result?: SketchRelayResult;
 }
 export interface SketchRelayAssignmentPayload {
   roundId: string;

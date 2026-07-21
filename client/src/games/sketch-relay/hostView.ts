@@ -1,5 +1,5 @@
 import { SOCKET_EVENTS } from "../../../../shared/protocol";
-import type { SketchRelayChain, SketchRelayEntry, SketchRelayGameStatePayload, SketchRelayReactionPopPayload } from "../../../../shared/protocol";
+import type { SketchRelayChain, SketchRelayEntry, SketchRelayGameStatePayload, SketchRelayReactionPopPayload, SketchRelayResult } from "../../../../shared/protocol";
 import { createButton } from "../../components/button";
 import { emitWithAck, getSocket } from "../../networking/socket";
 import { renderSketchDrawing } from "./drawing";
@@ -12,8 +12,8 @@ export interface SketchRelayHostView {
 
 function phaseLabel(state: SketchRelayGameStatePayload): string {
   if (state.phase === "prompt-entry") return "Secret word";
-  if (state.phase === "drawing") return state.phaseIndex === 1 ? "Player 1 is drawing" : "Next player is drawing";
-  if (state.phase === "guessing") return "Next player is guessing";
+  if (state.phase === "drawing") return `Player ${state.activePlayerNumber ?? "?"} is drawing`;
+  if (state.phase === "guessing") return `Player ${state.activePlayerNumber ?? "?"} is guessing`;
   if (state.phase === "reveal") return "Reveal time";
   return "Finished";
 }
@@ -29,23 +29,19 @@ function entryTitle(entry: SketchRelayEntry): string {
 }
 
 function normalizeAnswer(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function finalRelayResult(chain: SketchRelayChain | undefined): { original: string; finalGuess: string; success: boolean } | null {
+function finalRelayResult(chain: SketchRelayChain | undefined): SketchRelayResult | null {
   if (!chain) return null;
-  const original = chain.entries[0]?.text ?? "";
+  const originalWord = chain.entries[0]?.text ?? "";
   const guesses = chain.entries.filter((entry) => entry.type === "text" && entry.phaseIndex > 0 && entry.text);
   const finalGuess = guesses[guesses.length - 1]?.text ?? "";
-  if (!original || !finalGuess) return null;
+  if (!originalWord || !finalGuess) return null;
   return {
-    original,
+    originalWord,
     finalGuess,
-    success: normalizeAnswer(original) === normalizeAnswer(finalGuess)
+    success: normalizeAnswer(originalWord) === normalizeAnswer(finalGuess)
   };
 }
 
@@ -61,7 +57,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
         <div class="sketch-paper-stack">
           <p class="sketch-kicker">Sketch Relay</p>
           <h1>${phaseLabel(state)}</h1>
-          <p class="sketch-host-copy">Phones are private. The laptop only shows progress until reveal.</p>
+          <p class="sketch-host-copy">Turn ${state.turnIndex} of ${state.totalTurns} · ${state.phase === "drawing" ? "Drawing" : "Guessing"}</p>
           <div class="sketch-progress">
             <span style="width:${state.totalCount === 0 ? 0 : (state.submittedCount / state.totalCount) * 100}%"></span>
           </div>
@@ -100,7 +96,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
 
   function renderReveal(state: SketchRelayGameStatePayload): void {
     const current = currentEntry(state);
-    const result = finalRelayResult(current?.chain ?? state.chains?.[0]);
+    const result = state.result ?? finalRelayResult(current?.chain ?? state.chains?.[0]);
     const isFinished = state.phase === "finished";
     container.innerHTML = `
       <section class="sketch-host-reveal">
@@ -120,7 +116,6 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
     for (const [label, action] of [
       ["Previous", "previous"],
       [isFinished ? "Restart Reveal" : "Next", isFinished ? "restart" : "next"],
-      ["Skip Chain", "skip-chain"],
       ["Finish", "finish"]
     ] as const) {
       controls.appendChild(
@@ -158,14 +153,14 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
           ${Array.from({ length: 18 }, (_, index) => `<i style="--i:${index}"></i>`).join("")}
         </div>
         <p class="sketch-kicker">${result.success ? "Perfect match" : "Not quite"}</p>
-        <h2>${result.success ? "Congratulations!" : "It changed on the way!"}</h2>
+        <h2>${result.success ? "Congratulations! The word survived!" : "The word changed along the way!"}</h2>
         <dl>
-          <div><dt>First word</dt><dd></dd></div>
-          <div><dt>Last guess</dt><dd></dd></div>
+          <div><dt>Original word</dt><dd></dd></div>
+          <div><dt>Final guess</dt><dd></dd></div>
         </dl>
       `;
       const values = panel.querySelectorAll("dd");
-      values[0]!.textContent = result.original;
+      values[0]!.textContent = result.originalWord;
       values[1]!.textContent = result.finalGuess;
       finalMount.appendChild(panel);
     }

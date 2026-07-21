@@ -42,14 +42,19 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
     cleanupDrawing?.();
     cleanupDrawing = null;
     const submitted = assignment?.submitted ?? false;
+    const activeTurn =
+      state?.phase === "drawing" || state?.phase === "guessing"
+        ? `Player ${state.activePlayerNumber ?? "?"} is ${state.phase === "drawing" ? "drawing" : "guessing"}...`
+        : "Waiting for your turn...";
+    const waitingTitle = state?.phase === "reveal" || state?.phase === "finished" ? "React to the reveal!" : submitted ? "Submitted!" : activeTurn;
     root.innerHTML = `
       <header class="sketch-phone-header">
         <strong>${opts.nickname}</strong>
         <span>${state?.phase === "reveal" || state?.phase === "finished" ? "Reveal" : submitted ? "Submitted" : "Sketch Relay"}</span>
       </header>
       <div class="sketch-waiting">
-        <h1>${state?.phase === "reveal" || state?.phase === "finished" ? "React to the reveal!" : "Nice. Waiting..."}</h1>
-        <p>${state ? `${state.submittedCount} / ${state.totalCount} submitted` : "Waiting for the next assignment."}</p>
+        <h1>${waitingTitle}</h1>
+        <p>${state ? `Turn ${state.turnIndex} of ${state.totalTurns}` : "Waiting for the next assignment."}</p>
         <div class="sketch-reactions">
           ${["😂", "❤️", "😱", "👏"].map((reaction) => `<button type="button" data-reaction="${reaction}">${reaction}</button>`).join("")}
         </div>
@@ -301,6 +306,15 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
   const onGameState = (payload: GameStatePayload) => {
     if (payload.gameType !== "sketch-relay") return;
     state = payload;
+    if (
+      assignment &&
+      (assignment.roundId !== payload.roundId ||
+        assignment.phaseIndex !== payload.phaseIndex ||
+        payload.phase === "reveal" ||
+        payload.phase === "finished")
+    ) {
+      assignment = null;
+    }
     if (assignment && assignment.roundId === payload.roundId) {
       assignment = {
         ...assignment,
@@ -309,7 +323,7 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
         totalCount: payload.totalCount
       };
     }
-    if (payload.phase === "reveal" || payload.phase === "finished" || assignment?.submitted) renderWaiting();
+    if (payload.phase === "reveal" || payload.phase === "finished" || !assignment || assignment.submitted) renderWaiting();
     else tick();
   };
 

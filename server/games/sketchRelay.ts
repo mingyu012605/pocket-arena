@@ -11,6 +11,7 @@ import type {
   SketchRelayPhase,
   SketchRelayReactionPayload,
   SketchRelayRevealControlPayload,
+  SketchRelayResult,
   SketchRelaySettings,
   SketchRelayTextSubmission,
   SketchRelayTurnSeconds,
@@ -143,8 +144,33 @@ function latestEntry(chain: SketchRelayChain): SketchRelayEntry | undefined {
   return chain.entries[chain.entries.length - 1];
 }
 
+function normalizeFinalAnswer(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export function computeSketchRelayResult(chain: SketchRelayChain | undefined): SketchRelayResult | undefined {
+  if (!chain) return undefined;
+  const originalWord = chain.entries[0]?.text ?? "";
+  const finalGuess =
+    [...chain.entries]
+      .reverse()
+      .find((entry) => entry.type === "text" && entry.phaseIndex > 0 && entry.text)?.text ?? "";
+  if (!originalWord || !finalGuess) return undefined;
+  return {
+    originalWord,
+    finalGuess,
+    success: normalizeFinalAnswer(originalWord) === normalizeFinalAnswer(finalGuess)
+  };
+}
+
+function activePlayerNumber(state: SketchRelayGameState): number | null {
+  if (state.phase === "reveal" || state.phase === "finished") return null;
+  return state.playerOrder[state.phaseIndex - 1] ?? null;
+}
+
 export function createSketchRelayGameState(room: InternalRoom, roundId: string, settings?: Partial<SketchRelaySettings>): SketchRelayGameState {
   const firstPlayer = room.players[0];
+  const playerOrder = room.players.map((player) => player.playerNumber);
   const normalizedSettings = normalizeSketchRelaySettings(settings);
   const secretWord = randomSecretWord(normalizedSettings);
   const chains: SketchRelayChain[] = [
@@ -172,6 +198,7 @@ export function createSketchRelayGameState(room: InternalRoom, roundId: string, 
     phaseIndex: 1,
     deadlineAt: null,
     chains,
+    playerOrder,
     settings: normalizedSettings,
     assignments: new Map(),
     submissions: new Set(),
@@ -182,6 +209,7 @@ export function createSketchRelayGameState(room: InternalRoom, roundId: string, 
 }
 
 export function toSketchRelayPublicState(state: SketchRelayGameState, reveal = false): SketchRelayGameStatePayload {
+  const revealActive = reveal || state.phase === "reveal" || state.phase === "finished";
   return {
     gameType: "sketch-relay",
     roundId: state.roundId,
@@ -192,9 +220,14 @@ export function toSketchRelayPublicState(state: SketchRelayGameState, reveal = f
     deadlineAt: state.deadlineAt,
     submittedCount: state.submissions.size,
     totalCount: state.assignments.size,
+    playerOrder: state.playerOrder,
+    activePlayerNumber: activePlayerNumber(state),
+    turnIndex: Math.min(state.phaseIndex, state.playerOrder.length),
+    totalTurns: state.playerOrder.length,
     revealChainIndex: state.revealChainIndex,
     revealEntryIndex: state.revealEntryIndex,
-    chains: reveal || state.phase === "reveal" || state.phase === "finished" ? state.chains : undefined
+    chains: revealActive ? state.chains : undefined,
+    result: state.phase === "finished" ? computeSketchRelayResult(state.chains[0]) : undefined
   };
 }
 
@@ -220,13 +253,11 @@ export function emitSketchAssignmentToPlayer(io: Server, room: InternalRoom, pla
 }
 
 function buildAssignments(room: InternalRoom, state: SketchRelayGameState): void {
-  const playerNumbers = room.players.map((player) => player.playerNumber);
   const phase = phaseNameForIndex(state.phaseIndex);
   const entryType = entryTypeForPhase(state.phaseIndex);
   const chain = state.chains[0];
   if (!chain) return;
-  const assigneeIndex = Math.min(playerNumbers.length - 1, Math.floor(state.phaseIndex / 2));
-  const playerNumber = playerNumbers[assigneeIndex];
+  const playerNumber = activePlayerNumber(state);
   if (!playerNumber) return;
   const previous = latestEntry(chain);
   state.phase = phase;
@@ -323,7 +354,7 @@ function completePhase(io: Server, room: InternalRoom): void {
   if (room.gameState?.gameType !== "sketch-relay") return;
   const state = room.gameState;
   autoSubmitMissing(room, state);
-  const finalPhaseIndex = room.players.length * 2 - 1;
+  const finalPhaseIndex = state.playerOrder.length;
   if (state.phaseIndex >= finalPhaseIndex) {
     if (state.phaseTimer) clearTimeout(state.phaseTimer);
     state.phaseTimer = null;
@@ -385,26 +416,21 @@ export function handleSketchRevealControl(io: Server, room: InternalRoom, payloa
   const maxEntry = Math.max(0, (chain?.entries.length ?? 1) - 1);
   if (payload.action === "next") {
     if (state.revealEntryIndex < maxEntry) state.revealEntryIndex += 1;
-    else if (state.revealChainIndex < state.chains.length - 1) {
-      state.revealChainIndex += 1;
-      state.revealEntryIndex = 0;
-    } else {
-      state.phase = "finished";
-    }
+    else state.phase = "finished";
   } else if (payload.action === "previous") {
-    if (state.revealEntryIndex > 0) state.revealEntryIndex -= 1;
-    else if (state.revealChainIndex > 0) {
-      state.revealChainIndex -= 1;
-      state.revealEntryIndex = Math.max(0, state.chains[state.revealChainIndex]!.entries.length - 1);
-    }
+    if (state.phase === "finished") {
+      state.phase = "reveal";
+      state.revealEntryIndex = maxEntry;
+    } else if (state.revealEntryIndex > 0) state.revealEntryIndex -= 1;
   } else if (payload.action === "skip-chain") {
-    state.revealChainIndex = Math.min(state.chains.length - 1, state.revealChainIndex + 1);
-    state.revealEntryIndex = 0;
+    state.revealEntryIndex = maxEntry;
+    state.phase = "finished";
   } else if (payload.action === "restart") {
     state.revealChainIndex = 0;
     state.revealEntryIndex = 0;
     state.phase = "reveal";
   } else if (payload.action === "finish") {
+    state.revealEntryIndex = maxEntry;
     state.phase = "finished";
   }
   io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toSketchRelayPublicState(state, true));

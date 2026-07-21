@@ -66,6 +66,7 @@ export interface SketchRelayGameState {
   phaseIndex: number;
   deadlineAt: number | null;
   chains: SketchRelayChain[];
+  playerOrder: number[];
   settings: SketchRelaySettings;
   assignments: Map<number, SketchRelayAssignmentPayload>;
   submissions: Set<number>;
