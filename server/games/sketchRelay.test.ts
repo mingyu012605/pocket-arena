@@ -11,6 +11,7 @@ import {
   sanitizeSketchText,
   startSketchRelay,
   stopSketchRelay,
+  toSketchRelayPublicState,
   validateSketchDrawing
 } from "./sketchRelay";
 
@@ -92,6 +93,7 @@ describe("Sketch Relay phase flow", () => {
     const room = sketchRoom(3);
     const state = createSketchRelayGameState(room, "round-settings", { difficulty: "easy", turnSeconds: 30 });
     expect(state.settings).toEqual({ difficulty: "easy", turnSeconds: 30 });
+    expect(toSketchRelayPublicState(state).settings).toEqual({ difficulty: "easy", turnSeconds: 30 });
     stopSketchRelay(room);
   });
 
@@ -128,6 +130,26 @@ describe("Sketch Relay phase flow", () => {
       expect(room.gameState.phaseIndex).toBe(2);
       expect(room.gameState.assignments.get(2)?.entryType).toBe("text");
     }
+    stopSketchRelay(room);
+  });
+
+  it("hides the previous drawing once the same player draws their guess", () => {
+    const { io } = fakeIo();
+    const room = sketchRoom(3);
+    room.roundId = "round-privacy";
+    startSketchRelay(io, room, room.roundId);
+
+    const drawing = { strokes: [{ color: "#111827", width: 5, points: [{ x: 0.2, y: 0.3 }] }] };
+    expect(handleSketchSubmission(io, room, 1, { roundId: "round-privacy", drawing }).ok).toBe(true);
+    const guessAssignment = room.gameState?.gameType === "sketch-relay" ? room.gameState.assignments.get(2) : undefined;
+    expect(guessAssignment?.entryType).toBe("text");
+    expect(guessAssignment?.drawing).toBeTruthy();
+
+    expect(handleSketchSubmission(io, room, 2, { roundId: "round-privacy", text: "yellow kart" }).ok).toBe(true);
+    const drawAssignment = room.gameState?.gameType === "sketch-relay" ? room.gameState.assignments.get(2) : undefined;
+    expect(drawAssignment?.entryType).toBe("drawing");
+    expect(drawAssignment?.prompt).toBe("yellow kart");
+    expect(drawAssignment?.drawing).toBeUndefined();
     stopSketchRelay(room);
   });
 
