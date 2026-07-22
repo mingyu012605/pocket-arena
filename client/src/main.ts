@@ -7,6 +7,7 @@ import { renderHostPlayerCountPage } from "./pages/hostPlayerCount";
 import { renderHostLobbyPage } from "./pages/hostLobby";
 import { renderJoinPage } from "./pages/join";
 import { renderMotionDebugPage } from "./pages/motionDebug";
+import { renderGolfPreviewPage } from "./pages/golfPreview";
 
 registerRoute("/", renderHostGameSelectPage);
 registerRoute("/host", renderHostGameSelectPage);
@@ -15,6 +16,7 @@ registerRoute("/host/lobby/:roomCode", renderHostLobbyPage);
 registerRoute("/join/:roomCode", renderJoinPage);
 registerRoute("/join/:roomCode/:playerNumber", renderJoinPage);
 registerRoute("/dev/motion-debug", renderMotionDebugPage);
+registerRoute("/golf-preview", renderGolfPreviewPage);
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (app) startRouter(app);
