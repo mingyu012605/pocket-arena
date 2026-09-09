@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { RacingInterpolationBuffer, shortestDelta } from "./interpolation";
 import type { RacingCarFrame } from "./interpolation";
+import { computeRacingCarWorldTransform } from "./carTransform";
+import { TEST_OVAL_TRACK, sampleRacingTrackFrame } from "../../../../shared/racingTrack";
 
 const TRACK_LENGTH = 100;
 
@@ -138,5 +140,96 @@ describe("RacingInterpolationBuffer", () => {
     // A single post-reset snapshot must be returned as-is, not blended
     // against the pre-reset progress=97 from the previous race.
     expect(result.get(1)!.progress).toBe(0);
+  });
+});
+
+describe("airborne world-space interpolation", () => {
+  it("passes through airborne world-space fields unchanged when both snapshots are airborne", () => {
+    const buffer = new RacingInterpolationBuffer(TRACK_LENGTH, Infinity, 0, 0);
+    buffer.addSnapshot(1000, new Map([[1, frame({ progress: 50, airborne: true, worldX: 10, worldY: 5, worldZ: 20 })]]));
+    buffer.addSnapshot(1100, new Map([[1, frame({ progress: 50, airborne: true, worldX: 12, worldY: 4.5, worldZ: 22 })]]));
+
+    const result = buffer.interpolate(1050);
+    const f = result.get(1)!;
+    expect(f.airborne).toBe(true);
+    expect(f.worldX).toBeCloseTo(11, 5);
+    expect(f.worldY).toBeCloseTo(4.75, 5);
+    expect(f.worldZ).toBeCloseTo(21, 5);
+  });
+});
+
+describe("interpolation-mode continuity across grounded/airborne transitions", () => {
+  it("takeoff: renders (via computeRacingCarWorldTransform) a smooth path from the grounded position into the airborne world position, with no snap at either end", () => {
+    const track = TEST_OVAL_TRACK;
+    const groundedProgress = 50;
+    const groundedLateral = 2;
+    const groundedFrame = sampleRacingTrackFrame(track, groundedProgress, groundedLateral);
+
+    // A small, realistic one-tick launch displacement from the grounded position.
+    const takeoffWorldX = groundedFrame.x + 0.4;
+    const takeoffWorldY = groundedFrame.y + 0.3;
+    const takeoffWorldZ = groundedFrame.z + 0.4;
+
+    const buffer = new RacingInterpolationBuffer(track.trackLength, Infinity, 0, 0);
+    buffer.addSnapshot(1000, new Map([[1, frame({ progress: groundedProgress, lateralOffset: groundedLateral, airborne: false })]]));
+    buffer.addSnapshot(
+      1050,
+      new Map([[1, frame({ progress: groundedProgress, lateralOffset: groundedLateral, airborne: true, worldX: takeoffWorldX, worldY: takeoffWorldY, worldZ: takeoffWorldZ })]])
+    );
+
+    const atStart = computeRacingCarWorldTransform(buffer.interpolate(1000).get(1)!);
+    expect(atStart.x).toBeCloseTo(groundedFrame.x, 5);
+    expect(atStart.y).toBeCloseTo(groundedFrame.y, 5);
+    expect(atStart.z).toBeCloseTo(groundedFrame.z, 5);
+
+    const atEnd = computeRacingCarWorldTransform(buffer.interpolate(1050).get(1)!);
+    expect(atEnd.x).toBeCloseTo(takeoffWorldX, 5);
+    expect(atEnd.y).toBeCloseTo(takeoffWorldY, 5);
+    expect(atEnd.z).toBeCloseTo(takeoffWorldZ, 5);
+
+    // Midpoint must sit strictly between the two endpoints, not jump past
+    // them or collapse to one end early - this is exactly what would break
+    // if the mixed-pair branch used nextFrame.airborne directly instead of
+    // treating the whole transition window as airborne.
+    const atMid = computeRacingCarWorldTransform(buffer.interpolate(1025).get(1)!);
+    expect(atMid.y).toBeCloseTo((groundedFrame.y + takeoffWorldY) / 2, 5);
+    expect(atMid.x).toBeGreaterThan(Math.min(groundedFrame.x, takeoffWorldX) - 1e-6);
+    expect(atMid.x).toBeLessThan(Math.max(groundedFrame.x, takeoffWorldX) + 1e-6);
+  });
+
+  it("landing: renders (via computeRacingCarWorldTransform) a smooth path from the airborne world position into the landed position, with no early snap to the ground", () => {
+    const track = TEST_OVAL_TRACK;
+    const landedProgress = 80;
+    const landedLateral = -1;
+    const landedFrame = sampleRacingTrackFrame(track, landedProgress, landedLateral);
+
+    const preLandingWorldX = landedFrame.x - 0.3;
+    const preLandingWorldY = landedFrame.y + 0.5; // still slightly above the surface, descending
+    const preLandingWorldZ = landedFrame.z - 0.3;
+
+    const buffer = new RacingInterpolationBuffer(track.trackLength, Infinity, 0, 0);
+    buffer.addSnapshot(
+      1000,
+      new Map([[1, frame({ progress: landedProgress, lateralOffset: landedLateral, airborne: true, worldX: preLandingWorldX, worldY: preLandingWorldY, worldZ: preLandingWorldZ })]])
+    );
+    buffer.addSnapshot(1050, new Map([[1, frame({ progress: landedProgress, lateralOffset: landedLateral, airborne: false })]]));
+
+    const atStart = computeRacingCarWorldTransform(buffer.interpolate(1000).get(1)!);
+    expect(atStart.x).toBeCloseTo(preLandingWorldX, 5);
+    expect(atStart.y).toBeCloseTo(preLandingWorldY, 5);
+
+    const atEnd = computeRacingCarWorldTransform(buffer.interpolate(1050).get(1)!);
+    expect(atEnd.x).toBeCloseTo(landedFrame.x, 5);
+    expect(atEnd.y).toBeCloseTo(landedFrame.y, 5);
+    expect(atEnd.z).toBeCloseTo(landedFrame.z, 5);
+
+    // The critical regression case: partway through the landing transition,
+    // the car must still be easing down from its airborne height, not
+    // already sitting at the landed ground height (which is what
+    // `airborne: nextFrame.airborne` would have produced, since nextFrame is
+    // grounded for this whole pair).
+    const atMid = computeRacingCarWorldTransform(buffer.interpolate(1025).get(1)!);
+    expect(atMid.y).toBeCloseTo((preLandingWorldY + landedFrame.y) / 2, 5);
+    expect(atMid.y).not.toBeCloseTo(landedFrame.y, 2);
   });
 });

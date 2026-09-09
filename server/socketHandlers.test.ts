@@ -5,7 +5,14 @@ import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { registerSocketHandlers } from "./socketHandlers";
 import { getRoom } from "./rooms";
 import { SOCKET_EVENTS } from "../shared/protocol";
-import type { Ack, ControllerAutoJoinResponse, ControllerJoinResponse, CreateRoomResponse } from "../shared/protocol";
+import type {
+  Ack,
+  ControllerAutoJoinResponse,
+  ControllerJoinResponse,
+  CreateRoomResponse,
+  GameStatePayload,
+  HostReconnectResponse
+} from "../shared/protocol";
 
 let httpServer: ReturnType<typeof createServer>;
 let port: number;
@@ -30,6 +37,10 @@ function emitAck<T>(socket: ClientSocket, event: string, payload: unknown): Prom
   return new Promise((resolve) => socket.emit(event, payload, resolve));
 }
 
+function waitForSocketEvent<T>(socket: ClientSocket, event: string): Promise<T> {
+  return new Promise((resolve) => socket.once(event, resolve));
+}
+
 describe("room lifecycle", () => {
   it("creates universal QR join URLs without per-player token query params", async () => {
     const host = connect();
@@ -47,6 +58,30 @@ describe("room lifecycle", () => {
     expect(created.slots[1]!.joinUrl).toBe(created.slots[0]!.joinUrl);
     expect(new URL(created.slots[0]!.joinUrl).searchParams.get("token")).toBeNull();
     expect(created.slots[0]!.token).not.toBe(created.slots[1]!.token);
+
+    host.close();
+  });
+
+  it("refreshes universal QR join URLs when the host reconnects through a public origin", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "racing",
+      maxPlayers: 1,
+      publicOrigin: "http://127.0.0.1:3000"
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const reconnect = await emitAck<HostReconnectResponse>(host, SOCKET_EVENTS.HOST_RECONNECT, {
+      roomId: created.roomId,
+      hostToken: created.hostToken,
+      publicOrigin: "https://pocket-arena.example"
+    });
+    expect(reconnect.ok).toBe(true);
+    if (!reconnect.ok) return;
+    expect(reconnect.slots[0]!.joinUrl).toBe(`https://pocket-arena.example/join/${created.roomId}`);
 
     host.close();
   });
@@ -188,6 +223,42 @@ describe("room lifecycle", () => {
     host.close();
     p1.close();
     p2.close();
+  });
+
+  it("starts Pocket Golf and resends the authoritative golf state on request", async () => {
+    const host = connect();
+    await new Promise<void>((resolve) => host.on("connect", resolve));
+
+    const created = await emitAck<CreateRoomResponse>(host, SOCKET_EVENTS.HOST_CREATE_ROOM, {
+      gameType: "pocket-golf",
+      maxPlayers: 1
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const phone = connect();
+    await new Promise<void>((resolve) => phone.on("connect", resolve));
+    const joined = await emitAck<ControllerAutoJoinResponse>(phone, SOCKET_EVENTS.CONTROLLER_JOIN_ROOM, { roomId: created.roomId });
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) return;
+    expect(joined.controllerType).toBe("golf-swing");
+    await emitAck(phone, SOCKET_EVENTS.PLAYER_READY, { ready: true });
+
+    const started = await emitAck<Record<string, never>>(host, SOCKET_EVENTS.GAME_START, {});
+    expect(started.ok).toBe(true);
+
+    const statePromise = waitForSocketEvent<GameStatePayload>(phone, SOCKET_EVENTS.GAME_STATE);
+    const requested = await emitAck<Record<string, never>>(phone, SOCKET_EVENTS.GOLF_REQUEST_STATE, {});
+    expect(requested.ok).toBe(true);
+    const state = await statePromise;
+    expect(state.gameType).toBe("pocket-golf");
+    if (state.gameType === "pocket-golf") {
+      expect(state.activePlayerNumber).toBe(1);
+      expect(state.players[0]?.displayName).toBe("Player 1");
+    }
+
+    host.close();
+    phone.close();
   });
 
   it("rejects a second device claiming an already-connected slot", async () => {

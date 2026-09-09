@@ -1,5 +1,16 @@
 import type { Socket } from "socket.io";
-import type { GameType, RoomStatus } from "../shared/protocol";
+import type {
+  GameType,
+  GolfClubPosePayload,
+  GolfTerrainType,
+  PocketGolfPhase,
+  PocketGolfShotPayload,
+  RoomStatus,
+  SketchRelayAssignmentPayload,
+  SketchRelayChain,
+  SketchRelayPhase,
+  SketchRelaySettings
+} from "../shared/protocol";
 
 export interface ControllerTestPhysics {
   x: number;
@@ -23,6 +34,7 @@ export interface RacingCarState {
   speed: number;
   yawRate: number;
   steering: number;
+  smoothedSteering: number;
   throttle: number;
   brake: number;
   lastInputAt: number;
@@ -33,6 +45,21 @@ export interface RacingCarState {
   lap: number;
   finished: boolean;
   finishTime: number | null;
+  airborne: boolean;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+  velocityX: number;
+  velocityY: number;
+  velocityZ: number;
+  takeoffProgress: number;
+  settleTimer: number;
+  settleFromPitch: number;
+  hardLanding: boolean;
+  fallenAt: number | null;
+  lastCheckpointIndex: number;
+  projectedProgress: number;
+  lastRespawnAt: number;
 }
 export interface RacingGameState {
   gameType: "racing";
@@ -44,7 +71,52 @@ export interface RacingGameState {
   endedAt: number | null;
 }
 
-export type InternalGameState = ControllerTestGameState | RacingGameState;
+export interface PocketGolfPlayerState {
+  playerNumber: number;
+  displayName: string;
+  color: string;
+  strokes: number;
+  distanceToHole: number;
+  lie: GolfTerrainType;
+  finished: boolean;
+  ballX: number;
+  ballZ: number;
+}
+
+export interface PocketGolfGameState {
+  gameType: "pocket-golf";
+  phase: PocketGolfPhase;
+  holeIndex: number;
+  activePlayerNumber: number | null;
+  turnId: string;
+  aimDegrees: number;
+  clubId: string;
+  usedSwingIds: Set<string>;
+  players: Map<number, PocketGolfPlayerState>;
+  shotSequence: number;
+  lastShot: PocketGolfShotPayload | null;
+  clubPose: GolfClubPosePayload | null;
+}
+
+export interface SketchRelayGameState {
+  gameType: "sketch-relay";
+  roundId: string;
+  phase: SketchRelayPhase;
+  phaseIndex: number;
+  activePlayerIndex: number;
+  deadlineAt: number | null;
+  chains: SketchRelayChain[];
+  playerOrder: number[];
+  pendingGuess: string | null;
+  settings: SketchRelaySettings;
+  assignments: Map<number, SketchRelayAssignmentPayload>;
+  submissions: Set<number>;
+  revealChainIndex: number;
+  revealEntryIndex: number;
+  phaseTimer: NodeJS.Timeout | null;
+}
+
+export type InternalGameState = ControllerTestGameState | RacingGameState | SketchRelayGameState | PocketGolfGameState;
 
 export interface InternalPlayer {
   playerNumber: number;

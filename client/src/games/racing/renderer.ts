@@ -1,7 +1,7 @@
 ﻿import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { GameRenderer } from "../gameRenderer";
-import { TEST_OVAL_TRACK } from "../../../../shared/racingTrack";
+import { TEST_OVAL_TRACK, sampleRacingTrackFrame } from "../../../../shared/racingTrack";
 import type { PublicRoomState, RacingGameStatePayload, RacingPlayerState } from "../../../../shared/protocol";
 import { RacingMetricsOverlay, shouldShowRacingMetrics } from "./metrics";
 import type { RacingLifecycleStats } from "./metrics";
@@ -9,9 +9,9 @@ import { getDefaultRacingQuality } from "./quality";
 import type { RacingQualitySettings } from "./quality";
 import { buildCarMesh } from "./cars";
 import type { CarVisual } from "./cars";
-import { VISUAL_BARRIER_OFFSET, buildTrackGroup } from "./track";
+import { VISUAL_BARRIER_OFFSET, buildGrassTexture, buildTrackGroup } from "./track";
 import { computeRacingCarWorldTransform } from "./carTransform";
-import { buildHarborEnvironment, buildTracksideDetails, buildSkyDome, buildConfettiField } from "./environment";
+import { buildTracksideDetails, buildSkyDome, buildConfettiField } from "./environment";
 import { RacingInterpolationBuffer } from "./interpolation";
 import type { RacingCarFrame } from "./interpolation";
 import { RacingDevHelpers } from "./devHelpers";
@@ -32,19 +32,28 @@ type CameraConfig = {
   avoidCars: boolean;
 };
 
+interface RoadObstacleVisual {
+  root: THREE.Group;
+  progress: number;
+  baseLateral: number;
+  lateralSwing: number;
+  speed: number;
+  phase: number;
+}
+
 // Chase camera tuned so the whole car sits in the lower-center of frame with
 // a clear view of the road ahead - distance/height pulled back and raised
 // from values that put the camera almost on top of the car, and look-ahead
 // increased so it targets a point well down the road instead of the car
 // itself.
 const CAMERA_DISTANCE = 17;
-const CAMERA_HEIGHT = 5.8;
+const CAMERA_HEIGHT = 5.35;
 const CAMERA_LOOK_AHEAD = 3.4;
 const CAMERA_MODES: CameraMode[] = ["chase", "wide", "hood", "spectator"];
 const SNAPSHOT_HZ_WINDOW_MS = 5000;
 const FRAME_BUDGET_MS = 1000 / 55;
 const PIXEL_RATIO_STEP = 0.12;
-const BOT_FALLBACK_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15", "#38bdf8"];
+const BOT_FALLBACK_COLORS = ["#f97316", "#22c55e", "#a855f7", "#38bdf8", "#facc15"];
 /** Minimum clearance the hood/close camera keeps from any car it isn't following, so it can't end up inside another car's tub/cockpit geometry. */
 const CAMERA_CAR_CLEARANCE = 2.6;
 /** Gap kept between the camera and any scenery it collision-corrects against, so it stops just short of the surface instead of clipping into it. */
@@ -68,12 +77,59 @@ function shortestAngleDelta(from: number, to: number): number {
 
 // PLAYER_COLORS (shared/protocol.ts) is used by every game mode, so it can't
 // be changed here without affecting Rhythm Battle/Table Tennis/etc. too.
-// Player 1's default pale cyan reads poorly against this scene's own sky/
-// lighting up close, so it's remapped to a more saturated racing red for
-// the 3D car specifically - every other assigned color (bot fallbacks
-// included) passes through unchanged.
+// Player 1's default pale cyan reads poorly against this scene's sky/lighting.
+// For this KartRider-style pass, push the player car toward a bright yellow
+// hero kart so it matches the arcade reference art instead of reading as a
+// generic red racing car.
 function distinctCarColor(rawColor: string): string {
-  return rawColor.toLowerCase() === "#22d3ee" ? "#e5233a" : rawColor;
+  const normalized = rawColor.toLowerCase();
+  return normalized === "#22d3ee" || normalized === "#e5233a" || normalized === "#ef4444" ? "#facc15" : rawColor;
+}
+
+function buildRoadMonster(color: string, accent: string): THREE.Group {
+  const root = new THREE.Group();
+  root.name = "animated-road-monster";
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.02, emissive: color, emissiveIntensity: 0.04 });
+  const accentMaterial = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.48, metalness: 0.02 });
+  const black = new THREE.MeshBasicMaterial({ color: "#111827" });
+  const white = new THREE.MeshBasicMaterial({ color: "#f8fafc" });
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.72, 0.74, 5, 16), bodyMaterial);
+  body.position.y = 0.95;
+  body.castShadow = true;
+  root.add(body);
+
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.48, 16, 10), accentMaterial);
+  belly.scale.set(1, 0.72, 0.35);
+  belly.position.set(0, 0.84, -0.58);
+  root.add(belly);
+
+  for (const x of [-0.28, 0.28]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 8), white);
+    eye.position.set(x, 1.48, -0.58);
+    root.add(eye);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), black);
+    pupil.position.set(x, 1.48, -0.68);
+    root.add(pupil);
+
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.58, 10), accentMaterial);
+    horn.position.set(x * 1.45, 2.04, -0.04);
+    horn.rotation.z = -x * 0.5;
+    horn.castShadow = true;
+    root.add(horn);
+
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), black);
+    foot.scale.set(1.4, 0.5, 1);
+    foot.position.set(x * 1.9, 0.12, -0.08);
+    foot.castShadow = true;
+    root.add(foot);
+  }
+
+  const warning = new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.035, 8, 36), new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0.72 }));
+  warning.rotation.x = -Math.PI / 2;
+  warning.position.y = 0.035;
+  root.add(warning);
+  return root;
 }
 
 const racingLifecycleStats = {
@@ -114,6 +170,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private effects: RacingEffects | null = null;
   private environmentTexture: THREE.Texture | null = null;
   private finishedPlayers = new Set<number>();
+  /** Players whose respawn flag arrived since the last render() call - consumed (and cleared) once, so the camera snaps cleanly instead of easing through the teleport exactly once per respawn. */
+  private respawnedPlayers = new Set<number>();
   private snapshotTimes: number[] = [];
   private lastSnapshotAt = 0;
   private readonly quality: RacingQualitySettings = getDefaultRacingQuality();
@@ -126,7 +184,11 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private cameraRoll = 0;
   private readonly lastSkidSpawn = new Map<number, { x: number; z: number }>();
   private readonly visualYaw = new Map<number, number>();
+  private readonly visualPitch = new Map<number, number>();
+  /** Previous frame's rendered world height per car, used to estimate airborne vertical velocity client-side (velocity itself isn't sent over the wire). */
+  private readonly previousCarHeight = new Map<number, number>();
   private readonly visualWheelSteer = new Map<number, number>();
+  private lastCameraFrameAt = 0;
   private pixelRatio = 1;
   private targetPixelRatio = 1;
   private frameDeltas: number[] = [];
@@ -144,6 +206,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   private cameraCollisionDistance = CAMERA_DISTANCE + CAMERA_LOOK_AHEAD;
   private cameraCollisionTargetDistance = CAMERA_DISTANCE + CAMERA_LOOK_AHEAD;
   private lastCameraCollisionScanAt = 0;
+  private roadObstacles: RoadObstacleVisual[] = [];
 
   constructor(room: PublicRoomState) {
     for (const player of room.players) this.colors.set(player.playerNumber, distinctCarColor(player.color));
@@ -158,8 +221,8 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     // overwhelming cyan cast once combined with the (also cyan) rim light
     // and venue accent colors below; this leans more toward a true sky
     // blue so the sky doesn't blend into every other surface in the scene.
-    scene.background = new THREE.Color("#3f7ecf");
-    scene.fog = new THREE.Fog("#7fb0dd", 150, 600);
+    scene.background = new THREE.Color("#8fe3ff");
+    scene.fog = new THREE.Fog("#bfefff", 260, 760);
 
     const { width, height } = this.containerSize();
     // Near plane pulled in from 0.1 - the close chase framing can put
@@ -180,7 +243,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     // saturation exactly where the player-color car paint tint lives (the
     // reported "washed out car" symptom). Lowering exposure here and the
     // sun's own intensity below both pull in the same direction.
-    renderer.toneMappingExposure = 0.82;
+    renderer.toneMappingExposure = 0.94;
     renderer.shadowMap.enabled = this.quality.shadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "game-canvas racing-canvas";
@@ -202,10 +265,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     // glossy surface in the scene (car paint, barriers, arches) toward
     // cyan. A softer, less saturated fill lets direct light and each
     // object's own material color carry the scene instead.
-    scene.add(new THREE.HemisphereLight("#fef6e0", "#2c3a2e", 0.62));
+    scene.add(new THREE.HemisphereLight("#fff7d6", "#68d391", 0.78));
     // One clear key light - a warm, moderate-intensity sun (down from 2.1,
     // which was overexposing/washing out the car's paint under ACES).
-    const sun = new THREE.DirectionalLight("#ffd9a0", 1.5);
+    const sun = new THREE.DirectionalLight("#ffe1a8", 1.75);
     sun.position.set(60, 120, 40);
     sun.castShadow = this.quality.shadows;
     sun.shadow.mapSize.set(this.quality.shadowMapSize, this.quality.shadowMapSize);
@@ -220,22 +283,31 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     // background at some angles - not a strong color statement like the
     // previous saturated cyan rim (a major contributor to the scene's
     // overall cyan cast, since it tinted every reflective surface).
-    const rimLight = new THREE.DirectionalLight("#dceeff", 0.28);
+    const rimLight = new THREE.DirectionalLight("#e7f7ff", 0.42);
     rimLight.position.set(-80, 55, -120);
     scene.add(rimLight);
     scene.add(buildSkyDome());
     const trackGroup = buildTrackGroup();
-    const harborEnvironment = buildHarborEnvironment(this.quality.environmentDensity);
     const tracksideDetails = buildTracksideDetails(this.quality.environmentDensity);
     scene.add(trackGroup);
-    scene.add(harborEnvironment);
     scene.add(tracksideDetails);
+    this.stadiumProps = buildStadiumProps(null, this.quality.environmentDensity);
+    scene.add(this.stadiumProps);
+    scene.add(this.buildRoadObstacles());
     scene.add(buildConfettiField(Math.round(this.quality.particles * 1.25)));
-    this.cameraObstacles = [trackGroup, harborEnvironment, tracksideDetails];
+    // trackGroup (road/curbs/barriers) is deliberately excluded: the chase
+    // camera sits low and close behind the car by design, and at a steep
+    // heading (e.g. sliding toward a wall) its own backward ray can graze
+    // the road/barrier mesh at a shallow angle and register a false "hit"
+    // against the driving surface itself, yanking the camera in tight
+    // against the asphalt - a dark, extreme close-up filling the screen.
+    // Only background scenery the camera should never clip into belongs
+    // here.
+    this.cameraObstacles = [tracksideDetails, this.stadiumProps];
 
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(360, 340),
-      new THREE.MeshStandardMaterial({ color: "#36b978", roughness: 0.86, emissive: "#084a3d", emissiveIntensity: 0.05 })
+      new THREE.PlaneGeometry(980, 860),
+      new THREE.MeshStandardMaterial({ color: "#89cf65", map: buildGrassTexture(), roughness: 0.94, metalness: 0.01 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, -0.02, -100);
@@ -269,9 +341,6 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         if (this.assetLoadCancelled || this.scene !== scene) return;
         this.assetLibrary = library;
         this.assetLoadState = "ready";
-        this.stadiumProps = buildStadiumProps(library, this.quality.environmentDensity);
-        scene.add(this.stadiumProps);
-        this.cameraObstacles.push(this.stadiumProps);
         for (const [playerNumber, car] of this.cars) {
           this.applyImportedCarVisual(playerNumber, car);
         }
@@ -336,11 +405,16 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
           speed: p.speed,
           steering: p.steering ?? 0,
           rank: p.rank,
-          stale: p.inputStale ?? false
+          stale: p.inputStale ?? false,
+          airborne: p.airborne ?? false,
+          worldX: p.worldX,
+          worldY: p.worldY,
+          worldZ: p.worldZ
         }
       ])
     );
     for (const player of state.players) {
+      if (player.respawned) this.respawnedPlayers.add(player.playerNumber);
       this.ensureCarVisual(player.playerNumber, player.color);
       if (state.raceStatus === "racing" && this.lastRaceStatus === "countdown") {
         const { x, z } = computeRacingCarWorldTransform(player);
@@ -363,9 +437,13 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.snapshotTimes = [];
     this.lastSnapshotAt = 0;
     this.finishedPlayers.clear();
+    this.respawnedPlayers.clear();
     this.lastSkidSpawn.clear();
     this.visualYaw.clear();
     this.visualWheelSteer.clear();
+    this.visualPitch.clear();
+    this.previousCarHeight.clear();
+    this.lastCameraFrameAt = 0;
     this.lastRaceStatus = null;
   }
 
@@ -375,8 +453,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.updateRenderBudget(_timestamp);
 
     const positions = this.interpolationBuffer.interpolate(performance.now());
-    let focused: { x: number; z: number; cameraYaw: number; speed: number; progress: number; playerNumber: number; headingError: number } | null = null;
-    let leader: { x: number; z: number; cameraYaw: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number } | null = null;
+    this.updateRoadObstacles(_timestamp);
+    let focused: { x: number; y: number; z: number; cameraYaw: number; speed: number; progress: number; playerNumber: number; headingError: number; airborne: boolean } | null = null;
+    let leader: { x: number; y: number; z: number; cameraYaw: number; speed: number; rank: number; progress: number; playerNumber: number; headingError: number; airborne: boolean } | null = null;
     const otherCarPositions: Array<{ playerNumber: number; x: number; z: number }> = [];
 
     for (const [playerNumber, car] of this.cars) {
@@ -387,26 +466,47 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         continue;
       }
 
-      const { x, z, heading } = computeRacingCarWorldTransform(pos);
-      if (!Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(heading)) {
-        if (DEV_MODE) console.warn("Invalid Racing car transform", { playerNumber, pos, x, z, heading });
+      const { x, y, z, heading } = computeRacingCarWorldTransform(pos);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(heading)) {
+        if (DEV_MODE) console.warn("Invalid Racing car transform", { playerNumber, pos, x, y, z, heading });
         continue;
       }
-      car.root.position.set(x, 0, z);
+      car.root.position.set(x, y, z);
       const steering = pos.steering ?? 0;
-      const visualSlip = clamp(pos.headingError * 0.85 + steering * 0.16, -0.62, 0.62);
+      const visualSlip = clamp(pos.headingError + steering * 0.1, -1.05, 1.05);
       const targetYaw = -(heading + visualSlip);
       const previousYaw = this.visualYaw.get(playerNumber) ?? targetYaw;
       const smoothedYaw = previousYaw + shortestAngleDelta(previousYaw, targetYaw) * 0.34;
       this.visualYaw.set(playerNumber, smoothedYaw);
       car.root.rotation.y = smoothedYaw;
-      const cameraYaw = -(heading + clamp(pos.headingError * 0.22, -0.24, 0.24));
-      // Chassis lean: bank the body slightly into turns, proportional to how
-      // hard the car is steering and how fast it's going. car.root.rotation.z
-      // is never set anywhere else, so reading it back each frame doubles as
-      // the lean's own persistent accumulator - no extra state map needed.
-      const leanTarget = clamp((pos.headingError + steering * 0.12) * pos.speed * 0.01, -0.08, 0.08);
+      const cameraYaw = -(heading + clamp(pos.headingError * 0.52, -0.58, 0.58));
+      // Grounded roll/pitch read the track's own authored bank/slope at this
+      // car's exact progress+lateralOffset - not inferred from consecutive
+      // network positions, which would be noisy and indistinguishable from
+      // drift lean. Airborne cars have no ground to read, so roll falls back
+      // to drift-lean-only and pitch derives from an estimated vertical
+      // velocity instead (see below).
+      const groundedFrame = pos.airborne ? null : sampleRacingTrackFrame(TEST_OVAL_TRACK, pos.progress, pos.lateralOffset);
+      // Chassis lean: bank angle (grounded) plus a small drift-lean layered
+      // on top, proportional to how hard the car is steering and how fast
+      // it's going. car.root.rotation.z is never set anywhere else, so
+      // reading it back each frame doubles as the lean's own persistent
+      // accumulator - no extra state map needed for the drift component.
+      const leanTarget = (groundedFrame?.bankAngle ?? 0) + clamp((pos.headingError + steering * 0.12) * pos.speed * 0.01, -0.08, 0.08);
       car.root.rotation.z = car.root.rotation.z * 0.85 + leanTarget * 0.15;
+      // Pitch: grounded pitch follows the track's slope; airborne pitch is
+      // derived from a client-side vertical-velocity estimate (a finite
+      // difference of consecutive rendered heights), the same style of
+      // client-derived signal already used for `acceleration` in the Cycle 3
+      // driver-character spec, since raw velocity isn't sent over the wire.
+      const previousHeight = this.previousCarHeight.get(playerNumber) ?? y;
+      const verticalDelta = y - previousHeight;
+      this.previousCarHeight.set(playerNumber, y);
+      const pitchTarget = groundedFrame ? Math.atan(groundedFrame.slope) : clamp(-verticalDelta * 6, -0.5, 0.5);
+      const previousPitch = this.visualPitch.get(playerNumber) ?? pitchTarget;
+      const smoothedPitch = previousPitch + (pitchTarget - previousPitch) * 0.2;
+      this.visualPitch.set(playerNumber, smoothedPitch);
+      car.root.rotation.x = smoothedPitch;
       car.marker.visible = playerNumber === this.focusedPlayerNumber;
       for (const wheel of car.wheels) wheel.rotation.x -= pos.speed * 0.016;
       const wheelTarget = clamp(steering * 0.18 + pos.headingError * 0.035, -0.22, 0.22);
@@ -443,8 +543,10 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
 
       otherCarPositions.push({ playerNumber, x, z });
-      if (playerNumber === this.focusedPlayerNumber) focused = { x, z, cameraYaw, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError };
-      if (!leader || pos.rank < leader.rank) leader = { x, z, cameraYaw, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError };
+      if (playerNumber === this.focusedPlayerNumber)
+        focused = { x, y, z, cameraYaw, speed: pos.speed, progress: pos.progress, playerNumber, headingError: pos.headingError, airborne: pos.airborne ?? false };
+      if (!leader || pos.rank < leader.rank)
+        leader = { x, y, z, cameraYaw, speed: pos.speed, rank: pos.rank, progress: pos.progress, playerNumber, headingError: pos.headingError, airborne: pos.airborne ?? false };
     }
 
     if (DEV_MODE) {
@@ -460,6 +562,17 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
 
     const target = focused ?? leader;
     if (target) {
+      const cameraDeltaSeconds =
+        this.lastCameraFrameAt > 0 ? clamp((_timestamp - this.lastCameraFrameAt) / 1000, 1 / 120, 0.12) : 1 / 60;
+      this.lastCameraFrameAt = _timestamp;
+      // A respawn teleports the car far from wherever the camera was
+      // easing toward - continuing the normal damped follow would produce
+      // a long, wrong-looking slide chasing a car that already isn't
+      // there. Snap cleanly instead, the same way a fresh mount does.
+      if (this.respawnedPlayers.has(target.playerNumber)) {
+        this.cameraInitialized = false;
+        this.respawnedPlayers.delete(target.playerNumber);
+      }
       const config = this.cameraConfig(target.speed);
       const forwardX = -Math.sin(target.cameraYaw);
       const forwardZ = -Math.cos(target.cameraYaw);
@@ -498,16 +611,24 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       // constant, un-smoothable jitter on top of everything else, and was
       // the main source of the "too shaky" feedback. Height still lifts
       // slightly with speed for a touch of energy, without oscillating.
+      // target.y (the car's real world height, grounded or airborne) rides
+      // on top of the existing per-mode base height/look-height so the
+      // camera climbs and drops through jumps - no new easing system, it
+      // rides through the same damped step-clamp below as everything else.
       const desired = new THREE.Vector3(
         config.spectator ? target.x + 36 : behindX,
-        config.height + Math.min(1.4, target.speed * 0.03),
+        config.height + target.y + Math.min(1.4, target.speed * 0.03),
         config.spectator ? target.z + 34 : behindZ
       );
-      const desiredLook = new THREE.Vector3(
-        target.x + forwardX * config.lookAhead,
-        config.lookHeight,
-        target.z + forwardZ * config.lookAhead
-      );
+      // Clamp how far the look target's height can sit above/below the
+      // camera itself - an uncapped target.y contribution here would let a
+      // steep launch or landing swing the implied look-at pitch (via
+      // camera.lookAt below) sharply within a couple of frames, reading as
+      // a flip. The clamp bounds that angle regardless of how extreme the
+      // car's momentary height is, without touching the position damping.
+      const MAX_LOOK_HEIGHT_DELTA = 6;
+      const lookHeight = clamp(config.lookHeight + target.y, desired.y - MAX_LOOK_HEIGHT_DELTA, desired.y + MAX_LOOK_HEIGHT_DELTA);
+      const desiredLook = new THREE.Vector3(target.x + forwardX * config.lookAhead, lookHeight, target.z + forwardZ * config.lookAhead);
       if (!config.spectator) {
         if (config.avoidCars) this.pushCameraClearOfOtherCars(desired, target.playerNumber, otherCarPositions);
         if (config.avoidScenery) this.raycastCameraCollision(desired, desiredLook, _timestamp);
@@ -517,16 +638,16 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         this.lookTarget.copy(desiredLook);
         this.cameraInitialized = true;
       } else {
-        // Capped absolute step on top of the lerp - a plain lerp still
-        // moves a fixed *fraction* of however far "desired" jumped that
-        // frame, so a sudden target discontinuity (bouncing off a barrier,
-        // snapping back on track after an off-track excursion) could still
-        // move the camera several units in a single frame and read as a
-        // cut. Clamping the step means the camera eases up to a big jump
-        // over several frames instead of following it instantly.
-        const step = desired.clone().sub(camera.position).multiplyScalar(config.damping);
-        const MAX_CAMERA_STEP = 1.6;
-        if (step.length() > MAX_CAMERA_STEP) step.setLength(MAX_CAMERA_STEP);
+        // Speed-aware follow: a fixed cap made the camera fall behind when
+        // the car was fast and frame time spiked. Keep normal smoothing, but
+        // let the allowed step grow with actual car speed and frame delta.
+        const error = desired.clone().sub(camera.position);
+        const followDamping = config.spectator ? config.damping : Math.min(0.88, config.damping + clamp(Math.abs(target.speed) / 105, 0, 0.34));
+        const step = error.multiplyScalar(followDamping);
+        const maxCameraStep = config.spectator
+          ? 2.8
+          : Math.max(4.8, 2.4 + Math.abs(target.speed) * cameraDeltaSeconds * 5.2 + step.length() * 0.18);
+        if (step.length() > maxCameraStep) step.setLength(maxCameraStep);
         camera.position.add(step);
       }
       this.lookTarget.lerp(desiredLook, config.spectator ? 0.16 : 0.5);
@@ -551,6 +672,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       camera.fov += (config.fov + Math.min(3, target.speed * 0.045) - camera.fov) * 0.08;
       camera.updateProjectionMatrix();
     }
+    if (!target) this.lastCameraFrameAt = 0;
 
     this.effects?.update(_timestamp);
     renderer.render(scene, camera);
@@ -593,6 +715,53 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     if (this.cameraCollisionDistance >= distance - 0.05) return;
     desired.copy(lookAt).addScaledVector(direction, this.cameraCollisionDistance);
     desired.y += 0.75;
+  }
+
+  private buildRoadObstacles(): THREE.Group {
+    const group = new THREE.Group();
+    group.name = "animated-road-obstacles";
+    this.roadObstacles = [];
+    const colors: Array<[string, string]> = [
+      ["#fb7185", "#facc15"],
+      ["#38bdf8", "#a78bfa"],
+      ["#f97316", "#22c55e"],
+      ["#a855f7", "#f9a8d4"],
+      ["#22c55e", "#fde68a"]
+    ];
+    const placements = [
+      { progress: 86, baseLateral: -10, lateralSwing: 7, speed: 2.4, phase: 0.2 },
+      { progress: 214, baseLateral: 12, lateralSwing: 8, speed: 2.1, phase: 1.8 },
+      { progress: 378, baseLateral: 0, lateralSwing: 12, speed: 2.8, phase: 3.4 },
+      { progress: 548, baseLateral: -14, lateralSwing: 6, speed: 2.2, phase: 4.6 },
+      { progress: 744, baseLateral: 10, lateralSwing: 9, speed: 2.6, phase: 5.8 }
+    ];
+
+    for (let i = 0; i < placements.length; i++) {
+      const [body, accent] = colors[i % colors.length]!;
+      const obstacle = buildRoadMonster(body, accent);
+      obstacle.scale.setScalar(1.3);
+      group.add(obstacle);
+      this.roadObstacles.push({ root: obstacle, ...placements[i]! });
+    }
+    return group;
+  }
+
+  private updateRoadObstacles(timestamp: number): void {
+    if (this.roadObstacles.length === 0) return;
+    const t = timestamp / 1000;
+    for (const obstacle of this.roadObstacles) {
+      const progress = (obstacle.progress + t * obstacle.speed) % TEST_OVAL_TRACK.trackLength;
+      const lateral = clamp(
+        obstacle.baseLateral + Math.sin(t * 1.35 + obstacle.phase) * obstacle.lateralSwing,
+        -TEST_OVAL_TRACK.trackHalfWidth + 5,
+        TEST_OVAL_TRACK.trackHalfWidth - 5
+      );
+      const transform = computeRacingCarWorldTransform({ progress, lateralOffset: lateral, headingError: 0 });
+      obstacle.root.position.set(transform.x, transform.y + 0.08 + Math.sin(t * 5.4 + obstacle.phase) * 0.1, transform.z);
+      obstacle.root.rotation.y = -transform.heading + Math.sin(t * 2.1 + obstacle.phase) * 0.22;
+      const pulse = 1.28 + Math.sin(t * 4.2 + obstacle.phase) * 0.07;
+      obstacle.root.scale.setScalar(pulse);
+    }
   }
 
   /** Prevents the hood/close camera from ending up inside another car's tub/cockpit geometry when cars are bunched together (start grid, close racing). */
@@ -665,12 +834,18 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     return {
       distance: CAMERA_DISTANCE,
       height: CAMERA_HEIGHT,
-      lookHeight: 1.1,
-      lookAhead: 2.2,
-      fov: 60,
-      damping: 0.32,
+      lookHeight: 0.45,
+      lookAhead: 4.6,
+      fov: 58,
+      damping: 0.48,
       spectator: false,
-      avoidScenery: false,
+      // Was false: this is the default "chase" mode most players actually
+      // use, so leaving scenery collision off here (while "wide" and "hood"
+      // both had it on) meant the single most-used camera had no protection
+      // against clipping into trackside buildings/props - visible as a
+      // flat, unlit color filling the screen whenever the look-ahead point
+      // swung toward nearby scenery (e.g. during a large heading error).
+      avoidScenery: true,
       avoidCars: false
     };
   }
@@ -743,16 +918,11 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   }
 
   private applyImportedCarVisual(playerNumber: number, car: CarVisual): void {
-    const carScene = this.assetLibrary?.carScene ?? this.carAssetScene;
-    if (!carScene || car.importedRoot) return;
-    const color = this.colors.get(playerNumber) ?? BOT_FALLBACK_COLORS[Math.abs(playerNumber) % BOT_FALLBACK_COLORS.length] ?? "#f97316";
-    const imported = buildImportedCarVisual({ carScene }, color);
-    imported.root.position.y = -0.2;
-    car.body.visible = false;
-    car.root.add(imported.root);
-    car.importedRoot = imported.root;
-    car.wheels = imported.wheels;
-    car.frontWheels = imported.frontWheels;
+    // Keep the procedural kart visible for the KartRider-style art pass.
+    // The imported asset has a longer open-wheel silhouette that makes the
+    // scene read like an F1 racer even after the environment is cute/city-like.
+    void playerNumber;
+    void car;
   }
 
   private snapshotHz(): number {
@@ -806,6 +976,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.camera = null;
     this.renderer = null;
     this.cars.clear();
+    this.roadObstacles = [];
     this.interpolationBuffer.reset();
     this.lastRoundId = null;
     this.finishedPlayers.clear();

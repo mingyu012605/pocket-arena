@@ -7,19 +7,11 @@ export interface GameCatalogEntry {
   minPlayers: number;
   maxPlayers: number;
   playable: boolean;
+  successScore: number;
   icon: string;
 }
 
 export const GAME_CATALOG: GameCatalogEntry[] = [
-  {
-    id: "controller-test",
-    title: "Controller Test",
-    description: "Jump and dodge with your phone as a controller — the proving ground for every game to come.",
-    minPlayers: 1,
-    maxPlayers: 4,
-    playable: true,
-    icon: "🎮"
-  },
   {
     id: "rhythm-battle",
     title: "Rhythm Battle",
@@ -27,6 +19,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     minPlayers: 2,
     maxPlayers: 4,
     playable: false,
+    successScore: 0,
     icon: "🎵"
   },
   {
@@ -36,6 +29,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     minPlayers: 2,
     maxPlayers: 2,
     playable: false,
+    successScore: 0,
     icon: "🏓"
   },
   {
@@ -45,6 +39,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     minPlayers: 1,
     maxPlayers: 4,
     playable: false,
+    successScore: 0,
     icon: "🎳"
   },
   {
@@ -54,6 +49,7 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     minPlayers: 2,
     maxPlayers: 2,
     playable: false,
+    successScore: 0,
     icon: "🎾"
   },
   {
@@ -63,6 +59,27 @@ export const GAME_CATALOG: GameCatalogEntry[] = [
     minPlayers: 1,
     maxPlayers: 4,
     playable: true,
+    successScore: 98,
     icon: "🏎️"
+  },
+  {
+    id: "pocket-golf",
+    title: "Pocket Golf",
+    description: "Swing your phone like a short golf club through Cloudshore Golf Resort.",
+    minPlayers: 1,
+    maxPlayers: 4,
+    playable: true,
+    successScore: 91,
+    icon: "G"
+  },
+  {
+    id: "sketch-relay",
+    title: "Sketch Relay",
+    description: "Draw, guess, and reveal hilarious chains using phones as private sketch pads.",
+    minPlayers: 3,
+    maxPlayers: 12,
+    playable: true,
+    successScore: 86,
+    icon: "✏️"
   }
 ];

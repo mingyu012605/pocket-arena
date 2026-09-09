@@ -14,11 +14,19 @@ import type {
   CreateRoomRequest,
   CreateRoomResponse,
   ErrorPayload,
+  GolfAimPayload,
+  GolfClubPoseSubmission,
+  GolfSwingSubmission,
+  GameStartRequest,
   HostReconnectRequest,
   HostReconnectResponse,
   InputActionPayload,
   PlayerReadyRequest,
   RacingInputPayload,
+  SketchRelayDrawingSubmission,
+  SketchRelayReactionPayload,
+  SketchRelayRevealControlPayload,
+  SketchRelayTextSubmission,
   ValidateTokenRequest,
   ValidateTokenResponse
 } from "../shared/protocol";
@@ -55,9 +63,32 @@ import {
   stopRacingPhysicsLoop,
   toGameStatePayload
 } from "./games/racing";
+import {
+  emitSketchAssignmentToPlayer,
+  handleSketchReaction,
+  handleSketchRevealControl,
+  handleSketchSubmission,
+  startSketchRelay,
+  stopSketchRelay
+} from "./games/sketchRelay";
+import {
+  handleGolfAim,
+  handleGolfClubPose,
+  handleGolfSwing,
+  startPocketGolf,
+  toPocketGolfGameStatePayload
+} from "./games/pocketGolf";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
   return { ok: false, error: { code, message } };
+}
+
+function playerLimitsForGame(gameType: CreateRoomRequest["gameType"]): { min: number; max: number } {
+  if (gameType === "sketch-relay") return { min: 3, max: 12 };
+  if (gameType === "pocket-golf") return { min: 1, max: 4 };
+  if (gameType === "table-tennis" || gameType === "tennis") return { min: 2, max: 2 };
+  if (gameType === "rhythm-battle") return { min: 2, max: 4 };
+  return { min: MIN_PLAYERS, max: 4 };
 }
 
 function broadcastRoomState(io: Server, room: InternalRoom): void {
@@ -74,8 +105,9 @@ function connectedSocketIds(room: InternalRoom): string[] {
 function endRound(room: InternalRoom): void {
   if (room.countdownTimer) clearTimeout(room.countdownTimer);
   room.countdownTimer = null;
+  stopSketchRelay(room);
   if (room.gameType === "racing") stopRacingPhysicsLoop(room);
-  else stopPhysicsLoop(room);
+  else if (room.gameType !== "sketch-relay" && room.gameType !== "pocket-golf") stopPhysicsLoop(room);
   room.status = "lobby";
   room.roundId = null;
   room.countdownEndsAt = null;
@@ -115,8 +147,9 @@ export function registerSocketHandlers(io: Server, port: number): void {
     socket.on(
       SOCKET_EVENTS.HOST_CREATE_ROOM,
       async (payload: CreateRoomRequest, ack: (res: Ack<CreateRoomResponse>) => void) => {
-        if (payload.maxPlayers < MIN_PLAYERS || payload.maxPlayers > MAX_PLAYERS) {
-          return ack(errorAck("invalid-room", "Player count must be between 1 and 4."));
+        const limits = playerLimitsForGame(payload.gameType);
+        if (payload.maxPlayers < limits.min || payload.maxPlayers > Math.min(limits.max, MAX_PLAYERS)) {
+          return ack(errorAck("invalid-room", `Player count must be between ${limits.min} and ${limits.max}.`));
         }
         const room = createRoom(payload.gameType, payload.maxPlayers);
         room.hostSocketId = socket.id;
@@ -142,7 +175,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
 
     socket.on(
       SOCKET_EVENTS.HOST_RECONNECT,
-      (payload: HostReconnectRequest, ack: (res: Ack<HostReconnectResponse>) => void) => {
+      async (payload: HostReconnectRequest, ack: (res: Ack<HostReconnectResponse>) => void) => {
         const room = getRoom(payload.roomId);
         if (!room) return ack(errorAck("invalid-room", "This room no longer exists."));
         if (room.hostToken !== payload.hostToken) return ack(errorAck("invalid-token", "Invalid host session."));
@@ -157,8 +190,22 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (room.status === "host-disconnected") {
           endRound(room);
         }
+        const publicUrl = resolvePublicBaseUrl({
+          requestOrigin: payload.publicOrigin ?? socket.handshake.headers.origin,
+          forwardedProto: socket.handshake.headers["x-forwarded-proto"],
+          forwardedHost: socket.handshake.headers["x-forwarded-host"],
+          host: socket.handshake.headers.host,
+          fallbackPort: port
+        });
+        console.info("[host:reconnect]", {
+          roomId: room.id,
+          gameType: room.gameType,
+          requestOrigin: payload.publicOrigin ?? socket.handshake.headers.origin,
+          publicUrl
+        });
+        const slots = await buildSlotQrData(room, publicUrl);
         broadcastRoomState(io, room);
-        ack({ ok: true, room: toPublicRoomState(room) });
+        ack({ ok: true, slots, room: toPublicRoomState(room) });
       }
     );
 
@@ -232,6 +279,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
         });
         broadcastRoomState(io, room);
         ack({ ok: true, room: toPublicRoomState(room), color: player.color });
+        emitSketchAssignmentToPlayer(io, room, player.playerNumber);
       }
     );
 
@@ -285,6 +333,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
           controllerToken: player.token,
           room: toPublicRoomState(room)
         });
+        emitSketchAssignmentToPlayer(io, room, player.playerNumber);
       }
     );
 
@@ -302,7 +351,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
         player.ready = false;
         player.socketId = null;
         if (room.gameType === "racing") resetCarInput(room, player.playerNumber);
-        else resetPlayerDirection(room, player.playerNumber);
+        else if (room.gameType !== "sketch-relay") resetPlayerDirection(room, player.playerNumber);
       }
       socket.leave(roomChannel(room.id));
       socket.data.session = undefined;
@@ -324,7 +373,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
       ack({ ok: true } as Ack<Record<string, never>>);
     });
 
-    socket.on(SOCKET_EVENTS.GAME_START, (_payload: unknown, ack: (res: Ack<Record<string, never>>) => void) => {
+    socket.on(SOCKET_EVENTS.GAME_START, (payload: GameStartRequest | undefined, ack: (res: Ack<Record<string, never>>) => void) => {
       const session = socket.data.session;
       if (!session || session.role !== "host") return ack(errorAck("not-host", "Only the host can start the game."));
       const room = getRoom(session.roomId);
@@ -336,6 +385,16 @@ export function registerSocketHandlers(io: Server, port: number): void {
         return ack(errorAck("not-ready", "Every player slot must be connected and ready."));
       }
       room.roundId = createToken();
+      if (room.gameType === "sketch-relay") {
+        startSketchRelay(io, room, room.roundId, payload?.sketchRelay);
+        ack({ ok: true } as Ack<Record<string, never>>);
+        return;
+      }
+      if (room.gameType === "pocket-golf") {
+        startPocketGolf(io, room, room.roundId);
+        ack({ ok: true } as Ack<Record<string, never>>);
+        return;
+      }
       room.status = "countdown";
       room.countdownEndsAt = Date.now() + 4000;
       room.gameState = room.gameType === "racing" ? createRacingGameState(room) : createControllerTestGameState(room);
@@ -344,6 +403,103 @@ export function registerSocketHandlers(io: Server, port: number): void {
         io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toGameStatePayload(room));
       }
       runCountdown(io, room);
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.SKETCH_SUBMIT_TEXT, (payload: SketchRelayTextSubmission, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleSketchSubmission(io, room, session.playerNumber, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_AIM, (payload: GolfAimPayload, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleGolfAim(io, room, session.playerNumber, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_CLUB_POSE, (payload: GolfClubPoseSubmission, ack?: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") {
+        ack?.(errorAck("invalid-player", "No active player session."));
+        return;
+      }
+      const room = getRoom(session.roomId);
+      if (!room) {
+        ack?.(errorAck("invalid-room", "Room no longer exists."));
+        return;
+      }
+      const result = handleGolfClubPose(io, room, session.playerNumber, payload);
+      if (!result.ok) {
+        ack?.(errorAck("invalid-room", result.message));
+        return;
+      }
+      ack?.({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_REQUEST_STATE, (_payload: unknown, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session) return ack(errorAck("invalid-player", "No active session."));
+      const room = getRoom(session.roomId);
+      if (!room || room.gameState?.gameType !== "pocket-golf" || !room.roundId) {
+        return ack(errorAck("invalid-room", "Pocket Golf is not active."));
+      }
+      socket.emit(SOCKET_EVENTS.GAME_STATE, toPocketGolfGameStatePayload(room.gameState, room.roundId));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_SWING, (payload: GolfSwingSubmission, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleGolfSwing(io, room, session.playerNumber, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.SKETCH_SUBMIT_DRAWING, (payload: SketchRelayDrawingSubmission, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleSketchSubmission(io, room, session.playerNumber, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.SKETCH_REVEAL_CONTROL, (payload: SketchRelayRevealControlPayload, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "host") return ack(errorAck("not-host", "Only the host can control reveal."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleSketchRevealControl(io, room, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.SKETCH_REACTION, (payload: SketchRelayReactionPayload) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return;
+      const room = getRoom(session.roomId);
+      if (!room) return;
+      handleSketchReaction(io, room, session.playerNumber, payload);
+    });
+
+    socket.on(SOCKET_EVENTS.SKETCH_REQUEST_ASSIGNMENT, (_payload: unknown, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      emitSketchAssignmentToPlayer(io, room, session.playerNumber);
       ack({ ok: true } as Ack<Record<string, never>>);
     });
 
@@ -486,7 +642,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (room.gameType === "racing") {
           stopRacingPhysicsLoop(room);
           resetAllRacingInputs(room);
-        } else {
+        } else if (room.gameType !== "sketch-relay") {
           stopPhysicsLoop(room);
           resetAllDirections(room);
         }
@@ -504,7 +660,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
           player.connected = false;
           player.socketId = null;
           if (room.gameType === "racing") resetCarInput(room, player.playerNumber);
-          else resetPlayerDirection(room, player.playerNumber);
+          else if (room.gameType !== "sketch-relay") resetPlayerDirection(room, player.playerNumber);
           io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.PLAYER_DISCONNECTED, { playerNumber: player.playerNumber });
           broadcastRoomState(io, room);
         }

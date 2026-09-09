@@ -54,6 +54,10 @@ export function controllerTypeForGame(gameType: GameType): ControllerType {
       return "motion-swing";
     case "rhythm-battle":
       return "touch-motion";
+    case "sketch-relay":
+      return "drawing-pad";
+    case "pocket-golf":
+      return "golf-swing";
     case "controller-test":
       return "button-controller";
   }

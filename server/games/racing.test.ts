@@ -1,11 +1,25 @@
 import type { Server } from "socket.io";
 import { describe, expect, it } from "vitest";
-import { TEST_OVAL_TRACK, shortestProgressDelta } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt, sampleRacingTrackFrame, centerlineTangentAngle } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
-import { RACING, checkRaceCompletion, createRacingGameState, stepCar, stepPhysics, toGameStatePayload } from "./racing";
+import {
+  RACING,
+  checkRaceCompletion,
+  createRacingGameState,
+  stepCar,
+  stepPhysics,
+  toGameStatePayload,
+  updateRanks,
+  respawnFallenCar,
+  RESPAWN_DELAY_MS,
+  RESPAWN_SPEED_FACTOR,
+  checkpointsFor,
+  advanceCheckpoint,
+  resolveCollisions
+} from "./racing";
 import { createRoom, findPlayer } from "../rooms";
-import type { RacingCarState } from "../types";
+import type { RacingCarState, RacingGameState } from "../types";
 
 function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
   return {
@@ -15,6 +29,7 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     speed: 0,
     yawRate: 0,
     steering: 0,
+    smoothedSteering: 0,
     throttle: 0,
     brake: 0,
     lastInputAt: Date.now(),
@@ -25,9 +40,43 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     lap: 1,
     finished: false,
     finishTime: null,
+    airborne: false,
+    worldX: 0,
+    worldY: 0,
+    worldZ: 0,
+    velocityX: 0,
+    velocityY: 0,
+    velocityZ: 0,
+    takeoffProgress: 0,
+    settleTimer: 0,
+    settleFromPitch: 0,
+    hardLanding: false,
+    fallenAt: null,
+    lastCheckpointIndex: -1,
+    projectedProgress: 0,
+    lastRespawnAt: 0,
     ...overrides
   };
 }
+
+function shortestTestAngleDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
+const rampTrack = createTrack(
+  "test-ramp",
+  [
+    { x: 0, z: 0, y: 0, segmentType: "flat" },
+    { x: 100, z: 0, y: 5, segmentType: "ramp", jumpSpan: 60 }, // matches the fixture's own measured 60-unit gap width (empirically verified: gap spans [173,233))
+    { x: 160, z: 0, y: 0, segmentType: "gap" },
+    { x: 220, z: 0, y: 0, segmentType: "landing" },
+    { x: 300, z: 0, y: 0, segmentType: "flat" }
+  ],
+  12
+);
 
 describe("stepCar", () => {
   it("accelerates forward and increases progress under full throttle with no steering", () => {
@@ -35,7 +84,7 @@ describe("stepCar", () => {
     for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(car.speed).toBeGreaterThan(0);
     expect(car.progress).toBeGreaterThan(0);
-    expect(car.lateralOffset).toBeCloseTo(0, 1);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
   });
 
   it("turns by yawing the car first, then drifting laterally from its heading", () => {
@@ -104,6 +153,21 @@ describe("stepCar", () => {
     expect(car.speed).toBeGreaterThan(0);
   });
 
+  it("rebounds immediately when the car crosses the visible road edge", () => {
+    const car = makeCar({
+      speed: 26,
+      lateralOffset: TEST_OVAL_TRACK.trackHalfWidth + 1.1,
+      steering: 1,
+      headingError: 0.22,
+      throttle: 1
+    });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
+    expect(car.headingError).toBeLessThan(0);
+    expect(car.yawRate).toBeLessThan(0);
+    expect(car.speed).toBeGreaterThan(18);
+  });
+
   it("handles corner barrier impact without extreme speed reduction", () => {
     const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
     const car = makeCar({ speed: 30, progress: TEST_OVAL_TRACK.trackLength * 0.32, lateralOffset: -barrierLimit - 5, steering: -1 });
@@ -112,16 +176,128 @@ describe("stepCar", () => {
     expect(car.speed).toBeGreaterThan(20);
   });
 
+  it("bounces a hard side impact back onto the road instead of leaving the car grinding outside", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 34, lateralOffset: barrierLimit + 6, steering: 1, headingError: 0.42 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth - 1);
+    expect(car.headingError).toBeLessThan(0);
+    expect(car.yawRate).toBeLessThan(0);
+    expect(car.speed).toBeGreaterThan(20);
+    expect(car.lastCollisionAt).toBeGreaterThan(0);
+  });
+
+  it("keeps repeated side impacts from slowly pushing through trackside scenery", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 32, lateralOffset: barrierLimit + 2, steering: 1, throttle: 1, headingError: 0.35 });
+    for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
+    expect(car.speed).toBeGreaterThan(0);
+    expect(car.lastCollisionAt).toBeGreaterThan(0);
+  });
+
   it("coasts to a stop with no throttle or brake", () => {
     const car = makeCar({ speed: 10 });
     for (let i = 0; i < 300; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(car.speed).toBe(0);
   });
 
-  it("re-centers heading when steering returns to neutral", () => {
+  it("keeps a neutral wheel moving straight instead of auto-following a curved road", () => {
+    const car = makeCar({ speed: 30, throttle: 1, steering: 0 });
+    const startWorldHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress) + car.headingError;
+    const startTrackHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress);
+    for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    const endWorldHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress) + car.headingError;
+    const endTrackHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress);
+    const worldDelta = Math.abs(shortestTestAngleDelta(startWorldHeading, endWorldHeading));
+    const trackDelta = Math.abs(shortestTestAngleDelta(startTrackHeading, endTrackHeading));
+
+    expect(worldDelta).toBeLessThan(trackDelta * 0.82);
+    expect(Math.abs(car.lateralOffset)).toBeGreaterThan(6);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
+  });
+
+  it("keeps neutral steering forgiving without snapping the car back to the road tangent", () => {
     const car = makeCar({ speed: 20, headingError: 0.7, steering: 0 });
     for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
-    expect(Math.abs(car.headingError)).toBeLessThan(0.12);
+
+    expect(Math.abs(car.headingError)).toBeGreaterThan(0.05);
+    expect(Math.abs(car.headingError)).toBeLessThan(0.7);
+  });
+
+  it("lets a modest wheel input hold the opening curve", () => {
+    const neutral = makeCar({ speed: 30, throttle: 1, steering: 0 });
+    const steered = makeCar({ speed: 30, throttle: 1, steering: 0.15 });
+    for (let i = 0; i < 120; i++) {
+      stepCar(TEST_OVAL_TRACK, neutral, 1 / 60);
+      stepCar(TEST_OVAL_TRACK, steered, 1 / 60);
+    }
+
+    expect(Math.abs(steered.lateralOffset)).toBeLessThan(Math.abs(neutral.lateralOffset) * 0.5);
+    expect(Math.abs(steered.lateralOffset)).toBeLessThan(8);
+  });
+
+  it("an active corrective controller keeps the car from oscillating out of control", () => {
+    // Regression test for a real bug: a previous physics model passed every
+    // other test in this file (all of which use short, fixed steering
+    // values) while still being uncontrollable in actual play, because none
+    // of them exercised a realistic *reactive* steering signal continuously
+    // responding to the car's own drift over an extended, curving drive.
+    // This simulates exactly that - a simple proportional "stay centered
+    // and aligned" controller, the same shape of correction any attentive
+    // player or the bot AI applies - and asserts the closed loop actually
+    // converges instead of diverging or sustaining large oscillation.
+    const car = makeCar({ speed: RACING.maxSpeed, throttle: 1 });
+    let maxAbsLateralInSecondHalf = 0;
+    const totalTicks = 600; // 10 seconds at 60Hz, crosses multiple curves/banks
+    for (let i = 0; i < totalTicks; i++) {
+      const kLateral = 0.05;
+      const kHeading = 0.9;
+      car.steering = Math.max(-1, Math.min(1, -car.lateralOffset * kLateral - car.headingError * kHeading));
+      stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+      if (i > totalTicks / 2) {
+        maxAbsLateralInSecondHalf = Math.max(maxAbsLateralInSecondHalf, Math.abs(car.lateralOffset));
+      }
+    }
+    // A controllable car under active correction should settle well inside
+    // the track, nowhere near the barrier - not merely "less than trackHalfWidth"
+    // (34), which would still pass for a car swinging wall-to-wall.
+    expect(maxAbsLateralInSecondHalf).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth * 0.4);
+  });
+
+  it("settles after a hard barrier disturbance instead of ping-ponging between both barriers forever", () => {
+    // Regression test for a real bug: removing the old (too strong) curve-
+    // following auto-centering entirely, rather than weakening it, left
+    // NOTHING ever pulling headingError back toward straight while the
+    // wheel is neutral. A car kicked hard off-line by a barrier rebound
+    // (which imparts a large opposing headingError by design, so it doesn't
+    // grind along the wall) would sail all the way across the track, slam
+    // the opposite barrier, get kicked back just as hard, and repeat
+    // indefinitely - confirmed empirically by a live drive with steering
+    // held at zero for its entire duration, which still bounced wall to
+    // wall every couple of seconds with no sign of settling.
+    const car = makeCar({
+      speed: RACING.maxSpeed,
+      throttle: 1,
+      lateralOffset: TEST_OVAL_TRACK.trackHalfWidth * 0.95,
+      headingError: -0.75 // pointed back across the track, as a barrier rebound would leave it
+    });
+    let crossingsPastHalfway = 0;
+    let wasOnPositiveSide = car.lateralOffset > 0;
+    const totalTicks = 900; // 15 seconds - several times longer than one wall-to-wall ping-pong cycle
+    for (let i = 0; i < totalTicks; i++) {
+      car.steering = 0; // wheel held neutral for the whole run, deliberately
+      stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+      const isOnPositiveSide = car.lateralOffset > 0;
+      if (isOnPositiveSide !== wasOnPositiveSide && Math.abs(car.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth * 0.6) {
+        crossingsPastHalfway += 1;
+      }
+      wasOnPositiveSide = isOnPositiveSide;
+    }
+    // One initial crossing (settling toward the other side after the first
+    // disturbance) is fine; repeatedly slamming past the halfway mark on
+    // both sides is the ping-pong bug.
+    expect(crossingsPastHalfway).toBeLessThanOrEqual(1);
   });
 
   it("tilting backward applies reverse after braking to a stop", () => {
@@ -455,5 +631,396 @@ describe("checkRaceCompletion", () => {
 
     expect(finished).toBe(false);
     expect(gameState.finishOrder).toEqual([1, 2]);
+  });
+});
+
+// Empirically verified segment boundaries for `rampTrack` (Catmull-Rom arc
+// length isn't proportional to waypoint x-spacing, so these are measured,
+// not estimated): flat [0,113), ramp [113,173), gap [173,233),
+// landing [233,330), flat (wrap) [330, trackLength).
+const RAMP_SEGMENT_START = 113;
+const RAMP_SEGMENT_END = 173;
+
+describe("airborne launch", () => {
+  // Launch only fires at the ramp segment's *exit* edge, not simply from
+  // being somewhere on the ramp - so tests drive forward until the car
+  // actually crosses that edge, rather than assuming one tick does it.
+  it("launches airborne with upward velocity above the minimum launch speed", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    expect(car.velocityY).toBeGreaterThan(0);
+  });
+
+  it("drops off the ramp edge without a launch arc below the minimum speed", () => {
+    // Positioned within coasting distance of the ramp's exit edge (speed=5
+    // decelerating at RACING.coastDrag covers at most 2.5 units before
+    // stopping), so it reaches the edge with residual speed still under
+    // MIN_LAUNCH_SPEED rather than stopping short of it.
+    const car = makeCar({ progress: RAMP_SEGMENT_END - 2, speed: 5 });
+    for (let i = 0; i < 100 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    expect(car.velocityY).toBeLessThanOrEqual(0.5);
+  });
+
+  it("integrates world-space position under gravity while airborne", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const startY = car.worldY;
+    const startVelocityY = car.velocityY;
+    stepCar(rampTrack, car, 1 / 60);
+    expect(car.velocityY).toBeLessThan(startVelocityY);
+    expect(car.worldY).not.toBe(startY);
+  });
+
+  it("freezes progress at takeoff while airborne", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const frozen = car.progress;
+    for (let i = 0; i < 10; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.progress).toBe(frozen);
+  });
+
+  it("launches with velocity aligned to the track's forward direction, not sideways", () => {
+    // Regression test for a trig-convention bug: forward direction from
+    // `heading` is (sin(heading), -cos(heading)) in this codebase, not the
+    // (cos(heading), sin(heading)) pair used for lateral offset. Getting
+    // this backwards sent launched cars flying sideways in Z instead of
+    // forward in X.
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const frame = sampleRacingTrackFrame(rampTrack, car.takeoffProgress, 0);
+    const forwardX = Math.sin(frame.heading);
+    const forwardZ = -Math.cos(frame.heading);
+    const speedXZ = Math.hypot(car.velocityX, car.velocityZ) || 1;
+    const forwardAlignment = (car.velocityX * forwardX + car.velocityZ * forwardZ) / speedXZ;
+    expect(forwardAlignment).toBeGreaterThan(0.99);
+  });
+
+  it("captures the ramp's authored jumpSpan at takeoff, not the next segment's default", () => {
+    // Regression test: takeoffProgress must be captured before
+    // stepGroundedCar's forward step carries the car past the ramp's own
+    // segment into the next (gap) segment, which has no jumpSpan of its
+    // own - reading it post-movement silently fell back to the 30-unit
+    // default instead of this fixture's authored 60.
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 25, throttle: 1 });
+    for (let i = 0; i < 200 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    expect(rampJumpSpanAt(rampTrack, car.takeoffProgress)).toBe(60);
+  });
+});
+
+describe("landing", () => {
+  it("lands within the landing zone's lateral bounds and re-grounds", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && car.airborne === false; i++) stepCar(rampTrack, car, 1 / 60);
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    // Landing zone measured at [233, 330) for this fixture.
+    expect(car.progress).toBeGreaterThanOrEqual(173);
+    expect(car.progress).toBeLessThan(330);
+  });
+
+  it("does not land laterally outside the landing zone's bounds", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    car.velocityZ += 100; // force a hard sideways drift well outside the track's lateral bounds
+    for (let i = 0; i < 30; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+  });
+
+  it("resolves overlapping landing candidates by earliest crossing time", () => {
+    const stackedTrack = createTrack(
+      "test-stacked",
+      [
+        { x: 0, z: 0, y: 0, segmentType: "flat" },
+        { x: 100, z: 0, y: 10, segmentType: "ramp", jumpSpan: 60 },
+        { x: 160, z: 0, y: 10, segmentType: "gap" },
+        { x: 220, z: 0, y: 3, segmentType: "landing" },
+        { x: 280, z: 0, y: 0, segmentType: "flat" }
+      ],
+      12
+    );
+    // Empirically verified: flat [0,111), ramp [111,171), gap [171,231), landing [231,311).
+    const car = makeCar({ progress: 113, speed: 35, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(stackedTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(stackedTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    expect(car.worldY).toBeGreaterThan(1);
+  });
+
+  it("does not tunnel through a thin landing surface at a coarser timestep", () => {
+    const car60 = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    const car30 = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 600; i++) stepCar(rampTrack, car60, 1 / 60);
+    for (let i = 0; i < 300; i++) stepCar(rampTrack, car30, 1 / 30);
+    expect(car60.airborne).toBe(false);
+    expect(car30.airborne).toBe(false);
+  });
+
+  it("applies a longer settle and a speed reduction on a hard (steep) landing", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    // Let the natural arc carry it most of the way toward the landing zone
+    // first, then force a much steeper descent angle for the final
+    // approach - forcing the steep dive immediately at takeoff (zero
+    // altitude, still over the gap) would just fall through before ever
+    // reaching a valid landing candidate.
+    for (let i = 0; i < 90; i++) stepCar(rampTrack, car, 1 / 60);
+    car.velocityY = -40;
+    for (let i = 0; i < 90 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    expect(car.settleTimer).toBeGreaterThan(0);
+  });
+});
+
+describe("projected progress during flight", () => {
+  it("advances projectedProgress forward while airborne without moving real progress", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const frozenProgress = car.progress;
+    const firstProjected = car.projectedProgress;
+    for (let i = 0; i < 5 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.progress).toBe(frozenProgress);
+    expect(car.projectedProgress).toBeGreaterThan(firstProjected);
+  });
+
+  it("clamps projectedProgress to the authored jumpSpan window", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    const jumpSpan = rampJumpSpanAt(rampTrack, car.takeoffProgress) ?? 30;
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.projectedProgress).toBeLessThanOrEqual(car.takeoffProgress + jumpSpan * 1.5 + 0.01);
+  });
+
+  it("ranks an airborne car by projectedProgress, not frozen progress", () => {
+    const room = createRoom("racing", 2);
+    room.gameState = createRacingGameState(room);
+    const gameState = room.gameState;
+    if (gameState.gameType !== "racing") throw new Error("expected racing state");
+    // flying's real progress is frozen below grounded's, but it's further
+    // ahead by projectedProgress - ranking must use the latter while airborne.
+    const flying = makeCar({ progress: 500, projectedProgress: 550, airborne: true });
+    const grounded = makeCar({ progress: 520, projectedProgress: 520, airborne: false });
+    gameState.cars.set(1, flying);
+    gameState.cars.set(2, grounded);
+    updateRanks(gameState);
+    expect(flying.rank).toBeLessThan(grounded.rank);
+  });
+});
+
+describe("fall recovery", () => {
+  it("marks a car fallen when it exits the search window without landing", () => {
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(true);
+    car.velocityZ += 100; // force a hard sideways drift that can never land
+    for (let i = 0; i < 300 && car.fallenAt === null; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.fallenAt).not.toBeNull();
+  });
+
+  it("respawns a fallen car at its last checkpoint after the delay, fully resetting airborne state", () => {
+    const car = makeCar({
+      progress: 999,
+      lateralOffset: 40,
+      airborne: true,
+      velocityX: 5,
+      velocityY: -3,
+      velocityZ: 2,
+      fallenAt: Date.now() - (RESPAWN_DELAY_MS + 50),
+      lastCheckpointIndex: 0
+    });
+    const checkpoints = [0, 200, 400, 600];
+    respawnFallenCar(rampTrack, car, checkpoints);
+    expect(car.airborne).toBe(false);
+    expect(car.velocityX).toBe(0);
+    expect(car.velocityY).toBe(0);
+    expect(car.velocityZ).toBe(0);
+    expect(car.fallenAt).toBeNull();
+    expect(car.progress).toBe(checkpoints[0]);
+    expect(car.lateralOffset).toBe(0);
+    expect(car.speed).toBeLessThanOrEqual(RACING.maxSpeed * RESPAWN_SPEED_FACTOR + 0.01);
+  });
+
+  it("surfaces a transient respawned flag on the game-state payload so the client can snap its camera instead of easing through the teleport", () => {
+    const room = createRoom("racing", 1);
+    const gameState = createRacingGameState(room);
+    room.gameState = gameState;
+    const car = gameState.cars.get(1)!;
+    car.airborne = true;
+    car.fallenAt = Date.now() - (RESPAWN_DELAY_MS + 50);
+    car.lastCheckpointIndex = 0;
+
+    stepPhysics(room, 0);
+    const payload = toGameStatePayload(room);
+
+    expect(payload.players.find((p) => p.playerNumber === 1)?.respawned).toBe(true);
+  });
+});
+
+describe("checkpoints", () => {
+  it("advances lastCheckpointIndex as a car crosses checkpoints in order", () => {
+    const track = TEST_OVAL_TRACK;
+    const checkpoints = checkpointsFor(track);
+    const car = makeCar({ progress: checkpoints[1]! + 1, lastCheckpointIndex: 0 });
+    advanceCheckpoint(track, car, checkpoints);
+    expect(car.lastCheckpointIndex).toBe(1);
+  });
+
+  it("does not regress lastCheckpointIndex on a manufactured backward jump", () => {
+    const track = TEST_OVAL_TRACK;
+    const checkpoints = checkpointsFor(track);
+    const car = makeCar({ progress: checkpoints[1]! + 1, lastCheckpointIndex: 2 });
+    advanceCheckpoint(track, car, checkpoints);
+    expect(car.lastCheckpointIndex).toBe(2);
+  });
+
+  it("does not let the mid-flight projected-progress hint advance checkpoints", () => {
+    const track = TEST_OVAL_TRACK;
+    const checkpoints = checkpointsFor(track);
+    const car = makeCar({
+      progress: checkpoints[0]! + 1,
+      projectedProgress: checkpoints[3]! + 1,
+      airborne: true,
+      lastCheckpointIndex: 0
+    });
+    advanceCheckpoint(track, car, checkpoints);
+    expect(car.lastCheckpointIndex).toBe(0);
+  });
+
+  it("does not automatically credit a checkpoint just from landing - only the actual landed progress counts", () => {
+    // Land the car (via real physics) somewhere inside the gap/landing
+    // zone, well before rampTrack's own next checkpoint boundary, and
+    // confirm the checkpoint index only reflects where it actually landed,
+    // not an implicit "you landed, so you must have reached the zone's
+    // checkpoint" credit.
+    const checkpoints = checkpointsFor(rampTrack);
+    const car = makeCar({ progress: RAMP_SEGMENT_START + 2, speed: 30, throttle: 1, lastCheckpointIndex: -1 });
+    for (let i = 0; i < 300 && !car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    for (let i = 0; i < 300 && car.airborne; i++) stepCar(rampTrack, car, 1 / 60);
+    expect(car.airborne).toBe(false);
+    advanceCheckpoint(rampTrack, car, checkpoints);
+    const expectedIndex = checkpoints.reduce(
+      (acc, checkpoint, index) => (shortestProgressDelta(rampTrack, checkpoint, car.progress) >= 0 ? index : acc),
+      -1
+    );
+    expect(car.lastCheckpointIndex).toBe(expectedIndex);
+  });
+});
+
+function makeGameState(cars: Array<[number, RacingCarState]>): RacingGameState {
+  return {
+    gameType: "racing",
+    trackId: "test",
+    cars: new Map(cars),
+    finishOrder: [],
+    focusedPlayerNumber: cars[0]?.[0] ?? null,
+    startedAt: Date.now(),
+    endedAt: null
+  };
+}
+
+describe("elevation-aware collisions", () => {
+  const flatTrack = createTrack(
+    "test-flat-collision",
+    [
+      { x: 0, z: 0, y: 0, segmentType: "flat" },
+      { x: 100, z: 0, y: 0, segmentType: "flat" }
+    ],
+    12
+  );
+
+  it("does not collide two grounded cars at very different track elevations", () => {
+    const elevatedTrack = createTrack(
+      "test-elevated-pair",
+      [
+        { x: 0, z: 0, y: 0, segmentType: "flat" },
+        { x: 100, z: 0, y: 10, segmentType: "flat" },
+        { x: 200, z: 0, y: 10, segmentType: "flat" },
+        { x: 300, z: 0, y: 0, segmentType: "flat" }
+      ],
+      12
+    );
+    const carA = makeCar({ progress: 5, lateralOffset: 1, speed: 20 });
+    const carB = makeCar({ progress: elevatedTrack.trackLength * 0.5 + 5, lateralOffset: 1, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(elevatedTrack, gameState, Date.now());
+    expect(carA.speed).toBe(20);
+    expect(carB.speed).toBe(20);
+  });
+
+  it("still collides two grounded cars at the same elevation", () => {
+    const carA = makeCar({ progress: 5, lateralOffset: 0, speed: 20 });
+    const carB = makeCar({ progress: 6, lateralOffset: 0.5, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(flatTrack, gameState, Date.now());
+    expect(carA.speed).toBeLessThan(20);
+  });
+
+  it("excludes airborne cars from collision resolution entirely", () => {
+    const carA = makeCar({ progress: 5, lateralOffset: 0, speed: 20, airborne: true });
+    const carB = makeCar({ progress: 6, lateralOffset: 0.5, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(flatTrack, gameState, Date.now());
+    expect(carA.speed).toBe(20);
+    expect(carB.speed).toBe(20);
+  });
+
+  it("uses the actual bank-adjusted world height for the gate, not the bare centerline height", () => {
+    // Numerically verified fixture (waypoints spaced closely enough that a
+    // real y/bankAngle swing happens within the ~2-unit progress window the
+    // two cars sit in - waypoints 100 units apart interpolate far too
+    // smoothly for two cars only ~1-2 progress apart to ever see a large
+    // swing between them). At progress 4.5 vs 6.5, the bare centerline
+    // height (lateralOffset=0) differs by ~4.1 - a centerline-only read
+    // would exceed COLLISION_VERTICAL_SEPARATION and wrongly skip the
+    // collision. But both cars share the same lateralOffset (2.924) on
+    // opposing banks (+1.2 rad then -1.2 rad between the middle waypoints),
+    // which brings their *actual* bank-adjusted world height to within
+    // ~0.003 of each other - verified directly against
+    // sampleRacingTrackFrame before writing this test, not derived by hand.
+    // Progress difference (2) and lateral difference (0) both stay well
+    // within the existing collision radii on their own, so this isolates
+    // the height-gate's use of lateralOffset specifically: a broken
+    // (centerline-only) gate would leave both speeds untouched at 20; a
+    // correct one collides.
+    const bankAngle = 1.2;
+    const bankedTrack = createTrack(
+      "test-banked-collision",
+      [
+        { x: 0, z: 0, y: 0, bankAngle: 0 },
+        { x: 3, z: 0, y: 0, bankAngle },
+        { x: 6, z: 0, y: 5, bankAngle: -bankAngle },
+        { x: 9, z: 0, y: 5, bankAngle: 0 },
+        { x: 12, z: 0, y: 0, bankAngle: 0 }
+      ],
+      20
+    );
+    const lat = 2.924;
+    const carA = makeCar({ progress: 4.5, lateralOffset: lat, speed: 20 });
+    const carB = makeCar({ progress: 6.5, lateralOffset: lat, speed: 20 });
+    const gameState = makeGameState([
+      [1, carA],
+      [2, carB]
+    ]);
+    resolveCollisions(bankedTrack, gameState, Date.now());
+    expect(carA.speed).toBeLessThan(20);
   });
 });

@@ -1,7 +1,7 @@
 import type { Server } from "socket.io";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../shared/protocol";
-import { TEST_OVAL_TRACK, shortestProgressDelta } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta, sampleRacingTrackFrame, rampJumpSpanAt, wrapProgress } from "../../shared/racingTrack";
 import type { TrackDefinition } from "../../shared/racingTrack";
 import { roomChannel, toPublicRoomState } from "../rooms";
 import type { InternalRoom, RacingCarState, RacingGameState } from "../types";
@@ -11,6 +11,9 @@ const RACING_GRID_SIZE = 4;
 const BOT_PLAYER_START = 101;
 const BOT_COLORS = ["#f97316", "#22c55e", "#a855f7", "#facc15"] as const;
 const BOT_NAMES = ["Turbo Kim", "Pixel Rae", "Nitro Jun", "Apex Mina"] as const;
+const GRAVITY = 24;
+const MIN_LAUNCH_SPEED = 14;
+const AIR_STEER_AUTHORITY = 0.35; // fraction of grounded steeringResponsiveness, applied to velocity direction
 
 function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
   return {
@@ -20,6 +23,7 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     speed: 0,
     yawRate: 0,
     steering: 0,
+    smoothedSteering: 0,
     throttle: 0,
     brake: 0,
     lastInputAt: Date.now(),
@@ -30,6 +34,21 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     lap: 1,
     finished: false,
     finishTime: null,
+    airborne: false,
+    worldX: 0,
+    worldY: 0,
+    worldZ: 0,
+    velocityX: 0,
+    velocityY: 0,
+    velocityZ: 0,
+    takeoffProgress: 0,
+    settleTimer: 0,
+    settleFromPitch: 0,
+    hardLanding: false,
+    fallenAt: null,
+    lastCheckpointIndex: -1,
+    projectedProgress: 0,
+    lastRespawnAt: 0,
     ...overrides
   };
 }
@@ -82,7 +101,16 @@ const BROADCAST_EVERY_N_STEPS = 1; // 60Hz snapshots keep phone steering visibly
 const MAX_STEPS_PER_CALLBACK = 5;
 const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
-const MAX_HEADING_ERROR = Math.PI * (80 / 180);
+// Was 80deg: under sustained full-lock steering the car's heading could
+// drift almost sideways to the road (nearly perpendicular) while still well
+// inside the barriers, well before any collision ever registered - a real
+// telemetry capture of a full-lock drive showed headingError pinned at the
+// old clamp for ~10 consecutive ticks before lateralOffset even reached the
+// barrier. That reads as "spinning out of control" rather than a drift.
+// Tightened to stay clear of pure-sideways while still comfortably above the
+// barrier rebound kick's own max heading (0.82 rad / ~47deg), so a bounce's
+// feel is unchanged.
+const MAX_HEADING_ERROR = Math.PI * (50 / 180);
 const RACE_SAFETY_TIMEOUT_MS = 180_000;
 // Arcade car "footprint" for collision purposes - roughly the visible car's
 // wheelbase/track after client scaling, not a full rigid-body hull.
@@ -91,6 +119,11 @@ const COLLISION_LATERAL_RADIUS = 2.35;
 const COLLISION_RESOLUTION_PASSES = 4;
 const COLLISION_SPEED_FACTOR = 0.78;
 const COLLISION_FEEDBACK_WINDOW_MS = 220;
+const RESPAWN_FEEDBACK_WINDOW_MS = 250;
+const COLLISION_VERTICAL_SEPARATION = 3.2;
+const ROAD_EDGE_REBOUND_MARGIN = 0.2;
+const BARRIER_INWARD_CLEARANCE = 2.2;
+const BARRIER_DEEP_IMPACT_CLEARANCE = 4.6;
 
 export const RACING = {
   trackHalfWidth: TEST_OVAL_TRACK.trackHalfWidth,
@@ -100,12 +133,9 @@ export const RACING = {
   brakeForce: 22,
   reverseAcceleration: 11,
   coastDrag: 5,
-  steeringResponsiveness: 4.4,
-  yawDamping: 3.35,
-  headingCentering: 3.9,
-  lateralResponsiveness: 0.72,
-  driftGrip: 1.8,
-  steeringSlip: 0.12,
+  steeringResponsiveness: 6.5,
+  yawDamping: 5,
+  maxYawRate: 2,
   offTrackSlowFactor: 0.94,
   barrierOffset: 2.6,
   barrierSpeedRetention: 0.88
@@ -149,12 +179,55 @@ function applyBotInput(playerNumber: number, car: RacingCarState): void {
 }
 
 export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
-  const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
-  const targetHeading = steering * Math.PI * 0.36;
-  car.yawRate += (targetHeading - car.headingError) * RACING.steeringResponsiveness * dt;
-  car.yawRate -= car.yawRate * RACING.yawDamping * dt;
+  if (car.airborne) {
+    stepAirborneCar(track, car, dt);
+    return;
+  }
+  const frame = sampleRacingTrackFrame(track, car.progress, car.lateralOffset);
+  if (!frame.surfacePresent) {
+    launchAirborne(track, car, false);
+    return;
+  }
+  const rampProgressBeforeMove = car.progress;
+  stepGroundedCar(track, car, dt);
+  const rampLaunch = frame.segmentType === "ramp" && car.speed >= MIN_LAUNCH_SPEED;
+  const rampAtEdge = rampLaunch && sampleRacingTrackFrame(track, car.progress, car.lateralOffset).segmentType !== "ramp";
+  if (rampAtEdge) {
+    // Use the pre-movement progress (still on the ramp segment) for the
+    // launch, not the post-movement one - stepGroundedCar's forward step
+    // this tick already carried the car past the ramp's own segment and
+    // into the next (gap) segment, which has no jumpSpan of its own. Using
+    // that overshot position as takeoffProgress would make rampJumpSpanAt
+    // look up the wrong segment and silently fall back to its default.
+    car.progress = rampProgressBeforeMove;
+    launchAirborne(track, car, true);
+  }
+}
+
+function stepGroundedCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
+  if (car.settleTimer > 0) {
+    car.settleTimer = Math.max(0, car.settleTimer - dt);
+    car.settleFromPitch *= Math.max(0, 1 - dt / 0.12);
+  }
+  const previousTrackHeading = sampleRacingTrackFrame(track, car.progress, car.lateralOffset).heading;
+  // Phones send steering roughly every ~30-50ms (network + phone sensor
+  // cadence), well below the 60Hz physics rate - car.steering effectively
+  // arrives as a staircase, not a smooth signal. Feeding that directly into
+  // a responsive yaw system caused sustained oscillation under real network
+  // timing even though a synchronous, zero-latency unit test (fresh
+  // feedback every physics tick) showed the same physics as stable - the
+  // instability was specifically the interaction between a steppy input
+  // signal and a fast yaw response, not the yaw response alone. This filter
+  // smooths the raw input over roughly the same span as one input interval,
+  // so a step change in car.steering is absorbed gradually instead of
+  // yanking yawRate toward a new target every time a packet arrives.
+  car.smoothedSteering += (car.steering - car.smoothedSteering) * Math.min(1, 14 * dt);
+  const steering = Math.abs(car.smoothedSteering) < 0.04 ? 0 : car.smoothedSteering;
+  const reverseSteering = car.speed < -0.5 ? -1 : 1;
+  const targetYawRate = steering * reverseSteering * RACING.maxYawRate;
+  car.yawRate += (targetYawRate - car.yawRate) * Math.min(1, RACING.steeringResponsiveness * dt);
+  if (steering === 0) car.yawRate *= Math.max(0, 1 - RACING.yawDamping * dt);
   car.headingError += car.yawRate * dt;
-  if (steering === 0) car.headingError += (0 - car.headingError) * Math.min(1, RACING.headingCentering * dt);
   car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
 
   if (car.throttle > 0) {
@@ -169,36 +242,74 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   }
   car.speed = Math.max(-RACING.maxReverseSpeed, Math.min(RACING.maxSpeed, car.speed));
 
-  const grip = Math.min(1, Math.max(0.2, Math.abs(car.speed) / RACING.maxSpeed));
+  // Lateral motion comes from exactly one physically-grounded source: the
+  // car's own heading angle relative to the direction it's traveling. A
+  // previous version added a second, separate "steering slip" lateral
+  // velocity on top of this (double-counting the same steering input twice,
+  // with different time constants) plus an auto-centering term that pulled
+  // headingError toward the track's own curvature regardless of player
+  // input. Together those fought any real closed-loop steering correction
+  // and produced sustained oscillation instead of controllable driving -
+  // confirmed by an empirical closed-loop test where even active corrective
+  // steering could not stabilize the car (see racing.test.ts "an active
+  // corrective controller keeps the car from oscillating out of control").
   const forwardSpeed = car.speed * Math.cos(car.headingError);
-  const driftSpeed = car.speed * Math.sin(car.headingError) * RACING.lateralResponsiveness;
-  const steeringSlip = steering * Math.max(3, Math.abs(car.speed)) * RACING.steeringSlip * (1 - grip * 0.45);
+  const lateralSpeed = car.speed * Math.sin(car.headingError);
+  const worldHeading = previousTrackHeading + car.headingError;
   car.progress += forwardSpeed * dt;
-  const lateralSpeed = driftSpeed + steeringSlip;
   car.lateralOffset += lateralSpeed * dt;
-  const gripRecovery = Math.min(1, RACING.driftGrip * dt * (0.45 + grip * 0.75));
-  car.headingError += (0 - car.headingError) * gripRecovery * (steering === 0 ? 1 : 0.18);
+  const newTrackHeading = sampleRacingTrackFrame(track, car.progress, car.lateralOffset).heading;
+  // Re-express the same world-space heading relative to the track's new
+  // local direction after moving forward along a curve - this is a
+  // reference-frame correction, not an assist: it does not change
+  // worldHeading, only how it's represented relative to a track that just
+  // curved under the car.
+  car.headingError = shortestAngleDelta(newTrackHeading, worldHeading);
+  // A weak, slow self-righting pull, ONLY while the wheel is neutral - never
+  // fights an active player correction. Removing this pull entirely (a
+  // previous version of this fix) traded one bug for a worse one: without
+  // ANY force ever bringing headingError back toward straight, a car kicked
+  // hard off-line by a barrier rebound would sail across the full track
+  // width, slam the opposite barrier, get kicked back just as hard, and
+  // repeat forever - confirmed empirically by a live drive with steering
+  // permanently at zero, which still ping-ponged wall to wall indefinitely
+  // (see "settles after a hard barrier disturbance instead of ping-ponging
+  // between both barriers" below). This is deliberately much weaker and
+  // slower than the removed version: over the ~2 seconds a player takes to
+  // react to a curve it barely moves the car (still satisfies "goes straight
+  // instead of following the curve" below), but over several seconds it's
+  // enough to settle a disturbance instead of sustaining it forever.
+  if (steering === 0) car.headingError *= Math.max(0, 1 - 0.5 * dt);
+  car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
 
-  const barrierLimit = track.trackHalfWidth + RACING.barrierOffset;
+  const barrierLimit = track.trackHalfWidth + ROAD_EDGE_REBOUND_MARGIN;
   let hitBarrier = false;
-  let repeatedBarrierContact = false;
   if (Math.abs(car.lateralOffset) > barrierLimit) {
     const side = Math.sign(car.lateralOffset);
     const penetration = Math.abs(car.lateralOffset) - barrierLimit;
     const now = Date.now();
-    repeatedBarrierContact = now - car.lastCollisionAt < 140;
     hitBarrier = true;
-    car.lateralOffset = side * (barrierLimit - 0.04);
-    car.speed *= repeatedBarrierContact ? 0.995 : RACING.barrierSpeedRetention;
-    car.yawRate += -side * Math.min(1.6, 0.35 + penetration * 0.08 + Math.abs(car.speed) * 0.02);
-    car.headingError += -side * Math.min(0.16, 0.035 + penetration * 0.012);
+    const impactSpeed = Math.abs(car.speed);
+    const impactSeverity = clamp01((penetration + Math.max(0, impactSpeed - 12) * 0.08) / 8);
+    const inwardClearance = BARRIER_INWARD_CLEARANCE + impactSeverity * BARRIER_DEEP_IMPACT_CLEARANCE;
+    const roadEdge = Math.max(0, track.trackHalfWidth - inwardClearance - ROAD_EDGE_REBOUND_MARGIN);
+    const reboundHeading = Math.min(0.82, 0.24 + impactSpeed * 0.01 + penetration * 0.035);
+    const outwardHeading = car.headingError * side;
+
+    car.lateralOffset = side * roadEdge;
+    car.speed *= RACING.barrierSpeedRetention - impactSeverity * 0.04;
+    if (impactSpeed > 16 && Math.abs(car.speed) < 10) car.speed = Math.sign(car.speed || 1) * 10;
+    car.yawRate = -side * Math.min(7.2, 2.2 + penetration * 0.28 + impactSpeed * 0.07);
+    car.headingError =
+      outwardHeading > -0.14
+        ? -side * Math.max(reboundHeading, Math.abs(car.headingError) * 0.88)
+        : car.headingError - side * Math.min(0.38, penetration * 0.05);
+    car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
     car.lastCollisionAt = now;
   }
   if (Math.abs(car.lateralOffset) > track.trackHalfWidth) {
     if (!hitBarrier) {
       car.speed *= RACING.offTrackSlowFactor;
-    } else if (!repeatedBarrierContact) {
-      car.speed *= 0.98;
     }
     if (Math.abs(car.speed) < 5) {
       const edge = Math.sign(car.lateralOffset) * track.trackHalfWidth * 0.92;
@@ -215,8 +326,229 @@ export function stepCar(track: TrackDefinition, car: RacingCarState, dt: number)
   }
 }
 
-function updateRanks(gameState: RacingGameState): void {
-  const entries = [...gameState.cars.entries()].sort(([, a], [, b]) => b.progress - a.progress);
+/**
+ * Converts track-relative state into world-space flight state.
+ * `properLaunch` distinguishes a real ramp launch (arc, modest and bounded
+ * regardless of the local spline slope right at the boundary) from driving
+ * too slowly off an edge (keeps existing horizontal velocity, near-zero
+ * vertical velocity).
+ *
+ * Forward direction from `heading` is `(sin(heading), -cos(heading))`, not
+ * `(cos(heading), sin(heading))` - that pair is the *lateral* (perpendicular)
+ * direction already used by `sampleRacingTrackFrame`/`carTransform.ts`. This
+ * follows from `centerlineTangentAngle`'s own definition,
+ * `atan2(dx, -dz)`, which is the inverse of `dx = sin(heading)`,
+ * `dz = -cos(heading)`.
+ */
+function launchAirborne(track: TrackDefinition, car: RacingCarState, properLaunch: boolean): void {
+  const frame = sampleRacingTrackFrame(track, car.progress, car.lateralOffset);
+  car.airborne = true;
+  car.takeoffProgress = car.progress;
+  car.worldX = frame.x;
+  car.worldY = frame.y;
+  car.worldZ = frame.z;
+  const forwardX = Math.sin(frame.heading);
+  const forwardZ = -Math.cos(frame.heading);
+  car.velocityX = forwardX * car.speed;
+  car.velocityZ = forwardZ * car.speed;
+  car.velocityY = properLaunch ? Math.min(22, Math.max(8, car.speed * 0.5)) : Math.min(0, frame.slope);
+  car.projectedProgress = car.progress;
+}
+
+/**
+ * Display/ranking-only estimate of forward position while airborne - never
+ * read by checkpoint or lap logic. Reuses the same bounded
+ * nearest-point-on-centerline search idea as landing rather than a second
+ * mechanism, but searches by nearest (x,z) position within the window
+ * (not height-crossing, which is landing's job) since this only needs a
+ * reasonable forward estimate for display, not a physically exact one.
+ */
+function updateProjectedProgress(track: TrackDefinition, car: RacingCarState): void {
+  const jumpSpan = rampJumpSpanAt(track, car.takeoffProgress) ?? 30;
+  const windowEnd = car.takeoffProgress + jumpSpan * 1.5;
+  const SEARCH_STEP = 4;
+  let nearest = car.takeoffProgress;
+  let nearestDistSq = Infinity;
+  for (let p = car.takeoffProgress; p <= windowEnd; p += SEARCH_STEP) {
+    const wrapped = wrapProgress(p, track.trackLength);
+    const center = sampleRacingTrackFrame(track, wrapped, 0);
+    const distSq = (center.x - car.worldX) ** 2 + (center.z - car.worldZ) ** 2;
+    if (distSq < nearestDistSq) {
+      nearestDistSq = distSq;
+      nearest = wrapped;
+    }
+  }
+  const advanced = shortestProgressDelta(track, car.takeoffProgress, nearest);
+  car.projectedProgress = car.takeoffProgress + Math.max(0, Math.min(jumpSpan * 1.5, advanced));
+}
+
+function stepAirborneCar(track: TrackDefinition, car: RacingCarState, dt: number): void {
+  const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
+  if (steering !== 0) {
+    const speedXZ = Math.hypot(car.velocityX, car.velocityZ) || 1;
+    const currentHeading = Math.atan2(car.velocityX, -car.velocityZ);
+    const targetHeading = currentHeading + steering * RACING.steeringResponsiveness * AIR_STEER_AUTHORITY * dt;
+    car.velocityX = Math.sin(targetHeading) * speedXZ;
+    car.velocityZ = -Math.cos(targetHeading) * speedXZ;
+  }
+  car.velocityY -= GRAVITY * dt;
+  const prevWorldY = car.worldY;
+  car.worldX += car.velocityX * dt;
+  car.worldY += car.velocityY * dt;
+  car.worldZ += car.velocityZ * dt;
+  car.speed = Math.hypot(car.velocityX, car.velocityZ);
+
+  updateProjectedProgress(track, car);
+  tryLandOrFall(track, car, prevWorldY, dt);
+}
+
+const HARD_LANDING_PITCH_THRESHOLD = 0.55;
+const VOID_FALL_HEIGHT_MARGIN = 12;
+export const RESPAWN_DELAY_MS = 1000;
+export const RESPAWN_SPEED_FACTOR = 0.3;
+
+interface LandingCandidate {
+  progress: number;
+  crossingFraction: number;
+  lateralError: number;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function lateralErrorAt(track: TrackDefinition, progress: number, worldX: number, worldZ: number): number {
+  const center = sampleRacingTrackFrame(track, progress, 0);
+  const dx = worldX - center.x;
+  const dz = worldZ - center.z;
+  return dx * Math.cos(center.heading) + dz * Math.sin(center.heading);
+}
+
+function shortestAngleDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
+function markFallen(car: RacingCarState): void {
+  if (car.fallenAt === null) car.fallenAt = Date.now();
+}
+
+/** Respawns a fallen car at its last checkpoint, fully resetting airborne state - a respawn that clears position but leaves stale airborne/velocity state would corrupt the next physics tick. */
+export function respawnFallenCar(_track: TrackDefinition, car: RacingCarState, checkpoints: number[]): void {
+  const anchor = checkpoints[Math.max(0, car.lastCheckpointIndex)] ?? 0;
+  car.airborne = false;
+  car.progress = anchor;
+  car.lateralOffset = 0;
+  car.headingError = 0;
+  car.velocityX = 0;
+  car.velocityY = 0;
+  car.velocityZ = 0;
+  car.speed = Math.min(car.speed, RACING.maxSpeed) * RESPAWN_SPEED_FACTOR;
+  car.settleTimer = 0;
+  car.hardLanding = false;
+  car.fallenAt = null;
+  car.lastRespawnAt = Date.now();
+}
+
+function applyFallRecovery(room: InternalRoom, now: number, checkpoints: number[]): void {
+  if (room.gameState?.gameType !== "racing") return;
+  const track = trackFor(room);
+  for (const car of room.gameState.cars.values()) {
+    if (car.fallenAt !== null && now - car.fallenAt >= RESPAWN_DELAY_MS) {
+      respawnFallenCar(track, car, checkpoints);
+    }
+  }
+}
+
+function land(track: TrackDefinition, car: RacingCarState, candidate: LandingCandidate): void {
+  const pitch = Math.atan2(-car.velocityY, Math.hypot(car.velocityX, car.velocityZ) || 1);
+  const hardLanding = Math.abs(pitch) > HARD_LANDING_PITCH_THRESHOLD;
+  const landingHeading = Math.atan2(car.velocityX, -car.velocityZ);
+  const trackHeading = sampleRacingTrackFrame(track, candidate.progress, candidate.lateralError).heading;
+
+  car.airborne = false;
+  car.progress = candidate.progress;
+  car.lateralOffset = candidate.lateralError;
+  car.headingError = shortestAngleDelta(trackHeading, landingHeading);
+  car.speed = Math.hypot(car.velocityX, car.velocityZ);
+  car.velocityX = 0;
+  car.velocityY = 0;
+  car.velocityZ = 0;
+  car.hardLanding = hardLanding;
+  car.settleTimer = hardLanding ? 0.25 : 0.12;
+  car.settleFromPitch = pitch;
+  if (hardLanding) car.speed *= 0.85;
+  car.fallenAt = null;
+}
+
+// How close (in arc-length terms) a candidate's distance-from-takeoff must
+// be to the car's *actual* horizontal distance traveled from takeoff for it
+// to be tested at all this tick. Without this, a height-crossing against a
+// candidate far ahead of (or behind) where the car has actually flown to
+// could match purely by coincidence of height - the crossing must happen
+// where the car currently is, not merely at some height it once had.
+const LANDING_PROXIMITY_TOLERANCE = 4;
+
+function tryLandOrFall(track: TrackDefinition, car: RacingCarState, prevWorldY: number, _dt: number): void {
+  const jumpSpan = rampJumpSpanAt(track, car.takeoffProgress) ?? 30;
+  const searchEnd = car.takeoffProgress + jumpSpan * 1.5;
+  const descending = car.velocityY < 0;
+  const takeoffFrame = sampleRacingTrackFrame(track, car.takeoffProgress, 0);
+  const distanceTraveled = Math.hypot(car.worldX - takeoffFrame.x, car.worldZ - takeoffFrame.z);
+
+  let best: LandingCandidate | null = null;
+  if (descending) {
+    const SEARCH_STEP = 2;
+    for (let p = car.takeoffProgress; p <= searchEnd; p += SEARCH_STEP) {
+      const wrapped = wrapProgress(p, track.trackLength);
+      const arcFromTakeoff = shortestProgressDelta(track, car.takeoffProgress, wrapped);
+      if (arcFromTakeoff <= 0) continue; // strictly ahead of takeoff
+      if (Math.abs(arcFromTakeoff - distanceTraveled) > LANDING_PROXIMITY_TOLERANCE) continue; // not where the car currently is
+      const frame = sampleRacingTrackFrame(track, wrapped, 0);
+      if (!frame.surfacePresent) continue;
+
+      const lateral = lateralErrorAt(track, wrapped, car.worldX, car.worldZ);
+      if (Math.abs(lateral) > track.trackHalfWidth) continue;
+
+      const candidateSurfaceY = sampleRacingTrackFrame(track, wrapped, lateral).y;
+      if (!(prevWorldY > candidateSurfaceY && car.worldY <= candidateSurfaceY)) continue;
+
+      const crossingFraction = clamp01((prevWorldY - candidateSurfaceY) / (prevWorldY - car.worldY || 1));
+      const pitch = Math.atan2(-car.velocityY, Math.hypot(car.velocityX, car.velocityZ) || 1);
+      if (Math.abs(pitch) > Math.PI * 0.47) continue; // sideways/backwards approach rejected
+
+      if (
+        !best ||
+        crossingFraction < best.crossingFraction ||
+        (crossingFraction === best.crossingFraction && Math.abs(lateral) < Math.abs(best.lateralError))
+      ) {
+        best = { progress: wrapped, crossingFraction, lateralError: lateral };
+      }
+    }
+  }
+
+  if (best) {
+    land(track, car, best);
+    return;
+  }
+
+  // `car.progress` is frozen at takeoff for the whole flight (Task 3), so
+  // "flew past the window" can't be measured in progress terms here without
+  // Task 5's continuous projection. Horizontal world-space distance from the
+  // takeoff point (already computed above) is an equivalent, self-contained
+  // gate for this task.
+  const outsideWindow = distanceTraveled > jumpSpan * 1.5;
+  const belowVoid = car.worldY < prevWorldY - VOID_FALL_HEIGHT_MARGIN && car.velocityY < 0;
+  if (outsideWindow || belowVoid) {
+    markFallen(car);
+  }
+}
+
+export function updateRanks(gameState: RacingGameState): void {
+  const rankValue = (car: RacingCarState): number => (car.airborne ? car.projectedProgress : car.progress);
+  const entries = [...gameState.cars.entries()].sort(([, a], [, b]) => rankValue(b) - rankValue(a));
   entries.forEach(([, car], index) => {
     car.rank = index + 1;
   });
@@ -236,6 +568,14 @@ function resolveCollisionPair(
   now: number,
   applyImpulse: boolean
 ): boolean {
+  // Bank-adjusted (not bare centerline) height, at each car's own
+  // lateralOffset - a stacked-road pair (e.g. the Skyline Leap landing
+  // platform over an earlier lower section) can have deceptively close
+  // track-relative coordinates despite being meters apart vertically.
+  const heightA = sampleRacingTrackFrame(track, carA.progress, carA.lateralOffset).y;
+  const heightB = sampleRacingTrackFrame(track, carB.progress, carB.lateralOffset).y;
+  if (Math.abs(heightA - heightB) > COLLISION_VERTICAL_SEPARATION) return false;
+
   const longitudinal = shortestProgressDelta(track, carA.progress, carB.progress);
   const lateral = carB.lateralOffset - carA.lateralOffset;
   const normalizedLongitudinal = longitudinal / COLLISION_LONGITUDINAL_RADIUS;
@@ -279,8 +619,12 @@ function resolveCollisionPair(
  * than a rigid-body solver, but it now resolves both side and nose-to-tail
  * overlap so cars cannot sit visually inside each other.
  */
-function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, now: number): void {
-  const entries = [...gameState.cars.entries()];
+export function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, now: number): void {
+  // Airborne cars are excluded from collision resolution entirely for
+  // Cycle 4 - a flying car and anything beneath or around it never
+  // interact, the simplest correct answer given the arcade (not rigid-body)
+  // collision model.
+  const entries = [...gameState.cars.entries()].filter(([, car]) => !car.airborne);
   const impulseApplied = new Set<string>();
   for (let pass = 0; pass < COLLISION_RESOLUTION_PASSES; pass++) {
     let resolvedAny = false;
@@ -309,9 +653,33 @@ function resolveCollisions(track: TrackDefinition, gameState: RacingGameState, n
   }
 }
 
+/**
+ * Roughly one checkpoint per major section (start straight, each jump's
+ * landing, the banked sweeper, the chicane) - exact placement is authored
+ * alongside the Task 11 circuit layout. A generic quarter/half/three-quarter
+ * spread is used here so checkpoints exist and are independently testable
+ * before that authoring pass.
+ */
+export function checkpointsFor(track: TrackDefinition): number[] {
+  return [0, track.trackLength * 0.25, track.trackLength * 0.5, track.trackLength * 0.75];
+}
+
+/** Uses only the car's real, landed `progress` - never `projectedProgress`, so mid-flight state can never advance a checkpoint. */
+export function advanceCheckpoint(track: TrackDefinition, car: RacingCarState, checkpoints: number[]): void {
+  if (car.airborne) return;
+  for (let i = 0; i < checkpoints.length; i++) {
+    if (i <= car.lastCheckpointIndex) continue;
+    const delta = shortestProgressDelta(track, checkpoints[i]!, car.progress);
+    if (delta >= 0 && delta < track.trackLength / checkpoints.length) {
+      car.lastCheckpointIndex = i;
+    }
+  }
+}
+
 export function stepPhysics(room: InternalRoom, dt: number): void {
   if (room.gameState?.gameType !== "racing") return;
   const track = trackFor(room);
+  const checkpoints = checkpointsFor(track);
   const now = Date.now();
   const startedAt = room.gameState.startedAt ?? now;
   for (const [playerNumber, car] of room.gameState.cars) {
@@ -319,8 +687,10 @@ export function stepPhysics(room: InternalRoom, dt: number): void {
     if (car.isBot || isBotPlayerNumber(playerNumber)) applyBotInput(playerNumber, car);
     else applyInputTimeout(car, now);
     stepCar(track, car, dt);
+    advanceCheckpoint(track, car, checkpoints);
     if (car.finished) car.finishTime = now - startedAt;
   }
+  applyFallRecovery(room, now, checkpoints);
   resolveCollisions(track, room.gameState, now);
   updateRanks(room.gameState);
 }
@@ -385,7 +755,12 @@ export function toGameStatePayload(room: InternalRoom): RacingGameStatePayload {
         rank: car.rank,
         lap: car.lap,
         finished: car.finished,
-        finishTime: car.finishTime
+        finishTime: car.finishTime,
+        airborne: car.airborne,
+        worldX: car.airborne ? car.worldX : undefined,
+        worldY: car.airborne ? car.worldY : undefined,
+        worldZ: car.airborne ? car.worldZ : undefined,
+        respawned: now - car.lastRespawnAt < RESPAWN_FEEDBACK_WINDOW_MS
       }))
     : [];
   const allFinished = players.length > 0 && players.every((p) => p.finished);

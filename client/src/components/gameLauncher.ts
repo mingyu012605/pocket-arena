@@ -13,12 +13,13 @@ export interface LauncherGameView {
   description: string;
   players: string;
   control: string;
-  status: "Available Now" | "Coming Soon";
+  status: "Available Now" | "Unavailable";
   playable: boolean;
+  successScore: number;
   artwork: GameType;
 }
 
-const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
+const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable" | "successScore" | "status">> = {
   racing: {
     id: "racing",
     title: "Racing Rally",
@@ -28,8 +29,29 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     description: "Tilt, steer, and zoom to the finish!",
     players: "1-4 Players",
     control: "Motion Steering",
-    status: "Available Now",
     artwork: "racing"
+  },
+  "sketch-relay": {
+    id: "sketch-relay",
+    title: "Sketch Relay",
+    heroTitle: "Sketch",
+    heroAccent: "Relay!",
+    kicker: "Party Drawing",
+    description: "Secret prompts become drawings, guesses, and ridiculous reveal chains.",
+    players: "3-12 Players",
+    control: "Phone Drawing",
+    artwork: "sketch-relay"
+  },
+  "pocket-golf": {
+    id: "pocket-golf",
+    title: "Pocket Golf",
+    heroTitle: "Pocket",
+    heroAccent: "Golf!",
+    kicker: "Cloudshore Resort",
+    description: "Short controlled phone swings, scenic fairways, and cinematic ball flights.",
+    players: "1-4 Players",
+    control: "Motion Swing + Touch",
+    artwork: "pocket-golf"
   },
   "table-tennis": {
     id: "table-tennis",
@@ -40,7 +62,6 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     description: "Quick swings and epic rallies!",
     players: "2 Players",
     control: "Motion Paddle",
-    status: "Coming Soon",
     artwork: "table-tennis"
   },
   bowling: {
@@ -52,7 +73,6 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     description: "Strike up some friendly competition!",
     players: "1-4 Players",
     control: "Motion Throw",
-    status: "Coming Soon",
     artwork: "bowling"
   },
   tennis: {
@@ -64,7 +84,6 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     description: "Smash, volley, and score big!",
     players: "2 Players",
     control: "Motion Swing",
-    status: "Coming Soon",
     artwork: "tennis"
   },
   "rhythm-battle": {
@@ -76,7 +95,6 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     description: "Tap, move, and feel the beat!",
     players: "2-4 Players",
     control: "Touch + Motion",
-    status: "Coming Soon",
     artwork: "rhythm-battle"
   },
   "controller-test": {
@@ -88,7 +106,6 @@ const GAME_INFO: Record<GameType, Omit<LauncherGameView, "playable">> = {
     description: "Check your connection and get set!",
     players: "1-4 Players",
     control: "Touch Controls",
-    status: "Available Now",
     artwork: "controller-test"
   }
 };
@@ -122,8 +139,21 @@ function playableMap(catalog: GameCatalogEntry[]): Map<GameType, boolean> {
 
 export function createLauncherGameViews(catalog: GameCatalogEntry[]): LauncherGameView[] {
   const playables = playableMap(catalog);
-  const order: GameType[] = ["racing", "table-tennis", "bowling", "tennis", "rhythm-battle", "controller-test"];
-  return order.map((id) => ({ ...GAME_INFO[id], playable: playables.get(id) ?? false }));
+  const scores = new Map(catalog.map((entry) => [entry.id, entry.successScore]));
+  const order: GameType[] = ["racing", "pocket-golf", "sketch-relay", "table-tennis", "bowling", "tennis", "rhythm-battle"];
+  return order
+    .map((id) => {
+      const playable = playables.get(id) ?? false;
+      const status: LauncherGameView["status"] = playable ? "Available Now" : "Unavailable";
+      return {
+        ...GAME_INFO[id],
+        playable,
+        successScore: scores.get(id) ?? 0,
+        status
+      };
+    })
+    .filter((game) => game.id !== "controller-test")
+    .sort((a, b) => Number(b.playable) - Number(a.playable) || b.successScore - a.successScore);
 }
 
 export function createGameLauncherHeader(): HTMLElement {
@@ -163,7 +193,7 @@ export function createFeaturedCarousel(slides: LauncherGameView[], onPlay: (id: 
   hero.className = "pa-hero";
   hero.setAttribute("aria-label", "Featured games");
 
-  const preferredOrder: GameType[] = ["table-tennis", "racing", "bowling"];
+  const preferredOrder: GameType[] = ["racing", "pocket-golf", "sketch-relay"];
   const slidesToShow = preferredOrder
     .map((id) => slides.find((slide) => slide.id === id))
     .filter((slide): slide is LauncherGameView => Boolean(slide));
@@ -201,7 +231,7 @@ export function createFeaturedCarousel(slides: LauncherGameView[], onPlay: (id: 
     play.className = "pa-play-button";
     play.type = "button";
     play.disabled = !slide.playable;
-    play.innerHTML = `${createIcon("play")} ${slide.playable ? "Play Now" : "Coming Soon"}`;
+    play.innerHTML = `${createIcon("play")} ${slide.playable ? "Play Now" : "Unavailable"}`;
     play.addEventListener("click", () => {
       if (slide.playable) onPlay(slide.id);
     });
@@ -248,18 +278,21 @@ export function createFeaturedCarousel(slides: LauncherGameView[], onPlay: (id: 
   };
 }
 
-export function createLauncherGameCard(game: LauncherGameView, onPlay: (id: GameType) => void): HTMLElement {
+export function createLauncherGameCard(game: LauncherGameView, rank: number, onPlay: (id: GameType) => void): HTMLElement {
   const card = document.createElement("article");
   card.className = `pa-game-card ${game.playable ? "is-playable" : "is-coming-soon"}`;
-  card.tabIndex = 0;
+  card.tabIndex = game.playable ? 0 : -1;
   if (game.playable) {
     card.setAttribute("role", "button");
     card.setAttribute("aria-label", `Play ${game.title}`);
+  } else {
+    card.setAttribute("aria-disabled", "true");
   }
   card.innerHTML = `
     <div class="pa-card-art"></div>
     <div class="pa-card-body">
       <div class="pa-sport-icon" aria-hidden="true">${createIcon(game.id === "controller-test" ? "phone" : "games")}</div>
+      <span class="pa-card-rank">${game.playable ? `#${rank} Success ${game.successScore}%` : "Locked"}</span>
       <p class="pa-card-kicker">${game.kicker}</p>
       <h3>${game.title}</h3>
       <p>${game.description}</p>
@@ -288,6 +321,13 @@ export function createLauncherGameCard(game: LauncherGameView, onPlay: (id: Game
     card.addEventListener("click", () => {
       onPlay(game.id);
     });
+  } else {
+    const locked = document.createElement("button");
+    locked.type = "button";
+    locked.className = "pa-card-play";
+    locked.disabled = true;
+    locked.innerHTML = `${createIcon("settings")}Unavailable`;
+    card.querySelector<HTMLDivElement>(".pa-card-actions")!.appendChild(locked);
   }
 
   card.addEventListener("keydown", (event) => {
@@ -312,7 +352,11 @@ export function createGameGrid(games: LauncherGameView[], onPlay: (id: GameType)
     <div class="pa-game-row"></div>
   `;
   const row = section.querySelector<HTMLDivElement>(".pa-game-row")!;
-  games.forEach((game) => row.appendChild(createLauncherGameCard(game, onPlay)));
+  let playableRank = 0;
+  games.forEach((game) => {
+    if (game.playable) playableRank += 1;
+    row.appendChild(createLauncherGameCard(game, playableRank, onPlay));
+  });
   return section;
 }
 
