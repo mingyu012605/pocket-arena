@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
-import { buildSponsorTexture } from "./track";
+import { buildSponsorTexture, racingTracksideTerrainY } from "./track";
 
 function buildCrowdTexture(seed = 0): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
@@ -119,8 +119,9 @@ function buildMarshals(density: number): THREE.Group {
     const side = i % 2 === 0 ? 1 : -1;
     const marshalRotationY = -angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
     const marshalQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, marshalRotationY, 0));
+    const lateralOffset = side * (halfWidth + 4.4);
     bodyMatrix.compose(
-      new THREE.Vector3(center.x + nx * side * (halfWidth + 4.4), 0, center.z + nz * side * (halfWidth + 4.4)),
+      new THREE.Vector3(center.x + nx * lateralOffset, racingTracksideTerrainY(progress, lateralOffset), center.z + nz * lateralOffset),
       marshalQuaternion,
       identityScale
     );
@@ -160,7 +161,8 @@ function buildMascotCheerSquads(density: number): THREE.Group {
     const side = i % 2 === 0 ? 1 : -1;
     const offset = halfWidth + 10.5 + (i % 3) * 2.6;
     const squad = new THREE.Group();
-    squad.position.set(center.x + nx * side * offset, 0, center.z + nz * side * offset);
+    const lateralOffset = side * offset;
+    squad.position.set(center.x + nx * lateralOffset, racingTracksideTerrainY(progress, lateralOffset), center.z + nz * lateralOffset);
     squad.rotation.y = -angle + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
 
     const bodyMaterial = new THREE.MeshStandardMaterial({
@@ -238,7 +240,7 @@ function buildFencing(density: number): THREE.InstancedMesh {
     for (const side of [-1, 1]) {
       const offset = side * (halfWidth + 3.1);
       matrix.compose(
-        new THREE.Vector3(center.x + nx * offset, 1.05, center.z + nz * offset),
+        new THREE.Vector3(center.x + nx * offset, racingTracksideTerrainY(progress, offset) + 1.05, center.z + nz * offset),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
         new THREE.Vector3(1, 1, 1)
       );
@@ -254,8 +256,13 @@ function tracksidePosition(progress: number, side: -1 | 1, offset: number): { po
   const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
   const nx = Math.cos(angle);
   const nz = Math.sin(angle);
+  const lateralOffset = side * offset;
   return {
-    position: new THREE.Vector3(center.x + nx * side * offset, 0, center.z + nz * side * offset),
+    position: new THREE.Vector3(
+      center.x + nx * lateralOffset,
+      racingTracksideTerrainY(progress, lateralOffset),
+      center.z + nz * lateralOffset
+    ),
     angle
   };
 }
@@ -531,13 +538,13 @@ function buildVenueZones(density: number): THREE.Group {
     const height = 12 + ((i * 11) % 34);
     const width = 7 + (i % 4) * 2;
     const tower = new THREE.Mesh(new THREE.BoxGeometry(width, height, width * 0.8), cityMaterial);
-    tower.position.set(position.x, height / 2 - 0.05, position.z);
+    tower.position.set(position.x, position.y + height / 2 - 0.05, position.z);
     tower.rotation.y = -angle + (i % 2 === 0 ? 0.18 : -0.18);
     tower.castShadow = true;
     tower.receiveShadow = true;
     group.add(tower);
     const windows = new THREE.Mesh(new THREE.BoxGeometry(width * 0.78, height * 0.72, 0.05), glassMaterial);
-    windows.position.set(position.x, height * 0.55, position.z);
+    windows.position.set(position.x, position.y + height * 0.55, position.z);
     windows.rotation.y = tower.rotation.y;
     group.add(windows);
   }
@@ -549,11 +556,11 @@ function buildVenueZones(density: number): THREE.Group {
     const progress = trackLength * (0.43 + (i / dockCount) * 0.12);
     const { position, angle } = tracksidePosition(progress, -1, halfWidth + 18);
     const dock = new THREE.Mesh(new THREE.BoxGeometry(8, 0.38, 2.4), dockMaterial);
-    dock.position.set(position.x, 0.22, position.z);
+    dock.position.set(position.x, position.y + 0.22, position.z);
     dock.rotation.y = -angle + Math.PI / 2;
     group.add(dock);
     const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 1.2, 12), buoyMaterial);
-    buoy.position.set(position.x, 0.62, position.z - 5 - (i % 2) * 3);
+    buoy.position.set(position.x, position.y + 0.62, position.z - 5 - (i % 2) * 3);
     group.add(buoy);
   }
 
@@ -569,13 +576,13 @@ function buildVenueZones(density: number): THREE.Group {
     const side = i % 2 === 0 ? 1 : -1;
     const { position, angle } = tracksidePosition(progress, side, halfWidth + 8 + (i % 3) * 2);
     matrix.compose(
-      new THREE.Vector3(position.x, 1.6, position.z),
+      new THREE.Vector3(position.x, position.y + 1.6, position.z),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
       new THREE.Vector3(1, 1, 1)
     );
     poles.setMatrixAt(i, matrix);
     matrix.compose(
-      new THREE.Vector3(position.x, 3.1, position.z),
+      new THREE.Vector3(position.x, position.y + 3.1, position.z),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle + Math.PI / 2, 0)),
       new THREE.Vector3(1, 1, 1)
     );
@@ -591,7 +598,7 @@ function buildVenueZones(density: number): THREE.Group {
     const progress = (i / balloonCount) * trackLength;
     const side = i % 2 === 0 ? 1 : -1;
     const { position } = tracksidePosition(progress, side, halfWidth + 38 + (i % 4) * 7);
-    matrix.compose(new THREE.Vector3(position.x, 18 + (i % 5) * 3, position.z), new THREE.Quaternion(), new THREE.Vector3(1, 1.2, 1));
+    matrix.compose(new THREE.Vector3(position.x, position.y + 18 + (i % 5) * 3, position.z), new THREE.Quaternion(), new THREE.Vector3(1, 1.2, 1));
     balloons.setMatrixAt(i, matrix);
     balloons.setColorAt(i, new THREE.Color(flagColors[(i * 2) % flagColors.length]!));
   }
@@ -616,7 +623,7 @@ function buildVenueZones(density: number): THREE.Group {
       post2.position.z = 1.2;
       bridge.add(post, post2);
     }
-    bridge.position.set(center.x, 0, center.z);
+    bridge.position.set(center.x, center.y ?? 0, center.z);
     bridge.rotation.y = -angle;
     group.add(bridge);
   }
@@ -671,9 +678,13 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const offset = halfWidth + 26;
+    const standLateral = side * offset;
+    const standY = racingTracksideTerrainY(progress, standLateral);
+    const crowdLateral = side * (offset - 5.7);
+    const crowdY = racingTracksideTerrainY(progress, crowdLateral);
     const rotationY = -angle + (side === 1 ? Math.PI : 0);
     const stand = new THREE.Mesh(new THREE.BoxGeometry(38, 5, 7), grandstandMaterial);
-    stand.position.set(center.x + nx * side * offset, 2.5, center.z + nz * side * offset);
+    stand.position.set(center.x + nx * standLateral, standY + 2.5, center.z + nz * standLateral);
     stand.rotation.y = rotationY;
     stand.castShadow = true;
     group.add(stand);
@@ -681,7 +692,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
       new THREE.PlaneGeometry(36, 7.2),
       new THREE.MeshBasicMaterial({ map: buildCrowdTexture(side > 0 ? 1 : 2), side: THREE.DoubleSide })
     );
-    crowd.position.set(center.x + nx * side * (offset - 5.7), 6.5, center.z + nz * side * (offset - 5.7));
+    crowd.position.set(center.x + nx * crowdLateral, crowdY + 6.5, center.z + nz * crowdLateral);
     crowd.rotation.y = rotationY;
     group.add(crowd);
   }
@@ -717,7 +728,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const offset = halfWidth + 34;
-    foregroundStand.position.set(center.x + nx * offset, 0, center.z + nz * offset);
+    foregroundStand.position.set(center.x + nx * offset, racingTracksideTerrainY(progress, offset), center.z + nz * offset);
     foregroundStand.rotation.y = -angle + Math.PI;
   }
   const foregroundCrowd = new THREE.Mesh(
@@ -739,6 +750,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const offset = halfWidth + 42;
+    const lateralOffset = side * offset;
     const stand = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(58, 12, 16), megaStandMaterial);
     base.position.set(0, 6, 0);
@@ -753,7 +765,7 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     roof.position.set(0, 20, -2);
     roof.rotation.x = 0.16;
     stand.add(roof);
-    stand.position.set(center.x + nx * side * offset, 0, center.z + nz * side * offset);
+    stand.position.set(center.x + nx * lateralOffset, racingTracksideTerrainY(progress, lateralOffset), center.z + nz * lateralOffset);
     const rotationY = -angle + (side === 1 ? Math.PI : 0);
     stand.rotation.y = rotationY;
     group.add(stand);
@@ -768,12 +780,14 @@ export function buildHarborEnvironment(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
+    const lateralOffset = side * (halfWidth + 10);
+    const groundY = racingTracksideTerrainY(progress, lateralOffset);
     const board = new THREE.Mesh(new THREE.BoxGeometry(5.2, 1.35, 0.16), boardMaterial);
-    board.position.set(center.x + nx * side * (halfWidth + 10), 1.35, center.z + nz * side * (halfWidth + 10));
+    board.position.set(center.x + nx * lateralOffset, groundY + 1.35, center.z + nz * lateralOffset);
     board.rotation.y = -angle;
     group.add(board);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.2, 8), poleMaterial);
-    pole.position.set(board.position.x, 1.6, board.position.z);
+    pole.position.set(board.position.x, groundY + 1.6, board.position.z);
     group.add(pole);
   }
 
@@ -854,15 +868,19 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
       const height = 2.8 + ((i + (side > 0 ? 1 : 3)) % 5) * 0.45;
       const length = 5.6 + ((i * 5) % 5) * 0.9;
       const offset = halfWidth + 16 + ((i + (side > 0 ? 0 : 2)) % 3) * 2.4;
+      const lateralOffset = side * offset;
+      const groundY = racingTracksideTerrainY(progress, lateralOffset);
       matrix.compose(
-        new THREE.Vector3(center.x + nx * side * offset, height / 2 - 0.04, center.z + nz * side * offset),
+        new THREE.Vector3(center.x + nx * lateralOffset, groundY + height / 2 - 0.04, center.z + nz * lateralOffset),
         rotation,
         new THREE.Vector3(2.5, height, length)
       );
       walls.setMatrixAt(index, matrix);
 
+      const glowLateral = side * (offset - 1.35);
+      const glowY = racingTracksideTerrainY(progress, glowLateral);
       glowMatrix.compose(
-        new THREE.Vector3(center.x + nx * side * (offset - 1.35), 2.4 + (i % 3) * 0.36, center.z + nz * side * (offset - 1.35)),
+        new THREE.Vector3(center.x + nx * glowLateral, glowY + 2.4 + (i % 3) * 0.36, center.z + nz * glowLateral),
         rotation,
         new THREE.Vector3(0.16, 0.52, 2.2 + (i % 3) * 0.5)
       );
@@ -899,7 +917,7 @@ function buildArcadeCourseSetPieces(density: number): THREE.Group {
     const light = new THREE.Mesh(new THREE.BoxGeometry(halfWidth * 2 + 10, 0.18, 1.08), gateGlowMaterial);
     light.position.set(0, 13.26, 0);
     gate.add(postLeft, postRight, top, light);
-    gate.position.set(center.x, 0, center.z);
+    gate.position.set(center.x, center.y ?? 0, center.z);
     gate.rotation.y = -angle;
     group.add(gate);
   }
@@ -923,8 +941,9 @@ export function buildTracksideDetails(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
+    const lateralOffset = side * (halfWidth + 3.2);
     matrix.compose(
-      new THREE.Vector3(center.x + nx * side * (halfWidth + 3.2), 0.42, center.z + nz * side * (halfWidth + 3.2)),
+      new THREE.Vector3(center.x + nx * lateralOffset, racingTracksideTerrainY(progress, lateralOffset) + 0.42, center.z + nz * lateralOffset),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
       new THREE.Vector3(1, 1, 1)
     );
@@ -944,9 +963,11 @@ export function buildTracksideDetails(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
+    const lateralOffset = side * (halfWidth + 5.3);
+    const groundY = racingTracksideTerrainY(progress, lateralOffset);
     for (let stack = 0; stack < 3; stack++) {
       matrix.compose(
-        new THREE.Vector3(center.x + nx * side * (halfWidth + 5.3), 0.18 + stack * 0.28, center.z + nz * side * (halfWidth + 5.3)),
+        new THREE.Vector3(center.x + nx * lateralOffset, groundY + 0.18 + stack * 0.28, center.z + nz * lateralOffset),
         new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, -angle, 0)),
         new THREE.Vector3(1, 1, 1)
       );
@@ -972,12 +993,13 @@ export function buildTracksideDetails(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
+    const lateralOffset = side * (halfWidth + 8.2);
     const texture = buildSponsorTexture(title, accent, bg);
     const board = new THREE.Mesh(
       new THREE.PlaneGeometry(9.5, 3),
       new THREE.MeshBasicMaterial({ map: side < 0 ? mirrorTextureU(texture) : texture, side: THREE.DoubleSide })
     );
-    board.position.set(center.x + nx * side * (halfWidth + 8.2), 2.5, center.z + nz * side * (halfWidth + 8.2));
+    board.position.set(center.x + nx * lateralOffset, racingTracksideTerrainY(progress, lateralOffset) + 2.5, center.z + nz * lateralOffset);
     board.rotation.y = -angle + (side > 0 ? -0.22 : Math.PI + 0.22);
     group.add(board);
   }
@@ -991,11 +1013,13 @@ export function buildTracksideDetails(density: number): THREE.Group {
     const nx = Math.cos(angle);
     const nz = Math.sin(angle);
     const side = i % 2 === 0 ? 1 : -1;
+    const lateralOffset = side * (halfWidth + 7);
+    const groundY = racingTracksideTerrainY(progress, lateralOffset);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.15, 8, 10), poleMaterial);
-    pole.position.set(center.x + nx * side * (halfWidth + 7), 4, center.z + nz * side * (halfWidth + 7));
+    pole.position.set(center.x + nx * lateralOffset, groundY + 4, center.z + nz * lateralOffset);
     group.add(pole);
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 8), lampMaterial);
-    lamp.position.set(pole.position.x, 8.1, pole.position.z);
+    lamp.position.set(pole.position.x, groundY + 8.1, pole.position.z);
     group.add(lamp);
   }
 

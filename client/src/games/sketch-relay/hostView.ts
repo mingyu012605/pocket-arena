@@ -11,11 +11,12 @@ export interface SketchRelayHostView {
 }
 
 function phaseLabel(state: SketchRelayGameStatePayload): string {
-  if (state.phase === "prompt-entry") return "Secret word";
-  if (state.phase === "drawing") return `Player ${state.activePlayerNumber ?? "?"} is drawing`;
-  if (state.phase === "guessing") return `Player ${state.activePlayerNumber ?? "?"} is guessing`;
+  if (state.phase === "first-player-drawing") return `Player ${state.activePlayerNumber ?? "?"} is drawing`;
+  if (state.phase === "viewing-previous-drawing") return `Player ${state.activePlayerNumber ?? "?"} is viewing`;
+  if (state.phase === "entering-guess") return `Player ${state.activePlayerNumber ?? "?"} is guessing`;
+  if (state.phase === "drawing-own-guess") return `Player ${state.activePlayerNumber ?? "?"} is drawing their guess`;
   if (state.phase === "reveal") return "Reveal time";
-  return "Finished";
+  return "Result";
 }
 
 function secondsLeft(deadlineAt: number | null): string {
@@ -52,12 +53,18 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
   container.classList.add("sketch-host-shell");
 
   function renderActive(state: SketchRelayGameStatePayload): void {
+    const actionLabel =
+      state.phase === "viewing-previous-drawing"
+        ? "Preview"
+        : state.phase === "entering-guess"
+          ? "Guess"
+          : "Draw";
     container.innerHTML = `
       <section class="sketch-host-active">
         <div class="sketch-paper-stack">
           <p class="sketch-kicker">Sketch Relay</p>
           <h1>${phaseLabel(state)}</h1>
-          <p class="sketch-host-copy">Turn ${state.turnIndex} of ${state.totalTurns} · ${state.phase === "drawing" ? "Drawing" : "Guessing"}</p>
+          <p class="sketch-host-copy">Player ${state.turnIndex} of ${state.totalTurns} · ${actionLabel}</p>
           <div class="sketch-progress">
             <span style="width:${state.totalCount === 0 ? 0 : (state.submittedCount / state.totalCount) * 100}%"></span>
           </div>
@@ -97,7 +104,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
   function renderReveal(state: SketchRelayGameStatePayload): void {
     const current = currentEntry(state);
     const result = state.result ?? finalRelayResult(current?.chain ?? state.chains?.[0]);
-    const isFinished = state.phase === "finished";
+    const isFinished = state.phase === "result";
     container.innerHTML = `
       <section class="sketch-host-reveal">
         <header>
@@ -168,7 +175,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
 
   function applyState(state: SketchRelayGameStatePayload): void {
     latest = state;
-    if (state.phase === "reveal" || state.phase === "finished") renderReveal(state);
+    if (state.phase === "reveal" || state.phase === "result") renderReveal(state);
     else renderActive(state);
   }
 
@@ -184,7 +191,7 @@ export function mountSketchRelayHostView(container: HTMLElement): SketchRelayHos
   }
 
   timer = window.setInterval(() => {
-    if (latest && latest.phase !== "reveal" && latest.phase !== "finished") {
+    if (latest && latest.phase !== "reveal" && latest.phase !== "result") {
       const el = container.querySelector<HTMLElement>(".sketch-timer-big");
       if (el) el.textContent = secondsLeft(latest.deadlineAt);
     }

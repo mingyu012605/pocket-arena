@@ -47,14 +47,17 @@ interface MotionInputOptions {
   restoreCalibration?: boolean;
 }
 
-const STEERING_DEAD_ZONE_DEG = 8;
-const STEERING_MAX_TILT_DEG = 35;
+const STEERING_DEAD_ZONE_DEG = 2.5;
+// Was 16: full steering lock at under 14 degrees of wrist tilt read as
+// twitchy/oversensitive in real phone testing - widened so it takes a more
+// deliberate tilt to reach full lock, giving finer control near center.
+const STEERING_MAX_TILT_DEG = 26;
 const THROTTLE_DEAD_ZONE_DEG = 8;
 const THROTTLE_MAX_TILT_DEG = 30;
-const SMOOTHING_FACTOR = 0.35;
+const SMOOTHING_FACTOR = 0.7;
 const SENSOR_TIMEOUT_MS = 3000;
 const STALE_READING_MS = 300;
-const READING_INTERVAL_MS = 33; // ~30Hz
+const READING_INTERVAL_MS = 25; // ~40Hz
 
 export function isLandscapeAngle(angle: number): boolean {
   return LANDSCAPE_ANGLES.has(((angle % 360) + 360) % 360);

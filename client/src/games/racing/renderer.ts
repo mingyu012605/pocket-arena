@@ -9,7 +9,7 @@ import { getDefaultRacingQuality } from "./quality";
 import type { RacingQualitySettings } from "./quality";
 import { buildCarMesh } from "./cars";
 import type { CarVisual } from "./cars";
-import { VISUAL_BARRIER_OFFSET, buildTrackGroup } from "./track";
+import { VISUAL_BARRIER_OFFSET, buildGrassTexture, buildTrackGroup } from "./track";
 import { computeRacingCarWorldTransform } from "./carTransform";
 import { buildTracksideDetails, buildSkyDome, buildConfettiField } from "./environment";
 import { RacingInterpolationBuffer } from "./interpolation";
@@ -188,6 +188,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
   /** Previous frame's rendered world height per car, used to estimate airborne vertical velocity client-side (velocity itself isn't sent over the wire). */
   private readonly previousCarHeight = new Map<number, number>();
   private readonly visualWheelSteer = new Map<number, number>();
+  private lastCameraFrameAt = 0;
   private pixelRatio = 1;
   private targetPixelRatio = 1;
   private frameDeltas: number[] = [];
@@ -294,11 +295,19 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     scene.add(this.stadiumProps);
     scene.add(this.buildRoadObstacles());
     scene.add(buildConfettiField(Math.round(this.quality.particles * 1.25)));
-    this.cameraObstacles = [trackGroup, tracksideDetails, this.stadiumProps];
+    // trackGroup (road/curbs/barriers) is deliberately excluded: the chase
+    // camera sits low and close behind the car by design, and at a steep
+    // heading (e.g. sliding toward a wall) its own backward ray can graze
+    // the road/barrier mesh at a shallow angle and register a false "hit"
+    // against the driving surface itself, yanking the camera in tight
+    // against the asphalt - a dark, extreme close-up filling the screen.
+    // Only background scenery the camera should never clip into belongs
+    // here.
+    this.cameraObstacles = [tracksideDetails, this.stadiumProps];
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(980, 860),
-      new THREE.MeshStandardMaterial({ color: "#b8cf94", roughness: 0.92, metalness: 0.01 })
+      new THREE.MeshStandardMaterial({ color: "#89cf65", map: buildGrassTexture(), roughness: 0.94, metalness: 0.01 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, -0.02, -100);
@@ -434,6 +443,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
     this.visualWheelSteer.clear();
     this.visualPitch.clear();
     this.previousCarHeight.clear();
+    this.lastCameraFrameAt = 0;
     this.lastRaceStatus = null;
   }
 
@@ -463,13 +473,13 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       }
       car.root.position.set(x, y, z);
       const steering = pos.steering ?? 0;
-      const visualSlip = clamp(pos.headingError * 0.85 + steering * 0.16, -0.62, 0.62);
+      const visualSlip = clamp(pos.headingError + steering * 0.1, -1.05, 1.05);
       const targetYaw = -(heading + visualSlip);
       const previousYaw = this.visualYaw.get(playerNumber) ?? targetYaw;
       const smoothedYaw = previousYaw + shortestAngleDelta(previousYaw, targetYaw) * 0.34;
       this.visualYaw.set(playerNumber, smoothedYaw);
       car.root.rotation.y = smoothedYaw;
-      const cameraYaw = -(heading + clamp(pos.headingError * 0.22, -0.24, 0.24));
+      const cameraYaw = -(heading + clamp(pos.headingError * 0.52, -0.58, 0.58));
       // Grounded roll/pitch read the track's own authored bank/slope at this
       // car's exact progress+lateralOffset - not inferred from consecutive
       // network positions, which would be noisy and indistinguishable from
@@ -552,6 +562,9 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
 
     const target = focused ?? leader;
     if (target) {
+      const cameraDeltaSeconds =
+        this.lastCameraFrameAt > 0 ? clamp((_timestamp - this.lastCameraFrameAt) / 1000, 1 / 120, 0.12) : 1 / 60;
+      this.lastCameraFrameAt = _timestamp;
       // A respawn teleports the car far from wherever the camera was
       // easing toward - continuing the normal damped follow would produce
       // a long, wrong-looking slide chasing a car that already isn't
@@ -625,16 +638,16 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
         this.lookTarget.copy(desiredLook);
         this.cameraInitialized = true;
       } else {
-        // Capped absolute step on top of the lerp - a plain lerp still
-        // moves a fixed *fraction* of however far "desired" jumped that
-        // frame, so a sudden target discontinuity (bouncing off a barrier,
-        // snapping back on track after an off-track excursion) could still
-        // move the camera several units in a single frame and read as a
-        // cut. Clamping the step means the camera eases up to a big jump
-        // over several frames instead of following it instantly.
-        const step = desired.clone().sub(camera.position).multiplyScalar(config.damping);
-        const MAX_CAMERA_STEP = 1.6;
-        if (step.length() > MAX_CAMERA_STEP) step.setLength(MAX_CAMERA_STEP);
+        // Speed-aware follow: a fixed cap made the camera fall behind when
+        // the car was fast and frame time spiked. Keep normal smoothing, but
+        // let the allowed step grow with actual car speed and frame delta.
+        const error = desired.clone().sub(camera.position);
+        const followDamping = config.spectator ? config.damping : Math.min(0.88, config.damping + clamp(Math.abs(target.speed) / 105, 0, 0.34));
+        const step = error.multiplyScalar(followDamping);
+        const maxCameraStep = config.spectator
+          ? 2.8
+          : Math.max(4.8, 2.4 + Math.abs(target.speed) * cameraDeltaSeconds * 5.2 + step.length() * 0.18);
+        if (step.length() > maxCameraStep) step.setLength(maxCameraStep);
         camera.position.add(step);
       }
       this.lookTarget.lerp(desiredLook, config.spectator ? 0.16 : 0.5);
@@ -659,6 +672,7 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       camera.fov += (config.fov + Math.min(3, target.speed * 0.045) - camera.fov) * 0.08;
       camera.updateProjectionMatrix();
     }
+    if (!target) this.lastCameraFrameAt = 0;
 
     this.effects?.update(_timestamp);
     renderer.render(scene, camera);
@@ -823,9 +837,15 @@ export class RacingRenderer implements GameRenderer<RacingGameStatePayload> {
       lookHeight: 0.45,
       lookAhead: 4.6,
       fov: 58,
-      damping: 0.32,
+      damping: 0.48,
       spectator: false,
-      avoidScenery: false,
+      // Was false: this is the default "chase" mode most players actually
+      // use, so leaving scenery collision off here (while "wide" and "hood"
+      // both had it on) meant the single most-used camera had no protection
+      // against clipping into trackside buildings/props - visible as a
+      // flat, unlit color filling the screen whenever the look-ahead point
+      // swung toward nearby scenery (e.g. during a large heading error).
+      avoidScenery: true,
       avoidCars: false
     };
   }

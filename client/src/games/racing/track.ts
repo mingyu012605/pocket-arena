@@ -1,12 +1,14 @@
 import * as THREE from "three";
-import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle, sampleRacingTrackFrame } from "../../../../shared/racingTrack";
+import { TEST_OVAL_TRACK, sampleRacingTrackFrame } from "../../../../shared/racingTrack";
 import { computeRacingCarWorldTransform } from "./carTransform";
 import asphaltNormalUrl from "@pmndrs/assets/normals/0004.webp";
 import curbNormalUrl from "@pmndrs/assets/normals/0012.webp";
 import terrainDetailUrl from "@pmndrs/assets/textures/cloud.webp";
 
-const TRACK_SAMPLES = 320;
+const TRACK_SAMPLES = 960;
 export const VISUAL_BARRIER_OFFSET = 2.6;
+const TERRAIN_FLUSH_OFFSET = TEST_OVAL_TRACK.trackHalfWidth + 26;
+const TERRAIN_OUTER_OFFSET = TEST_OVAL_TRACK.trackHalfWidth + 260;
 
 /**
  * Layer heights are spaced by at least 0.02 units and curbs sit flush with
@@ -135,10 +137,13 @@ export function buildGrassTexture(): THREE.CanvasTexture {
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext("2d")!;
+  // Muted from a brighter, more saturated lime-green gradient - it was
+  // pulling the eye away from the road (the surface that actually matters
+  // while driving) instead of reading as a background surface.
   const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-  gradient.addColorStop(0, "#b8e986");
-  gradient.addColorStop(0.48, "#83c96a");
-  gradient.addColorStop(1, "#4f9b59");
+  gradient.addColorStop(0, "#a3c583");
+  gradient.addColorStop(0.48, "#719c5f");
+  gradient.addColorStop(1, "#47734f");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.globalAlpha = 0.16;
@@ -159,6 +164,23 @@ export function buildGrassTexture(): THREE.CanvasTexture {
   texture.repeat.set(10, 10);
   texture.anisotropy = 4;
   return texture;
+}
+
+function smoothStep(value: number): number {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
+}
+
+export function racingTracksideTerrainY(progress: number, lateralOffset: number): number {
+  const absOffset = Math.abs(lateralOffset);
+  if (absOffset <= TERRAIN_FLUSH_OFFSET) {
+    return sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, lateralOffset).y;
+  }
+
+  const side = Math.sign(lateralOffset) || 1;
+  const inner = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, side * TERRAIN_FLUSH_OFFSET);
+  const t = smoothStep((absOffset - TERRAIN_FLUSH_OFFSET) / Math.max(1, TERRAIN_OUTER_OFFSET - TERRAIN_FLUSH_OFFSET));
+  return inner.y + (0.02 - inner.y) * t;
 }
 
 export function buildSponsorTexture(title: string, accent: string, bg: string): THREE.CanvasTexture {
@@ -221,17 +243,70 @@ function buildRibbonMesh(innerOffset: number, outerOffset: number, yOffset: numb
   const uvs: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
+  const stripCount = Math.max(1, Math.ceil(Math.abs(outerOffset - innerOffset) / 5));
 
   for (let i = 0; i <= TRACK_SAMPLES; i++) {
     const progress = (i / TRACK_SAMPLES) * TEST_OVAL_TRACK.trackLength;
-    const outer = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, outerOffset);
+    for (let strip = 0; strip <= stripCount; strip++) {
+      const t = strip / stripCount;
+      const offset = outerOffset + (innerOffset - outerOffset) * t;
+      const frame = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, offset);
+      positions.push(frame.x, frame.y + yOffset, frame.z);
+      uvs.push(t, i / TRACK_SAMPLES);
+      const [r, g, b] = SEGMENT_GRAYBOX_COLOR[frame.segmentType] ?? [1, 1, 1];
+      colors.push(r, g, b);
+    }
+  }
+
+  for (let i = 0; i < TRACK_SAMPLES; i++) {
+    const row = stripCount + 1;
+    for (let strip = 0; strip < stripCount; strip++) {
+      const a = i * row + strip;
+      const b = a + 1;
+      const c = (i + 1) * row + strip;
+      const d = c + 1;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return new THREE.Mesh(geometry, material);
+}
+
+function buildTerrainApronMesh(
+  innerOffset: number,
+  outerOffset: number,
+  yOffset: number,
+  material: THREE.Material
+): THREE.Mesh {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+  // Muted along with the other grass colors above - these vertex colors
+  // multiply on top of terrainApronMaterial's own (already muted) color and
+  // texture, so leaving them this bright was silently undoing most of that
+  // muting on the wide outer terrain apron.
+  const groundColor = new THREE.Color("#6f9a56");
+  const roadsideColor = new THREE.Color("#7ba85f");
+
+  for (let i = 0; i <= TRACK_SAMPLES; i++) {
+    const progress = (i / TRACK_SAMPLES) * TEST_OVAL_TRACK.trackLength;
     const inner = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, innerOffset);
-    positions.push(outer.x, outer.y + yOffset, outer.z);
+    const outer = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, outerOffset);
+    const outerY = racingTracksideTerrainY(progress, outerOffset);
+
+    positions.push(outer.x, outerY + yOffset, outer.z);
     positions.push(inner.x, inner.y + yOffset, inner.z);
     uvs.push(0, i / TRACK_SAMPLES);
     uvs.push(1, i / TRACK_SAMPLES);
-    const [r, g, b] = SEGMENT_GRAYBOX_COLOR[outer.segmentType] ?? [1, 1, 1];
-    colors.push(r, g, b, r, g, b);
+    colors.push(groundColor.r, groundColor.g, groundColor.b, roadsideColor.r, roadsideColor.g, roadsideColor.b);
   }
 
   for (let i = 0; i < TRACK_SAMPLES; i++) {
@@ -269,10 +344,19 @@ export function buildTrackGroup(): THREE.Group {
     vertexColors: true
   });
   const runoffMaterial = new THREE.MeshStandardMaterial({
-    color: "#86bd65",
+    color: "#749e5c",
     map: buildGrassTexture(),
     alphaMap: loadRepeatTexture(terrainDetailUrl, 18, 18, THREE.SRGBColorSpace),
     roughness: 0.92,
+    metalness: 0.01,
+    side: THREE.DoubleSide,
+    vertexColors: true
+  });
+  const terrainApronMaterial = new THREE.MeshStandardMaterial({
+    color: "#77a95c",
+    map: buildGrassTexture(),
+    alphaMap: loadRepeatTexture(terrainDetailUrl, 24, 24, THREE.SRGBColorSpace),
+    roughness: 0.94,
     metalness: 0.01,
     side: THREE.DoubleSide,
     vertexColors: true
@@ -299,13 +383,15 @@ export function buildTrackGroup(): THREE.Group {
   // steep/banked camera angles.
   const runoffLeft = buildRibbonMesh(-halfWidth - 26, -halfWidth - 7.45, LAYER_Y.runoff, runoffMaterial);
   const runoffRight = buildRibbonMesh(halfWidth + 7.45, halfWidth + 26, LAYER_Y.runoff, runoffMaterial);
+  const terrainApronLeft = buildTerrainApronMesh(-TERRAIN_FLUSH_OFFSET, -TERRAIN_OUTER_OFFSET, LAYER_Y.runoff - 0.008, terrainApronMaterial);
+  const terrainApronRight = buildTerrainApronMesh(TERRAIN_FLUSH_OFFSET, TERRAIN_OUTER_OFFSET, LAYER_Y.runoff - 0.008, terrainApronMaterial);
   const road = buildRibbonMesh(-halfWidth, halfWidth, LAYER_Y.road, roadMaterial);
   const shoulderRight = buildRibbonMesh(halfWidth + 1.1, halfWidth + 7.2, LAYER_Y.road, shoulderMaterial);
   const shoulderLeft = buildRibbonMesh(-halfWidth - 7.2, -halfWidth - 1.1, LAYER_Y.road, shoulderMaterial);
   const curbRight = buildRibbonMesh(halfWidth, halfWidth + 1.05, LAYER_Y.curb, curbMaterial);
   const curbLeft = buildRibbonMesh(-halfWidth - 1.05, -halfWidth, LAYER_Y.curb, curbMaterial);
-  for (const mesh of [runoffLeft, runoffRight, road, shoulderRight, shoulderLeft, curbRight, curbLeft]) mesh.receiveShadow = true;
-  group.add(runoffLeft, runoffRight, shoulderRight, shoulderLeft, road);
+  for (const mesh of [terrainApronLeft, terrainApronRight, runoffLeft, runoffRight, road, shoulderRight, shoulderLeft, curbRight, curbLeft]) mesh.receiveShadow = true;
+  group.add(terrainApronLeft, terrainApronRight, runoffLeft, runoffRight, shoulderRight, shoulderLeft, road);
   group.add(buildRibbonMesh(halfWidth - 0.68, halfWidth - 0.28, LAYER_Y.edgeLine, lineMaterial));
   group.add(buildRibbonMesh(-halfWidth + 0.28, -halfWidth + 0.68, LAYER_Y.edgeLine, lineMaterial));
   group.add(buildRibbonMesh(halfWidth * 0.32, halfWidth * 0.32 + 0.22, LAYER_Y.laneGuide, laneGuideMaterial));
@@ -343,15 +429,12 @@ export function buildTrackGroup(): THREE.Group {
   let index = 0;
   for (let i = 0; i < barrierCountPerSide; i++) {
     const progress = (i / barrierCountPerSide) * TEST_OVAL_TRACK.trackLength;
-    const center = centerlinePoint(TEST_OVAL_TRACK, progress);
-    const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
-    const nx = Math.cos(angle);
-    const nz = Math.sin(angle);
     for (const side of [-1, 1]) {
       const offset = side * (halfWidth + VISUAL_BARRIER_OFFSET);
+      const frame = sampleRacingTrackFrame(TEST_OVAL_TRACK, progress, offset);
       matrix.compose(
-        new THREE.Vector3(center.x + nx * offset, (center.y ?? 0) + 0.62, center.z + nz * offset),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -angle, 0)),
+        new THREE.Vector3(frame.x, frame.y + 0.62, frame.z),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -frame.heading, 0)),
         new THREE.Vector3(1, 1, 1)
       );
       barriers.setMatrixAt(index, matrix);

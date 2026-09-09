@@ -1,6 +1,6 @@
 import type { Server } from "socket.io";
 import { describe, expect, it } from "vitest";
-import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt, sampleRacingTrackFrame } from "../../shared/racingTrack";
+import { TEST_OVAL_TRACK, shortestProgressDelta, createTrack, rampJumpSpanAt, sampleRacingTrackFrame, centerlineTangentAngle } from "../../shared/racingTrack";
 import { SOCKET_EVENTS } from "../../shared/protocol";
 import type { RacingGameStatePayload } from "../../shared/protocol";
 import {
@@ -29,6 +29,7 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
     speed: 0,
     yawRate: 0,
     steering: 0,
+    smoothedSteering: 0,
     throttle: 0,
     brake: 0,
     lastInputAt: Date.now(),
@@ -58,6 +59,13 @@ function makeCar(overrides: Partial<RacingCarState> = {}): RacingCarState {
   };
 }
 
+function shortestTestAngleDelta(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 const rampTrack = createTrack(
   "test-ramp",
   [
@@ -76,7 +84,7 @@ describe("stepCar", () => {
     for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(car.speed).toBeGreaterThan(0);
     expect(car.progress).toBeGreaterThan(0);
-    expect(car.lateralOffset).toBeCloseTo(0, 1);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
   });
 
   it("turns by yawing the car first, then drifting laterally from its heading", () => {
@@ -145,6 +153,21 @@ describe("stepCar", () => {
     expect(car.speed).toBeGreaterThan(0);
   });
 
+  it("rebounds immediately when the car crosses the visible road edge", () => {
+    const car = makeCar({
+      speed: 26,
+      lateralOffset: TEST_OVAL_TRACK.trackHalfWidth + 1.1,
+      steering: 1,
+      headingError: 0.22,
+      throttle: 1
+    });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
+    expect(car.headingError).toBeLessThan(0);
+    expect(car.yawRate).toBeLessThan(0);
+    expect(car.speed).toBeGreaterThan(18);
+  });
+
   it("handles corner barrier impact without extreme speed reduction", () => {
     const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
     const car = makeCar({ speed: 30, progress: TEST_OVAL_TRACK.trackLength * 0.32, lateralOffset: -barrierLimit - 5, steering: -1 });
@@ -153,16 +176,128 @@ describe("stepCar", () => {
     expect(car.speed).toBeGreaterThan(20);
   });
 
+  it("bounces a hard side impact back onto the road instead of leaving the car grinding outside", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 34, lateralOffset: barrierLimit + 6, steering: 1, headingError: 0.42 });
+    stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(car.lateralOffset).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth - 1);
+    expect(car.headingError).toBeLessThan(0);
+    expect(car.yawRate).toBeLessThan(0);
+    expect(car.speed).toBeGreaterThan(20);
+    expect(car.lastCollisionAt).toBeGreaterThan(0);
+  });
+
+  it("keeps repeated side impacts from slowly pushing through trackside scenery", () => {
+    const barrierLimit = TEST_OVAL_TRACK.trackHalfWidth + RACING.barrierOffset;
+    const car = makeCar({ speed: 32, lateralOffset: barrierLimit + 2, steering: 1, throttle: 1, headingError: 0.35 });
+    for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
+    expect(car.speed).toBeGreaterThan(0);
+    expect(car.lastCollisionAt).toBeGreaterThan(0);
+  });
+
   it("coasts to a stop with no throttle or brake", () => {
     const car = makeCar({ speed: 10 });
     for (let i = 0; i < 300; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
     expect(car.speed).toBe(0);
   });
 
-  it("re-centers heading when steering returns to neutral", () => {
+  it("keeps a neutral wheel moving straight instead of auto-following a curved road", () => {
+    const car = makeCar({ speed: 30, throttle: 1, steering: 0 });
+    const startWorldHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress) + car.headingError;
+    const startTrackHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress);
+    for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+    const endWorldHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress) + car.headingError;
+    const endTrackHeading = centerlineTangentAngle(TEST_OVAL_TRACK, car.progress);
+    const worldDelta = Math.abs(shortestTestAngleDelta(startWorldHeading, endWorldHeading));
+    const trackDelta = Math.abs(shortestTestAngleDelta(startTrackHeading, endTrackHeading));
+
+    expect(worldDelta).toBeLessThan(trackDelta * 0.82);
+    expect(Math.abs(car.lateralOffset)).toBeGreaterThan(6);
+    expect(Math.abs(car.lateralOffset)).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth);
+  });
+
+  it("keeps neutral steering forgiving without snapping the car back to the road tangent", () => {
     const car = makeCar({ speed: 20, headingError: 0.7, steering: 0 });
     for (let i = 0; i < 120; i++) stepCar(TEST_OVAL_TRACK, car, 1 / 60);
-    expect(Math.abs(car.headingError)).toBeLessThan(0.12);
+
+    expect(Math.abs(car.headingError)).toBeGreaterThan(0.05);
+    expect(Math.abs(car.headingError)).toBeLessThan(0.7);
+  });
+
+  it("lets a modest wheel input hold the opening curve", () => {
+    const neutral = makeCar({ speed: 30, throttle: 1, steering: 0 });
+    const steered = makeCar({ speed: 30, throttle: 1, steering: 0.15 });
+    for (let i = 0; i < 120; i++) {
+      stepCar(TEST_OVAL_TRACK, neutral, 1 / 60);
+      stepCar(TEST_OVAL_TRACK, steered, 1 / 60);
+    }
+
+    expect(Math.abs(steered.lateralOffset)).toBeLessThan(Math.abs(neutral.lateralOffset) * 0.5);
+    expect(Math.abs(steered.lateralOffset)).toBeLessThan(8);
+  });
+
+  it("an active corrective controller keeps the car from oscillating out of control", () => {
+    // Regression test for a real bug: a previous physics model passed every
+    // other test in this file (all of which use short, fixed steering
+    // values) while still being uncontrollable in actual play, because none
+    // of them exercised a realistic *reactive* steering signal continuously
+    // responding to the car's own drift over an extended, curving drive.
+    // This simulates exactly that - a simple proportional "stay centered
+    // and aligned" controller, the same shape of correction any attentive
+    // player or the bot AI applies - and asserts the closed loop actually
+    // converges instead of diverging or sustaining large oscillation.
+    const car = makeCar({ speed: RACING.maxSpeed, throttle: 1 });
+    let maxAbsLateralInSecondHalf = 0;
+    const totalTicks = 600; // 10 seconds at 60Hz, crosses multiple curves/banks
+    for (let i = 0; i < totalTicks; i++) {
+      const kLateral = 0.05;
+      const kHeading = 0.9;
+      car.steering = Math.max(-1, Math.min(1, -car.lateralOffset * kLateral - car.headingError * kHeading));
+      stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+      if (i > totalTicks / 2) {
+        maxAbsLateralInSecondHalf = Math.max(maxAbsLateralInSecondHalf, Math.abs(car.lateralOffset));
+      }
+    }
+    // A controllable car under active correction should settle well inside
+    // the track, nowhere near the barrier - not merely "less than trackHalfWidth"
+    // (34), which would still pass for a car swinging wall-to-wall.
+    expect(maxAbsLateralInSecondHalf).toBeLessThan(TEST_OVAL_TRACK.trackHalfWidth * 0.4);
+  });
+
+  it("settles after a hard barrier disturbance instead of ping-ponging between both barriers forever", () => {
+    // Regression test for a real bug: removing the old (too strong) curve-
+    // following auto-centering entirely, rather than weakening it, left
+    // NOTHING ever pulling headingError back toward straight while the
+    // wheel is neutral. A car kicked hard off-line by a barrier rebound
+    // (which imparts a large opposing headingError by design, so it doesn't
+    // grind along the wall) would sail all the way across the track, slam
+    // the opposite barrier, get kicked back just as hard, and repeat
+    // indefinitely - confirmed empirically by a live drive with steering
+    // held at zero for its entire duration, which still bounced wall to
+    // wall every couple of seconds with no sign of settling.
+    const car = makeCar({
+      speed: RACING.maxSpeed,
+      throttle: 1,
+      lateralOffset: TEST_OVAL_TRACK.trackHalfWidth * 0.95,
+      headingError: -0.75 // pointed back across the track, as a barrier rebound would leave it
+    });
+    let crossingsPastHalfway = 0;
+    let wasOnPositiveSide = car.lateralOffset > 0;
+    const totalTicks = 900; // 15 seconds - several times longer than one wall-to-wall ping-pong cycle
+    for (let i = 0; i < totalTicks; i++) {
+      car.steering = 0; // wheel held neutral for the whole run, deliberately
+      stepCar(TEST_OVAL_TRACK, car, 1 / 60);
+      const isOnPositiveSide = car.lateralOffset > 0;
+      if (isOnPositiveSide !== wasOnPositiveSide && Math.abs(car.lateralOffset) > TEST_OVAL_TRACK.trackHalfWidth * 0.6) {
+        crossingsPastHalfway += 1;
+      }
+      wasOnPositiveSide = isOnPositiveSide;
+    }
+    // One initial crossing (settling toward the other side after the first
+    // disturbance) is fine; repeatedly slamming past the halfway mark on
+    // both sides is the ping-pong bug.
+    expect(crossingsPastHalfway).toBeLessThanOrEqual(1);
   });
 
   it("tilting backward applies reverse after braking to a stop", () => {

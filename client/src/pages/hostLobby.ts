@@ -5,12 +5,15 @@ import { SOCKET_EVENTS } from "../../../shared/protocol";
 import type { CreateRoomSlot, PublicRoomState, RoomClosedPayload } from "../../../shared/protocol";
 import type { CountdownTickPayload, GameStatePayload } from "../../../shared/protocol";
 import type { HostReconnectResponse } from "../../../shared/protocol";
+import type { GolfClubPosePayload } from "../../../shared/protocol";
+import type { PocketGolfGameStatePayload } from "../../../shared/protocol";
 import type { SketchRelayGameStatePayload } from "../../../shared/protocol";
 import type { GameStartRequest, SketchRelayTurnSeconds, SketchRelayWordDifficulty } from "../../../shared/protocol";
 import { createQrCard } from "../components/qrCard";
 import { createPlayerCard } from "../components/playerCard";
 import { createButton } from "../components/button";
 import { ControllerTestRenderer } from "../games/controller-test/renderer";
+import type { GameRenderer } from "../games/gameRenderer";
 import { TEST_OVAL_TRACK } from "../../../shared/racingTrack";
 import type { RacingGameStatePayload, RacingPlayerState } from "../../../shared/protocol";
 import type { RacingRenderer } from "../games/racing/renderer";
@@ -27,7 +30,10 @@ const SKETCH_TURN_SECONDS_KEY = "pocket-arena:sketchTurnSeconds";
 const SKETCH_DIFFICULTIES: SketchRelayWordDifficulty[] = ["easy", "medium", "hard"];
 const SKETCH_TURN_SECONDS: SketchRelayTurnSeconds[] = [30, 60, 90];
 
-type MountedRenderer = ControllerTestRenderer | RacingRenderer;
+type MountedRenderer = GameRenderer<any>;
+type PocketGolfRendererControls = GameRenderer<PocketGolfGameStatePayload> & {
+  applyClubPose?: (pose: GolfClubPosePayload) => void;
+};
 
 interface StoredHostSession {
   hostToken: string;
@@ -108,9 +114,11 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
   let lastRoom: PublicRoomState = session.room;
   let lastRacingState: RacingGameStatePayload | null = null;
   let lastSketchState: SketchRelayGameStatePayload | null = null;
+  let lastGolfState: PocketGolfGameStatePayload | null = null;
   let focusedRacingPlayer: number | null = null;
   let racingCameraMode = "chase";
   let racingRendererControls: RacingRenderer | null = null;
+  let golfRendererControls: PocketGolfRendererControls | null = null;
   let sketchHostView: SketchRelayHostView | null = null;
   let lastRacingHudAt = 0;
   let racingSnapshotCount = 0;
@@ -268,6 +276,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     gameSectionEl.hidden = false;
     gameSectionEl.classList.toggle("race-viewport", room.gameType === "racing");
     gameSectionEl.classList.toggle("sketch-viewport", room.gameType === "sketch-relay");
+    gameSectionEl.classList.toggle("golf-viewport", room.gameType === "pocket-golf");
     gameSectionEl.innerHTML = `
       <div class="countdown-overlay" id="countdown"></div>
       <div class="racing-hud" id="racing-hud" hidden></div>
@@ -290,11 +299,20 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
         if (generation !== gameViewGeneration) return;
         renderer = null;
         racingRendererControls = null;
+        golfRendererControls = null;
         sketchHostView = mountSketchRelayHostView(gameSectionEl);
         if (lastSketchState) sketchHostView.applyState(lastSketchState);
+      } else if (room.gameType === "pocket-golf") {
+        const { PocketGolfRenderer } = await import("../games/pocket-golf/renderer");
+        if (generation !== gameViewGeneration) return;
+        const golfRenderer = new PocketGolfRenderer(room);
+        renderer = golfRenderer;
+        racingRendererControls = null;
+        golfRendererControls = golfRenderer;
       } else {
         renderer = new ControllerTestRenderer(room);
         racingRendererControls = null;
+        golfRendererControls = null;
       }
     } catch (err) {
       if (generation !== gameViewGeneration) return;
@@ -330,6 +348,11 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       racingRendererControls.applyState(lastRacingState);
       updateRacingHud(lastRacingState);
     }
+    if (golfRendererControls && lastGolfState && lastGolfState.roundId === room.roundId) {
+      golfRendererControls.applyState(lastGolfState);
+    } else if (golfRendererControls) {
+      void emitWithAck(SOCKET_EVENTS.GOLF_REQUEST_STATE, {}).catch(() => undefined);
+    }
     const loop = (t: number) => {
       renderer?.render(t);
       rafHandle = requestAnimationFrame(loop);
@@ -352,10 +375,12 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     sketchHostView?.destroy();
     sketchHostView = null;
     racingRendererControls = null;
+    golfRendererControls = null;
     racingAudio.update({ speed: 0, maxSpeed: RACING_MAX_SPEED_ESTIMATE, offTrack: false, steeringMagnitude: 0, braking: false });
     pageSectionEl.classList.remove("is-game-active");
     gameSectionEl.classList.remove("race-viewport");
     gameSectionEl.classList.remove("sketch-viewport");
+    gameSectionEl.classList.remove("golf-viewport");
     gameSectionEl.hidden = true;
     gridEl.hidden = false;
     footerEl.hidden = false;
@@ -542,9 +567,11 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     );
     hud.appendChild(controls);
 
-    const connectionDiagnostics = buildHostDiagnostics(state);
-    connectionDiagnostics.classList.add("race-hud-panel", "race-host-diagnostics");
-    hud.appendChild(connectionDiagnostics);
+    if (devMode) {
+      const connectionDiagnostics = buildHostDiagnostics(state);
+      connectionDiagnostics.classList.add("race-hud-panel", "race-host-diagnostics");
+      hud.appendChild(connectionDiagnostics);
+    }
 
     if (devMode) {
       const diagnostics = document.createElement("section");
@@ -572,12 +599,20 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     const panel = document.createElement("div");
     panel.className = "results-panel";
     const title = document.createElement("h2");
-    title.textContent = "Results";
+    title.textContent = room.gameType === "pocket-golf" ? "Golf Results" : "Results";
     panel.appendChild(title);
 
     const list = document.createElement("ol");
     list.className = "results-list";
-    if (ranked.length === 0) {
+    if (room.gameType === "pocket-golf" && lastGolfState) {
+      const golfRanked = [...lastGolfState.players].sort((a, b) => a.strokes - b.strokes || a.playerNumber - b.playerNumber);
+      for (const player of golfRanked) {
+        const row = document.createElement("li");
+        const score = player.scoreRelativeToPar === 0 ? "E" : player.scoreRelativeToPar > 0 ? `+${player.scoreRelativeToPar}` : String(player.scoreRelativeToPar);
+        row.textContent = `${player.displayName} - ${player.strokes} strokes (${score})`;
+        list.appendChild(row);
+      }
+    } else if (ranked.length === 0) {
       const empty = document.createElement("li");
       empty.textContent = "No results received yet.";
       list.appendChild(empty);
@@ -624,9 +659,12 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     renderHostDiagnostics(lastRacingState);
     const isRaceResults = room.gameType === "racing" && room.status === "results";
     const isSketchResults = room.gameType === "sketch-relay" && room.status === "results";
-    const isPlaying = room.status === "countdown" || room.status === "in-progress" || isRaceResults || isSketchResults;
+    const isGolfResults = room.gameType === "pocket-golf" && room.status === "results";
+    const isPlaying = room.status === "countdown" || room.status === "in-progress" || isRaceResults || isSketchResults || isGolfResults;
     const wasPlaying =
-      lastStatus === "countdown" || lastStatus === "in-progress" || (room.gameType === "racing" && lastStatus === "results");
+      lastStatus === "countdown" ||
+      lastStatus === "in-progress" ||
+      ((room.gameType === "racing" || room.gameType === "pocket-golf") && lastStatus === "results");
 
     if (room.status === "results" && room.gameType === "sketch-relay") {
       if (!wasPlaying) void startGameView(room);
@@ -638,9 +676,9 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
       return;
     }
     if (room.status === "results") {
-      if (room.gameType === "racing" && !wasPlaying) void startGameView(room);
+      if ((room.gameType === "racing" || room.gameType === "pocket-golf") && !wasPlaying) void startGameView(room);
       gridEl.hidden = true;
-      gameSectionEl.hidden = room.gameType !== "racing";
+      gameSectionEl.hidden = room.gameType !== "racing" && room.gameType !== "pocket-golf";
       reconnectingEl.hidden = true;
       renderResultsScreen(room);
       lastStatus = room.status;
@@ -690,9 +728,17 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
 
   emitWithAck<HostReconnectResponse>(SOCKET_EVENTS.HOST_RECONNECT, {
     roomId,
-    hostToken: session.hostToken
+    hostToken: session.hostToken,
+    publicOrigin: window.location.origin
   }).then(
-    ({ room }) => renderRoom(room),
+    ({ room, slots }) => {
+      session.slots = slots;
+      sessionStorage.setItem(
+        `pocket-arena:host:${roomId}`,
+        JSON.stringify({ hostToken: session.hostToken, slots: session.slots, room })
+      );
+      renderRoom(room);
+    },
     () => {
       sessionStorage.removeItem(`pocket-arena:host:${roomId}`);
       navigate("/");
@@ -763,10 +809,19 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     } else if (payload.gameType === "sketch-relay") {
       lastSketchState = payload;
       sketchHostView?.applyState(payload);
+    } else if (payload.gameType === "pocket-golf") {
+      lastGolfState = payload;
+      golfRendererControls?.applyState(payload);
+      if (lastRoom.gameType === "pocket-golf" && lastRoom.status === "results") renderResultsScreen(lastRoom);
     }
+  };
+  const onGolfClubPose = (payload: GolfClubPosePayload) => {
+    if (lastRoom.gameType !== "pocket-golf") return;
+    golfRendererControls?.applyClubPose?.(payload);
   };
   socket.on(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
   socket.on(SOCKET_EVENTS.GAME_STATE, onGameState);
+  socket.on(SOCKET_EVENTS.GOLF_CLUB_POSE, onGolfClubPose);
   socketGameStateListeners += 1;
   publishRacingDebugCounters();
   socket.on("connect", onSocketConnectionChange);
@@ -779,6 +834,7 @@ export function renderHostLobbyPage({ container, params }: RouteContext): Cleanu
     socket.off(SOCKET_EVENTS.ROOM_CLOSED, onRoomClosed);
     socket.off(SOCKET_EVENTS.GAME_COUNTDOWN_TICK, onCountdownTick);
     socket.off(SOCKET_EVENTS.GAME_STATE, onGameState);
+    socket.off(SOCKET_EVENTS.GOLF_CLUB_POSE, onGolfClubPose);
     socket.off("connect", onSocketConnectionChange);
     socket.off("disconnect", onSocketConnectionChange);
     socketGameStateListeners = Math.max(0, socketGameStateListeners - 1);

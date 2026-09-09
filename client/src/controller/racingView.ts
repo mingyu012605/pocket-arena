@@ -56,9 +56,9 @@ export function mountRacingView(
       </header>
       <p class="racing-player-badge" id="racing-player-badge"></p>
       <ul class="racing-status-badges" id="racing-status-badges">
-        <li data-badge="connected">Connected</li>
+        <li data-badge="connected">Link</li>
         <li data-badge="motion">Motion</li>
-        <li data-badge="calibrated">Calibrated</li>
+        <li data-badge="calibrated">Calib</li>
         <li data-badge="ready">Ready</li>
       </ul>
       <p class="racing-connection-stage" id="racing-connection-stage">Connecting</p>
@@ -66,6 +66,17 @@ export function mountRacingView(
       <div id="racing-action-slot"></div>
       <div id="racing-calibration-slot"></div>
       <div id="racing-ready-slot" hidden>
+        <div class="racing-verification" id="racing-verification" hidden>
+          <p>Motion check</p>
+          <ul>
+            <li data-check="left">Left</li>
+            <li data-check="right">Right</li>
+            <li data-check="throttle">Gas</li>
+            <li data-check="brake">Brake</li>
+          </ul>
+          <div id="racing-ready-action"></div>
+          <p class="safety-copy" id="racing-ready-help">Ready unlocks after checks pass.</p>
+        </div>
         <div class="steering-wheel" id="steering-wheel">
           <div class="wheel-rim"><span class="wheel-spoke wheel-spoke-horizontal"></span><span class="wheel-spoke wheel-spoke-vertical"></span><span class="wheel-hub"></span></div>
         </div>
@@ -75,28 +86,16 @@ export function mountRacingView(
           <div class="telemetry-bar"><span>Brake</span><progress id="brake-bar" max="1" value="0"></progress></div>
           <p id="speed-readout">Speed: 0 km/h</p>
         </div>
-        <div class="racing-touch-fallback" id="racing-touch-fallback">
-          <p>Touch fallback</p>
+        <details class="racing-touch-fallback" id="racing-touch-fallback">
+          <summary>Touch fallback</summary>
           <div class="racing-touch-grid">
             <button type="button" data-touch="left">Left</button>
             <button type="button" data-touch="throttle">Gas</button>
             <button type="button" data-touch="brake">Back</button>
             <button type="button" data-touch="right">Right</button>
           </div>
-        </div>
-        <div class="racing-verification" id="racing-verification" hidden>
-          <p>Confirm motion before ready</p>
-          <ul>
-            <li data-check="left">Turn left</li>
-            <li data-check="right">Turn right</li>
-            <li data-check="throttle">Tilt forward</li>
-            <li data-check="brake">Tilt backward</li>
-          </ul>
-          <div id="racing-ready-action"></div>
-          <p class="safety-copy" id="racing-ready-help">Ready unlocks after all four motion checks pass.</p>
-        </div>
+        </details>
         <button class="btn btn-secondary" id="recalibrate-button" type="button">Recalibrate</button>
-        <p class="safety-copy">Hold phone securely.</p>
       </div>
       <p class="racing-synthetic-warning" id="racing-synthetic-warning" hidden>SYNTHETIC INPUT ACTIVE</p>
       <details class="racing-dev-diagnostics" id="racing-dev-diagnostics" hidden>
@@ -108,6 +107,7 @@ export function mountRacingView(
   `;
 
   const root = container.querySelector<HTMLDivElement>(".racing-controller")!;
+  root.classList.toggle("is-preflight", Boolean(opts.preflight));
   root.style.setProperty("--player-color", opts.color);
   const nicknameEl = container.querySelector<HTMLSpanElement>(".controller-nickname")!;
   const stateCopyEl = container.querySelector<HTMLParagraphElement>("#racing-state-copy")!;
@@ -127,7 +127,7 @@ export function mountRacingView(
   const connectionStageEl = container.querySelector<HTMLParagraphElement>("#racing-connection-stage")!;
   const playerBadge = container.querySelector<HTMLParagraphElement>("#racing-player-badge")!;
   const statusBadges = container.querySelector<HTMLUListElement>("#racing-status-badges")!;
-  const touchFallback = container.querySelector<HTMLDivElement>("#racing-touch-fallback")!;
+  const touchFallback = container.querySelector<HTMLDetailsElement>("#racing-touch-fallback")!;
   const diagnostics = container.querySelector<HTMLDetailsElement>("#racing-dev-diagnostics")!;
   const syntheticWarning = container.querySelector<HTMLParagraphElement>("#racing-synthetic-warning")!;
   const diagnosticsReadout = container.querySelector<HTMLPreElement>("#racing-dev-readout")!;
@@ -255,10 +255,10 @@ export function mountRacingView(
     const verified = isPreflightVerified();
     if (readyButton) readyButton.disabled = readyBusy || (!playerReady && !verified);
     readyHelpEl.textContent = playerReady
-      ? "You are ready. Keep your phone open until the race starts."
+      ? "Ready. Keep this open."
       : verified
-        ? "Motion looks good. You can ready up."
-        : "Ready unlocks after all four motion checks pass.";
+        ? "Motion looks good. Ready up."
+        : "Ready unlocks after checks pass.";
   }
 
   async function setPlayerReady(nextReady: boolean): Promise<void> {
@@ -392,7 +392,7 @@ export function mountRacingView(
 
     if (state === "permission-required") {
       actionSlot.appendChild(
-        createButton({ label: "Enable Motion Controls", variant: "primary", onClick: () => void motion.requestPermission() })
+        createButton({ label: "Enable Motion", variant: "primary", onClick: () => void motion.requestPermission() })
       );
     } else if (state === "sensor-timeout") {
       actionSlot.appendChild(
@@ -432,6 +432,7 @@ export function mountRacingView(
     } else if (state === "ready") {
       renderReadyAction();
     }
+    touchFallback.open = fallbackCapable;
     if (fallbackCapable) renderReadyAction();
   }
 

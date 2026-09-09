@@ -1979,6 +1979,12 @@
   transform: scale(1.18);
   transform-origin: center;
 }
+
+.pa-card-art .pa-art-pocket-golf .pa-art-svg {
+  transform: scale(1.04);
+  transform-origin: center 56%;
+}
+
 .pa-confetti {
   position: absolute;
   inset: 0;
@@ -2749,6 +2755,50 @@
 }
 .pa-card-actions {
   display: none;
+}
+.pa-card-rank {
+  display: inline-flex;
+  align-self: flex-start;
+  min-height: 24px;
+  align-items: center;
+  padding: 3px 9px;
+  margin: 0 0 7px;
+  border-radius: 999px;
+  background: #fff7d6;
+  color: #8a4b00;
+  font-size: clamp(.58rem, .58vw, .7rem);
+  font-weight: 1000;
+  white-space: nowrap;
+}
+.pa-game-card.is-coming-soon {
+  cursor: not-allowed;
+  opacity: 0.74;
+  filter: grayscale(0.28);
+}
+.pa-game-card.is-coming-soon:hover,
+.pa-game-card.is-coming-soon:focus-visible {
+  transform: none;
+  border-color: transparent;
+  box-shadow: 0 12px 28px rgba(24, 84, 148, .14);
+}
+.pa-game-card.is-coming-soon .pa-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 20, 39, .26);
+}
+.pa-game-card.is-coming-soon .pa-card-actions {
+  display: block;
+  padding-top: 10px;
+}
+.pa-game-card.is-coming-soon .pa-card-play {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #dbe3ed;
+  color: #526173;
+  box-shadow: none;
+  cursor: not-allowed;
 }
 .pa-status-bar {
   min-height: 76px;

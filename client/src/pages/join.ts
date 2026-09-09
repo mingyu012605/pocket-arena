@@ -15,6 +15,7 @@ import type {
 import { createButton } from "../components/button";
 import { mountControllerView } from "../controller/controllerView";
 import { mountRacingView } from "../controller/racingView";
+import { mountPocketGolfReadyView, mountPocketGolfView } from "../games/pocket-golf/phoneView";
 import { mountSketchRelayView } from "../games/sketch-relay/phoneView";
 import "../styles/controller.css";
 import "../styles/racing.css";
@@ -34,6 +35,7 @@ function controllerLabel(gameType: GameType): string {
   if (gameType === "tennis") return "Tennis Swing";
   if (gameType === "rhythm-battle") return "Rhythm Controller";
   if (gameType === "sketch-relay") return "Sketch Pad";
+  if (gameType === "pocket-golf") return "Golf Swing";
   return "Button Controller";
 }
 
@@ -46,6 +48,7 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
   let active: ControllerAutoJoinResponse | null = null;
   let lastStatus: PublicRoomState["status"] | null = null;
   let racingRoundId = "";
+  let golfPreflightMounted = false;
 
   const mountPlaceholderReady = (room: PublicRoomState): void => {
     if (!active) return;
@@ -109,14 +112,38 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
     });
   };
 
+  const mountGolfReady = (room: PublicRoomState): void => {
+    if (!active) return;
+    const self = room.players.find((p) => p.playerNumber === active!.playerNumber);
+    section.classList.remove("centered");
+    section.style.setProperty("--player-color", active.playerColor);
+    section.innerHTML = `<div id="golf-preflight"></div>`;
+    const mountEl = section.querySelector<HTMLElement>("#golf-preflight")!;
+    golfPreflightMounted = true;
+    controllerCleanup = mountPocketGolfReadyView(mountEl, {
+      nickname: self?.nickname ?? `Player ${active.playerNumber}`,
+      color: active.playerColor,
+      playerNumber: active.playerNumber,
+      initialReady: self?.ready ?? false,
+      onReadyChange: async (ready) => {
+        await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
+      }
+    });
+  };
+
   function renderForRoom(room: PublicRoomState): void {
     if (!active) return;
     const self = room.players.find((p) => p.playerNumber === active!.playerNumber);
     const isPlaying = room.status === "countdown" || room.status === "in-progress";
     const isSketchPlaying = room.gameType === "sketch-relay" && (room.status === "in-progress" || room.status === "results");
+    const isGolfPlaying = room.gameType === "pocket-golf" && (room.status === "in-progress" || room.status === "results");
     const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
 
     if (isSketchPlaying && controllerCleanup) {
+      lastStatus = room.status;
+      return;
+    }
+    if (isGolfPlaying && controllerCleanup && !golfPreflightMounted) {
       lastStatus = room.status;
       return;
     }
@@ -132,6 +159,7 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
 
     controllerCleanup?.();
     controllerCleanup = null;
+    golfPreflightMounted = false;
 
     if (room.status === "host-disconnected") {
       section.classList.add("centered");
@@ -141,6 +169,16 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
       section.innerHTML = `<div id="controller-mount"></div>`;
       const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
       controllerCleanup = mountSketchRelayView(mountEl, {
+        nickname: self?.nickname ?? `Player ${active.playerNumber}`,
+        color: active.playerColor,
+        playerNumber: active.playerNumber
+      });
+    } else if (isGolfPlaying) {
+      section.classList.remove("centered");
+      section.innerHTML = `<div id="controller-mount"></div>`;
+      const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
+      golfPreflightMounted = false;
+      controllerCleanup = mountPocketGolfView(mountEl, {
         nickname: self?.nickname ?? `Player ${active.playerNumber}`,
         color: active.playerColor,
         playerNumber: active.playerNumber
@@ -165,6 +203,8 @@ function renderUniversalJoinPage(container: HTMLElement, roomId: string): Cleanu
             });
     } else if (room.gameType === "racing") {
       mountRacingReady(room);
+    } else if (room.gameType === "pocket-golf") {
+      mountGolfReady(room);
     } else {
       mountPlaceholderReady(room);
     }
@@ -235,6 +275,7 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
   let controllerCleanup: CleanupFn | null = null;
   let lastStatus: PublicRoomState["status"] | null = null;
   let racingRoundId = "";
+  let golfPreflightMounted = false;
   const socket = getSocket();
 
   const onCountdownTick = (payload: CountdownTickPayload) => {
@@ -269,6 +310,22 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
         onReadyChange: async (ready) => {
           await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
           waitingText.hidden = !ready;
+        }
+      });
+      return;
+    }
+    if (room.gameType === "pocket-golf") {
+      section.classList.remove("centered");
+      section.innerHTML = `<div id="golf-preflight"></div>`;
+      const mountEl = section.querySelector<HTMLElement>("#golf-preflight")!;
+      golfPreflightMounted = true;
+      controllerCleanup = mountPocketGolfReadyView(mountEl, {
+        nickname: self?.nickname ?? "Player",
+        color,
+        playerNumber: Number(playerNumber),
+        initialReady: self?.ready ?? false,
+        onReadyChange: async (ready) => {
+          await emitWithAck(SOCKET_EVENTS.PLAYER_READY, { ready } satisfies { ready: boolean });
         }
       });
       return;
@@ -317,8 +374,13 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
     // right at the "go" instant — exactly when a pre-emptive hold is most likely.
     const isPlaying = room.status === "countdown" || room.status === "in-progress";
     const isSketchPlaying = room.gameType === "sketch-relay" && (room.status === "in-progress" || room.status === "results");
+    const isGolfPlaying = room.gameType === "pocket-golf" && (room.status === "in-progress" || room.status === "results");
     const wasPlaying = lastStatus === "countdown" || lastStatus === "in-progress";
     if (isSketchPlaying && controllerCleanup) {
+      lastStatus = room.status;
+      return;
+    }
+    if (isGolfPlaying && controllerCleanup && !golfPreflightMounted) {
       lastStatus = room.status;
       return;
     }
@@ -334,6 +396,7 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
 
     controllerCleanup?.();
     controllerCleanup = null;
+    golfPreflightMounted = false;
 
     if (room.status === "host-disconnected") {
       section.innerHTML = `<h1>Reconnecting to Host…</h1><p class="hero-copy">Sit tight — your slot is saved.</p>`;
@@ -344,6 +407,16 @@ export function renderJoinPage({ container, params, query }: RouteContext): Clea
       controllerCleanup = mountSketchRelayView(mountEl, {
         nickname: self?.nickname ?? "Player",
         color: self?.color ?? "#22d3ee",
+        playerNumber: Number(playerNumber)
+      });
+    } else if (isGolfPlaying) {
+      section.classList.remove("centered");
+      section.innerHTML = `<div id="controller-mount"></div>`;
+      const mountEl = section.querySelector<HTMLElement>("#controller-mount")!;
+      golfPreflightMounted = false;
+      controllerCleanup = mountPocketGolfView(mountEl, {
+        nickname: self.nickname ?? "Player",
+        color: self.color,
         playerNumber: Number(playerNumber)
       });
     } else if (isPlaying) {

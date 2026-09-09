@@ -5,7 +5,8 @@ export type GameType =
   | "bowling"
   | "tennis"
   | "racing"
-  | "sketch-relay";
+  | "sketch-relay"
+  | "pocket-golf";
 
 export type ControllerType =
   | "button-controller"
@@ -14,7 +15,8 @@ export type ControllerType =
   | "motion-throw"
   | "motion-swing"
   | "touch-motion"
-  | "drawing-pad";
+  | "drawing-pad"
+  | "golf-swing";
 
 export type RoomStatus =
   | "lobby"
@@ -109,8 +111,10 @@ export interface CreateRoomResponse {
 export interface HostReconnectRequest {
   roomId: string;
   hostToken: string;
+  publicOrigin?: string;
 }
 export interface HostReconnectResponse {
+  slots: CreateRoomSlot[];
   room: PublicRoomState;
 }
 
@@ -230,6 +234,139 @@ export interface RacingGameStatePayload {
   players: RacingPlayerState[];
 }
 
+export type GolfTerrainType = "tee" | "fairway" | "light-rough" | "deep-rough" | "bunker" | "green" | "water" | "out-of-bounds";
+export type PocketGolfDifficulty = "Easy" | "Medium" | "Hard";
+export type GolfShotShape = "straight" | "draw" | "fade" | "hook" | "slice";
+export type GolfTimingLabel = "PERFECT" | "GREAT" | "GOOD" | "EARLY" | "LATE" | "MISHIT";
+export type PocketGolfPhase =
+  | "controller-check"
+  | "calibration"
+  | "course-intro"
+  | "hole-intro"
+  | "shot-setup"
+  | "swing-ready"
+  | "swing-animation"
+  | "ball-flight"
+  | "ball-roll"
+  | "shot-result"
+  | "hole-result"
+  | "match-result";
+export interface GolfClubDefinition {
+  id: string;
+  displayName: string;
+  maximumCarryMetres: number;
+  launchAngleDegrees: number;
+  accuracy: number;
+  forgiveness: number;
+  backspin: number;
+  rollMultiplier: number;
+  powerCurve: number;
+  allowedTerrain: GolfTerrainType[];
+}
+export interface GolfSwingResult {
+  swingId: string;
+  turnId: string;
+  power: number;
+  timing: number;
+  faceAngle: number;
+  swingPath: number;
+  attackAngle: number;
+  smoothness: number;
+  confidence: number;
+  source?: "motion" | "touch";
+}
+export interface GolfSwingSubmission extends GolfSwingResult {
+  roundId: string;
+  timestamp: number;
+  clubId?: string;
+  aimDeltaDegrees?: number;
+}
+export interface GolfAimPayload {
+  roundId: string;
+  turnId: string;
+  clubId?: string;
+  aimDeltaDegrees?: number;
+}
+export interface GolfClubPoseSubmission {
+  roundId: string;
+  turnId: string;
+  timestamp: number;
+  aimDegrees?: number;
+  pitch: number;
+  roll: number;
+  yaw: number;
+  swing: number;
+  velocity: number;
+  armed: boolean;
+  handedness: "right" | "left";
+  source: "motion" | "orientation";
+}
+export interface GolfClubPosePayload extends GolfClubPoseSubmission {
+  playerNumber: number;
+}
+export interface GolfShotStatistics {
+  carryDistance: number;
+  rollDistance: number;
+  totalDistance: number;
+  maximumHeight: number;
+  maximumBallSpeed: number;
+  lateralError: number;
+  distanceToHole: number;
+  finalTerrain: GolfTerrainType;
+  timingLabel: GolfTimingLabel;
+  shotShape: GolfShotShape;
+}
+export interface GolfVec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+export interface PocketGolfShotPayload {
+  sequence: number;
+  playerNumber: number;
+  playerName: string;
+  clubId: string;
+  clubName: string;
+  swing: GolfSwingResult;
+  stats: GolfShotStatistics;
+  start: GolfVec3;
+  end: GolfVec3;
+  trajectory: GolfVec3[];
+  penalty: "water" | "out-of-bounds" | null;
+}
+export interface PocketGolfPlayerStatePayload {
+  playerNumber: number;
+  displayName: string;
+  color: string;
+  strokes: number;
+  scoreRelativeToPar: number;
+  distanceToHole: number;
+  lie: GolfTerrainType;
+  finished: boolean;
+  active: boolean;
+  ball: GolfVec3;
+}
+export interface PocketGolfGameStatePayload {
+  gameType: "pocket-golf";
+  roundId: string;
+  phase: PocketGolfPhase;
+  turnId: string;
+  holeNumber: number;
+  holeName: string;
+  holeDifficulty: PocketGolfDifficulty;
+  par: number;
+  holeDistance: number;
+  activePlayerNumber: number | null;
+  aimDegrees: number;
+  clubId: string;
+  recommendedClubId: string;
+  wind: { speed: number; directionDegrees: number };
+  elevationMetres: number;
+  players: PocketGolfPlayerStatePayload[];
+  lastShot: PocketGolfShotPayload | null;
+  clubPose: GolfClubPosePayload | null;
+}
+
 export interface SketchPoint {
   x: number;
   y: number;
@@ -243,7 +380,13 @@ export interface SketchStroke {
 export interface SketchDrawing {
   strokes: SketchStroke[];
 }
-export type SketchRelayPhase = "prompt-entry" | "drawing" | "guessing" | "reveal" | "finished";
+export type SketchRelayPhase =
+  | "first-player-drawing"
+  | "viewing-previous-drawing"
+  | "entering-guess"
+  | "drawing-own-guess"
+  | "reveal"
+  | "result";
 export type SketchRelayEntryType = "text" | "drawing";
 export interface SketchRelayEntry {
   id: string;
@@ -287,7 +430,7 @@ export interface SketchRelayGameStatePayload {
 }
 export interface SketchRelayAssignmentPayload {
   roundId: string;
-  phase: Exclude<SketchRelayPhase, "reveal" | "finished">;
+  phase: Exclude<SketchRelayPhase, "reveal" | "result">;
   phaseIndex: number;
   entryType: SketchRelayEntryType;
   deadlineAt: number;
@@ -321,7 +464,7 @@ export interface SketchRelayRevealControlPayload {
   action: "next" | "previous" | "skip-chain" | "restart" | "finish";
 }
 
-export type GameStatePayload = ControllerTestGameStatePayload | RacingGameStatePayload | SketchRelayGameStatePayload;
+export type GameStatePayload = ControllerTestGameStatePayload | RacingGameStatePayload | SketchRelayGameStatePayload | PocketGolfGameStatePayload;
 
 export interface RoomClosedPayload {
   reason: string;
@@ -343,6 +486,10 @@ export const SOCKET_EVENTS = {
   GAME_END: "game:end",
   INPUT_ACTION: "input:action",
   RACING_INPUT: "racing:input",
+  GOLF_REQUEST_STATE: "golf:request-state",
+  GOLF_AIM: "golf:aim",
+  GOLF_CLUB_POSE: "golf:club-pose",
+  GOLF_SWING: "golf:swing",
   SKETCH_SUBMIT_TEXT: "sketch:submit-text",
   SKETCH_SUBMIT_DRAWING: "sketch:submit-drawing",
   SKETCH_REQUEST_ASSIGNMENT: "sketch:request-assignment",

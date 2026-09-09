@@ -14,6 +14,9 @@ import type {
   CreateRoomRequest,
   CreateRoomResponse,
   ErrorPayload,
+  GolfAimPayload,
+  GolfClubPoseSubmission,
+  GolfSwingSubmission,
   GameStartRequest,
   HostReconnectRequest,
   HostReconnectResponse,
@@ -68,6 +71,13 @@ import {
   startSketchRelay,
   stopSketchRelay
 } from "./games/sketchRelay";
+import {
+  handleGolfAim,
+  handleGolfClubPose,
+  handleGolfSwing,
+  startPocketGolf,
+  toPocketGolfGameStatePayload
+} from "./games/pocketGolf";
 
 function errorAck(code: ErrorPayload["code"], message: string): { ok: false; error: ErrorPayload } {
   return { ok: false, error: { code, message } };
@@ -75,6 +85,7 @@ function errorAck(code: ErrorPayload["code"], message: string): { ok: false; err
 
 function playerLimitsForGame(gameType: CreateRoomRequest["gameType"]): { min: number; max: number } {
   if (gameType === "sketch-relay") return { min: 3, max: 12 };
+  if (gameType === "pocket-golf") return { min: 1, max: 4 };
   if (gameType === "table-tennis" || gameType === "tennis") return { min: 2, max: 2 };
   if (gameType === "rhythm-battle") return { min: 2, max: 4 };
   return { min: MIN_PLAYERS, max: 4 };
@@ -96,7 +107,7 @@ function endRound(room: InternalRoom): void {
   room.countdownTimer = null;
   stopSketchRelay(room);
   if (room.gameType === "racing") stopRacingPhysicsLoop(room);
-  else if (room.gameType !== "sketch-relay") stopPhysicsLoop(room);
+  else if (room.gameType !== "sketch-relay" && room.gameType !== "pocket-golf") stopPhysicsLoop(room);
   room.status = "lobby";
   room.roundId = null;
   room.countdownEndsAt = null;
@@ -164,7 +175,7 @@ export function registerSocketHandlers(io: Server, port: number): void {
 
     socket.on(
       SOCKET_EVENTS.HOST_RECONNECT,
-      (payload: HostReconnectRequest, ack: (res: Ack<HostReconnectResponse>) => void) => {
+      async (payload: HostReconnectRequest, ack: (res: Ack<HostReconnectResponse>) => void) => {
         const room = getRoom(payload.roomId);
         if (!room) return ack(errorAck("invalid-room", "This room no longer exists."));
         if (room.hostToken !== payload.hostToken) return ack(errorAck("invalid-token", "Invalid host session."));
@@ -179,8 +190,22 @@ export function registerSocketHandlers(io: Server, port: number): void {
         if (room.status === "host-disconnected") {
           endRound(room);
         }
+        const publicUrl = resolvePublicBaseUrl({
+          requestOrigin: payload.publicOrigin ?? socket.handshake.headers.origin,
+          forwardedProto: socket.handshake.headers["x-forwarded-proto"],
+          forwardedHost: socket.handshake.headers["x-forwarded-host"],
+          host: socket.handshake.headers.host,
+          fallbackPort: port
+        });
+        console.info("[host:reconnect]", {
+          roomId: room.id,
+          gameType: room.gameType,
+          requestOrigin: payload.publicOrigin ?? socket.handshake.headers.origin,
+          publicUrl
+        });
+        const slots = await buildSlotQrData(room, publicUrl);
         broadcastRoomState(io, room);
-        ack({ ok: true, room: toPublicRoomState(room) });
+        ack({ ok: true, slots, room: toPublicRoomState(room) });
       }
     );
 
@@ -365,6 +390,11 @@ export function registerSocketHandlers(io: Server, port: number): void {
         ack({ ok: true } as Ack<Record<string, never>>);
         return;
       }
+      if (room.gameType === "pocket-golf") {
+        startPocketGolf(io, room, room.roundId);
+        ack({ ok: true } as Ack<Record<string, never>>);
+        return;
+      }
       room.status = "countdown";
       room.countdownEndsAt = Date.now() + 4000;
       room.gameState = room.gameType === "racing" ? createRacingGameState(room) : createControllerTestGameState(room);
@@ -382,6 +412,56 @@ export function registerSocketHandlers(io: Server, port: number): void {
       const room = getRoom(session.roomId);
       if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
       const result = handleSketchSubmission(io, room, session.playerNumber, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_AIM, (payload: GolfAimPayload, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleGolfAim(io, room, session.playerNumber, payload);
+      if (!result.ok) return ack(errorAck("invalid-room", result.message));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_CLUB_POSE, (payload: GolfClubPoseSubmission, ack?: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") {
+        ack?.(errorAck("invalid-player", "No active player session."));
+        return;
+      }
+      const room = getRoom(session.roomId);
+      if (!room) {
+        ack?.(errorAck("invalid-room", "Room no longer exists."));
+        return;
+      }
+      const result = handleGolfClubPose(io, room, session.playerNumber, payload);
+      if (!result.ok) {
+        ack?.(errorAck("invalid-room", result.message));
+        return;
+      }
+      ack?.({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_REQUEST_STATE, (_payload: unknown, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session) return ack(errorAck("invalid-player", "No active session."));
+      const room = getRoom(session.roomId);
+      if (!room || room.gameState?.gameType !== "pocket-golf" || !room.roundId) {
+        return ack(errorAck("invalid-room", "Pocket Golf is not active."));
+      }
+      socket.emit(SOCKET_EVENTS.GAME_STATE, toPocketGolfGameStatePayload(room.gameState, room.roundId));
+      ack({ ok: true } as Ack<Record<string, never>>);
+    });
+
+    socket.on(SOCKET_EVENTS.GOLF_SWING, (payload: GolfSwingSubmission, ack: (res: Ack<Record<string, never>>) => void) => {
+      const session = socket.data.session;
+      if (!session || session.role !== "controller") return ack(errorAck("invalid-player", "No active player session."));
+      const room = getRoom(session.roomId);
+      if (!room) return ack(errorAck("invalid-room", "Room no longer exists."));
+      const result = handleGolfSwing(io, room, session.playerNumber, payload);
       if (!result.ok) return ack(errorAck("invalid-room", result.message));
       ack({ ok: true } as Ack<Record<string, never>>);
     });

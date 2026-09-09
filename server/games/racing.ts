@@ -23,6 +23,7 @@ function makeCarState(overrides: Partial<RacingCarState> = {}): RacingCarState {
     speed: 0,
     yawRate: 0,
     steering: 0,
+    smoothedSteering: 0,
     throttle: 0,
     brake: 0,
     lastInputAt: Date.now(),
@@ -100,7 +101,16 @@ const BROADCAST_EVERY_N_STEPS = 1; // 60Hz snapshots keep phone steering visibly
 const MAX_STEPS_PER_CALLBACK = 5;
 const INPUT_TIMEOUT_MS = 300;
 const STEERING_DECAY = 0.9;
-const MAX_HEADING_ERROR = Math.PI * (80 / 180);
+// Was 80deg: under sustained full-lock steering the car's heading could
+// drift almost sideways to the road (nearly perpendicular) while still well
+// inside the barriers, well before any collision ever registered - a real
+// telemetry capture of a full-lock drive showed headingError pinned at the
+// old clamp for ~10 consecutive ticks before lateralOffset even reached the
+// barrier. That reads as "spinning out of control" rather than a drift.
+// Tightened to stay clear of pure-sideways while still comfortably above the
+// barrier rebound kick's own max heading (0.82 rad / ~47deg), so a bounce's
+// feel is unchanged.
+const MAX_HEADING_ERROR = Math.PI * (50 / 180);
 const RACE_SAFETY_TIMEOUT_MS = 180_000;
 // Arcade car "footprint" for collision purposes - roughly the visible car's
 // wheelbase/track after client scaling, not a full rigid-body hull.
@@ -111,6 +121,9 @@ const COLLISION_SPEED_FACTOR = 0.78;
 const COLLISION_FEEDBACK_WINDOW_MS = 220;
 const RESPAWN_FEEDBACK_WINDOW_MS = 250;
 const COLLISION_VERTICAL_SEPARATION = 3.2;
+const ROAD_EDGE_REBOUND_MARGIN = 0.2;
+const BARRIER_INWARD_CLEARANCE = 2.2;
+const BARRIER_DEEP_IMPACT_CLEARANCE = 4.6;
 
 export const RACING = {
   trackHalfWidth: TEST_OVAL_TRACK.trackHalfWidth,
@@ -120,12 +133,9 @@ export const RACING = {
   brakeForce: 22,
   reverseAcceleration: 11,
   coastDrag: 5,
-  steeringResponsiveness: 4.4,
-  yawDamping: 3.35,
-  headingCentering: 3.9,
-  lateralResponsiveness: 0.72,
-  driftGrip: 1.8,
-  steeringSlip: 0.12,
+  steeringResponsiveness: 6.5,
+  yawDamping: 5,
+  maxYawRate: 2,
   offTrackSlowFactor: 0.94,
   barrierOffset: 2.6,
   barrierSpeedRetention: 0.88
@@ -199,12 +209,25 @@ function stepGroundedCar(track: TrackDefinition, car: RacingCarState, dt: number
     car.settleTimer = Math.max(0, car.settleTimer - dt);
     car.settleFromPitch *= Math.max(0, 1 - dt / 0.12);
   }
-  const steering = Math.abs(car.steering) < 0.04 ? 0 : car.steering;
-  const targetHeading = steering * Math.PI * 0.36;
-  car.yawRate += (targetHeading - car.headingError) * RACING.steeringResponsiveness * dt;
-  car.yawRate -= car.yawRate * RACING.yawDamping * dt;
+  const previousTrackHeading = sampleRacingTrackFrame(track, car.progress, car.lateralOffset).heading;
+  // Phones send steering roughly every ~30-50ms (network + phone sensor
+  // cadence), well below the 60Hz physics rate - car.steering effectively
+  // arrives as a staircase, not a smooth signal. Feeding that directly into
+  // a responsive yaw system caused sustained oscillation under real network
+  // timing even though a synchronous, zero-latency unit test (fresh
+  // feedback every physics tick) showed the same physics as stable - the
+  // instability was specifically the interaction between a steppy input
+  // signal and a fast yaw response, not the yaw response alone. This filter
+  // smooths the raw input over roughly the same span as one input interval,
+  // so a step change in car.steering is absorbed gradually instead of
+  // yanking yawRate toward a new target every time a packet arrives.
+  car.smoothedSteering += (car.steering - car.smoothedSteering) * Math.min(1, 14 * dt);
+  const steering = Math.abs(car.smoothedSteering) < 0.04 ? 0 : car.smoothedSteering;
+  const reverseSteering = car.speed < -0.5 ? -1 : 1;
+  const targetYawRate = steering * reverseSteering * RACING.maxYawRate;
+  car.yawRate += (targetYawRate - car.yawRate) * Math.min(1, RACING.steeringResponsiveness * dt);
+  if (steering === 0) car.yawRate *= Math.max(0, 1 - RACING.yawDamping * dt);
   car.headingError += car.yawRate * dt;
-  if (steering === 0) car.headingError += (0 - car.headingError) * Math.min(1, RACING.headingCentering * dt);
   car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
 
   if (car.throttle > 0) {
@@ -219,36 +242,74 @@ function stepGroundedCar(track: TrackDefinition, car: RacingCarState, dt: number
   }
   car.speed = Math.max(-RACING.maxReverseSpeed, Math.min(RACING.maxSpeed, car.speed));
 
-  const grip = Math.min(1, Math.max(0.2, Math.abs(car.speed) / RACING.maxSpeed));
+  // Lateral motion comes from exactly one physically-grounded source: the
+  // car's own heading angle relative to the direction it's traveling. A
+  // previous version added a second, separate "steering slip" lateral
+  // velocity on top of this (double-counting the same steering input twice,
+  // with different time constants) plus an auto-centering term that pulled
+  // headingError toward the track's own curvature regardless of player
+  // input. Together those fought any real closed-loop steering correction
+  // and produced sustained oscillation instead of controllable driving -
+  // confirmed by an empirical closed-loop test where even active corrective
+  // steering could not stabilize the car (see racing.test.ts "an active
+  // corrective controller keeps the car from oscillating out of control").
   const forwardSpeed = car.speed * Math.cos(car.headingError);
-  const driftSpeed = car.speed * Math.sin(car.headingError) * RACING.lateralResponsiveness;
-  const steeringSlip = steering * Math.max(3, Math.abs(car.speed)) * RACING.steeringSlip * (1 - grip * 0.45);
+  const lateralSpeed = car.speed * Math.sin(car.headingError);
+  const worldHeading = previousTrackHeading + car.headingError;
   car.progress += forwardSpeed * dt;
-  const lateralSpeed = driftSpeed + steeringSlip;
   car.lateralOffset += lateralSpeed * dt;
-  const gripRecovery = Math.min(1, RACING.driftGrip * dt * (0.45 + grip * 0.75));
-  car.headingError += (0 - car.headingError) * gripRecovery * (steering === 0 ? 1 : 0.18);
+  const newTrackHeading = sampleRacingTrackFrame(track, car.progress, car.lateralOffset).heading;
+  // Re-express the same world-space heading relative to the track's new
+  // local direction after moving forward along a curve - this is a
+  // reference-frame correction, not an assist: it does not change
+  // worldHeading, only how it's represented relative to a track that just
+  // curved under the car.
+  car.headingError = shortestAngleDelta(newTrackHeading, worldHeading);
+  // A weak, slow self-righting pull, ONLY while the wheel is neutral - never
+  // fights an active player correction. Removing this pull entirely (a
+  // previous version of this fix) traded one bug for a worse one: without
+  // ANY force ever bringing headingError back toward straight, a car kicked
+  // hard off-line by a barrier rebound would sail across the full track
+  // width, slam the opposite barrier, get kicked back just as hard, and
+  // repeat forever - confirmed empirically by a live drive with steering
+  // permanently at zero, which still ping-ponged wall to wall indefinitely
+  // (see "settles after a hard barrier disturbance instead of ping-ponging
+  // between both barriers" below). This is deliberately much weaker and
+  // slower than the removed version: over the ~2 seconds a player takes to
+  // react to a curve it barely moves the car (still satisfies "goes straight
+  // instead of following the curve" below), but over several seconds it's
+  // enough to settle a disturbance instead of sustaining it forever.
+  if (steering === 0) car.headingError *= Math.max(0, 1 - 0.5 * dt);
+  car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
 
-  const barrierLimit = track.trackHalfWidth + RACING.barrierOffset;
+  const barrierLimit = track.trackHalfWidth + ROAD_EDGE_REBOUND_MARGIN;
   let hitBarrier = false;
-  let repeatedBarrierContact = false;
   if (Math.abs(car.lateralOffset) > barrierLimit) {
     const side = Math.sign(car.lateralOffset);
     const penetration = Math.abs(car.lateralOffset) - barrierLimit;
     const now = Date.now();
-    repeatedBarrierContact = now - car.lastCollisionAt < 140;
     hitBarrier = true;
-    car.lateralOffset = side * (barrierLimit - 0.04);
-    car.speed *= repeatedBarrierContact ? 0.995 : RACING.barrierSpeedRetention;
-    car.yawRate += -side * Math.min(1.6, 0.35 + penetration * 0.08 + Math.abs(car.speed) * 0.02);
-    car.headingError += -side * Math.min(0.16, 0.035 + penetration * 0.012);
+    const impactSpeed = Math.abs(car.speed);
+    const impactSeverity = clamp01((penetration + Math.max(0, impactSpeed - 12) * 0.08) / 8);
+    const inwardClearance = BARRIER_INWARD_CLEARANCE + impactSeverity * BARRIER_DEEP_IMPACT_CLEARANCE;
+    const roadEdge = Math.max(0, track.trackHalfWidth - inwardClearance - ROAD_EDGE_REBOUND_MARGIN);
+    const reboundHeading = Math.min(0.82, 0.24 + impactSpeed * 0.01 + penetration * 0.035);
+    const outwardHeading = car.headingError * side;
+
+    car.lateralOffset = side * roadEdge;
+    car.speed *= RACING.barrierSpeedRetention - impactSeverity * 0.04;
+    if (impactSpeed > 16 && Math.abs(car.speed) < 10) car.speed = Math.sign(car.speed || 1) * 10;
+    car.yawRate = -side * Math.min(7.2, 2.2 + penetration * 0.28 + impactSpeed * 0.07);
+    car.headingError =
+      outwardHeading > -0.14
+        ? -side * Math.max(reboundHeading, Math.abs(car.headingError) * 0.88)
+        : car.headingError - side * Math.min(0.38, penetration * 0.05);
+    car.headingError = Math.max(-MAX_HEADING_ERROR, Math.min(MAX_HEADING_ERROR, car.headingError));
     car.lastCollisionAt = now;
   }
   if (Math.abs(car.lateralOffset) > track.trackHalfWidth) {
     if (!hitBarrier) {
       car.speed *= RACING.offTrackSlowFactor;
-    } else if (!repeatedBarrierContact) {
-      car.speed *= 0.98;
     }
     if (Math.abs(car.speed) < 5) {
       const edge = Math.sign(car.lateralOffset) * track.trackHalfWidth * 0.92;

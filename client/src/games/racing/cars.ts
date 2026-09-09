@@ -229,7 +229,7 @@ function driverPaletteFor(color: string): DriverPalette {
     return { hair: "#7c2d12", shirt: "#facc15", cap: "#ffffff", skin: "#ffd7a8", cheek: "#fb7185", accent: "#ef4444", style: "ponytail-girl" };
   }
   if (normalized === "#22c55e") {
-    return { hair: "#7c2d12", shirt: "#facc15", cap: "#a855f7", skin: "#ffd7a8", cheek: "#fb7185", accent: "#a855f7", style: "bowling-girl" };
+    return { hair: "#0ea5e9", shirt: "#facc15", cap: "#fff7ed", skin: "#ffd7a8", cheek: "#fb7185", accent: "#22c55e", style: "spiky-boy" };
   }
   if (normalized === "#a855f7") {
     return { hair: "#fbbf24", shirt: "#fb923c", cap: "#ffffff", skin: "#ffe0b5", cheek: "#fb7185", accent: "#ffffff", style: "tennis-girl" };
@@ -271,6 +271,20 @@ function buildCuteDriver(color: string): THREE.Group {
   chestPanel.position.set(0, 1.08, -0.2);
   driver.add(chestPanel);
 
+  const backJersey = new THREE.Mesh(
+    new THREE.BoxGeometry(0.28, 0.18, 0.032),
+    new THREE.MeshBasicMaterial({ color: "#fffdf4", toneMapped: false })
+  );
+  backJersey.position.set(0, 1.08, 0.31);
+  driver.add(backJersey);
+
+  const jerseyBadge = new THREE.Mesh(
+    new THREE.BoxGeometry(0.13, 0.06, 0.036),
+    new THREE.MeshBasicMaterial({ color: palette.accent, toneMapped: false })
+  );
+  jerseyBadge.position.set(0, 1.1, 0.335);
+  driver.add(jerseyBadge);
+
   const face = new THREE.Mesh(DRIVER_FACE_GEOMETRY, faceMaterial);
   face.scale.set(hero ? 1.16 : 1.04, hero ? 1.14 : 1.06, hero ? 1.04 : 0.98);
   face.position.set(0, hero ? 1.51 : 1.48, -0.02);
@@ -288,6 +302,19 @@ function buildCuteDriver(color: string): THREE.Group {
   rearHair.position.set(0, hero ? 1.57 : 1.54, 0.19);
   rearHair.castShadow = true;
   driver.add(rearHair);
+
+  const backHairPuff = new THREE.Mesh(new THREE.SphereGeometry(0.24, 18, 10), hairMaterial);
+  backHairPuff.scale.set(hero ? 1.1 : 0.92, hero ? 0.72 : 0.62, hero ? 0.58 : 0.48);
+  backHairPuff.position.set(0, hero ? 1.62 : 1.58, 0.26);
+  backHairPuff.castShadow = true;
+  driver.add(backHairPuff);
+
+  const capBack = new THREE.Mesh(new THREE.SphereGeometry(0.27, 18, 8), capMaterial);
+  capBack.scale.set(1.12, 0.34, 0.78);
+  capBack.position.set(0, hero ? 1.7 : 1.66, 0.12);
+  capBack.rotation.x = 0.12;
+  capBack.castShadow = true;
+  driver.add(capBack);
 
   const spikeLayout: Array<[number, number, number, number, number, number]> =
     palette.style === "tennis-girl"
@@ -419,6 +446,22 @@ function buildCuteDriver(color: string): THREE.Group {
     shoulder.position.set(x * 0.34, 1.12, -0.05);
     shoulder.castShadow = true;
     driver.add(shoulder);
+
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.28, 4, 8), faceMaterial);
+    arm.position.set(x * 0.5, 1.08, -0.33);
+    arm.rotation.x = Math.PI * 0.52;
+    arm.rotation.z = x < 0 ? -0.38 : 0.38;
+    arm.castShadow = true;
+    driver.add(arm);
+
+    const glove = new THREE.Mesh(
+      DRIVER_HAND_GEOMETRY,
+      new THREE.MeshStandardMaterial({ color: "#fffdf4", roughness: 0.4, metalness: 0.02 })
+    );
+    glove.scale.set(1.12, 0.9, 0.9);
+    glove.position.set(x * 0.28, 1.04, -0.52);
+    glove.castShadow = true;
+    driver.add(glove);
   }
 
   for (const x of [-0.085, 0.085]) {
@@ -593,11 +636,9 @@ export function buildCarMesh(color: string): CarVisual {
   }
 
   const driver = buildCuteDriver(color);
-  if (isHeroKart) {
-    driver.scale.setScalar(1.22);
-    driver.position.set(0, -0.08, -0.1);
-    driver.rotation.y = -0.16;
-  }
+  driver.scale.setScalar(isHeroKart ? 1.28 : 1.16);
+  driver.position.set(0, -0.08, -0.1);
+  driver.rotation.y = isHeroKart ? -0.16 : 0;
   body.add(driver);
 
   const wheels: THREE.Mesh[] = [];

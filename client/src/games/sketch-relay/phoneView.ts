@@ -16,6 +16,16 @@ function secondsLeft(deadlineAt: number | null): string {
   return String(Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000)));
 }
 
+function timerMarkup(deadlineAt: number | null, label = "Time left"): string {
+  const value = secondsLeft(deadlineAt) || "--";
+  return `
+    <div class="sketch-timer-card" aria-live="polite">
+      <span>${label}</span>
+      <strong data-sketch-timer>${value}</strong>
+    </div>
+  `;
+}
+
 function storageKey(assignment: SketchRelayAssignmentPayload): string {
   return `pocket-arena:sketch:${assignment.roundId}:${assignment.chainId}:${assignment.phaseIndex}`;
 }
@@ -42,15 +52,20 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
     cleanupDrawing?.();
     cleanupDrawing = null;
     const submitted = assignment?.submitted ?? false;
-    const activeTurn =
-      state?.phase === "drawing" || state?.phase === "guessing"
-        ? `Player ${state.activePlayerNumber ?? "?"} is ${state.phase === "drawing" ? "drawing" : "guessing"}...`
-        : "Waiting for your turn...";
-    const waitingTitle = state?.phase === "reveal" || state?.phase === "finished" ? "React to the reveal!" : submitted ? "Submitted!" : activeTurn;
+    const activeAction =
+      state?.phase === "viewing-previous-drawing"
+        ? "viewing the drawing"
+        : state?.phase === "entering-guess"
+          ? "guessing"
+          : state?.phase === "first-player-drawing" || state?.phase === "drawing-own-guess"
+            ? "drawing"
+            : null;
+    const activeTurn = activeAction ? `Player ${state?.activePlayerNumber ?? "?"} is ${activeAction}...` : "Waiting for your turn...";
+    const waitingTitle = state?.phase === "reveal" || state?.phase === "result" ? "React to the reveal!" : submitted ? "Submitted!" : activeTurn;
     root.innerHTML = `
       <header class="sketch-phone-header">
         <strong>${opts.nickname}</strong>
-        <span>${state?.phase === "reveal" || state?.phase === "finished" ? "Reveal" : submitted ? "Submitted" : "Sketch Relay"}</span>
+        <span>${state?.phase === "reveal" || state?.phase === "result" ? "Reveal" : submitted ? "Submitted" : "Sketch Relay"}</span>
       </header>
       <div class="sketch-waiting">
         <h1>${waitingTitle}</h1>
@@ -72,32 +87,25 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
   function renderTextAssignment(current: SketchRelayAssignmentPayload): void {
     cleanupDrawing?.();
     cleanupDrawing = null;
-    const isGuess = current.phase === "guessing";
     root.innerHTML = `
       <header class="sketch-phone-header">
         <strong>${opts.nickname}</strong>
-        <span id="sketch-timer">${secondsLeft(current.deadlineAt)}</span>
+        <span>Guess</span>
       </header>
       <main class="sketch-text-task">
-        <p class="sketch-kicker">${isGuess ? "What is this drawing?" : "Type the word"}</p>
-        <div id="sketch-reference"></div>
-        <textarea id="sketch-text-input" maxlength="80" placeholder="${isGuess ? "Type your guess..." : "Type the word..." }"></textarea>
+        ${timerMarkup(current.deadlineAt)}
+        <p class="sketch-kicker">What do you think the drawing was?</p>
+        <textarea id="sketch-text-input" maxlength="80" placeholder="Type your guess..."></textarea>
         <div id="sketch-submit-slot"></div>
       </main>
     `;
-    if (isGuess && current.drawing) {
-      const canvas = document.createElement("canvas");
-      canvas.className = "sketch-reference-canvas";
-      root.querySelector("#sketch-reference")!.appendChild(canvas);
-      renderSketchDrawing(canvas, current.drawing);
-    }
     const input = root.querySelector<HTMLTextAreaElement>("#sketch-text-input")!;
     const saved = localStorage.getItem(storageKey(current));
     if (saved) input.value = saved;
     input.addEventListener("input", () => localStorage.setItem(storageKey(current), input.value));
     root.querySelector("#sketch-submit-slot")!.appendChild(
       createButton({
-        label: "Submit",
+        label: "Submit Guess",
         variant: "primary",
         onClick: async () => {
           await emitWithAck(SOCKET_EVENTS.SKETCH_SUBMIT_TEXT, { roundId: current.roundId, text: input.value });
@@ -110,6 +118,24 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
         }
       })
     );
+  }
+
+  function renderPreviewAssignment(current: SketchRelayAssignmentPayload): void {
+    cleanupDrawing?.();
+    cleanupDrawing = null;
+    root.innerHTML = `
+      <header class="sketch-phone-header">
+        <strong>${opts.nickname}</strong>
+        <span>Look fast</span>
+      </header>
+      <main class="sketch-preview-task">
+        ${timerMarkup(current.deadlineAt, "Memorize")}
+        <p class="sketch-kicker">Previous drawing</p>
+        <canvas class="sketch-reference-canvas"></canvas>
+      </main>
+    `;
+    const canvas = root.querySelector<HTMLCanvasElement>(".sketch-reference-canvas")!;
+    renderSketchDrawing(canvas, current.drawing ?? { strokes: [] });
   }
 
   function renderDrawingAssignment(current: SketchRelayAssignmentPayload): void {
@@ -125,10 +151,11 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
     root.innerHTML = `
       <header class="sketch-phone-header">
         <strong>${opts.nickname}</strong>
-        <span id="sketch-timer">${secondsLeft(current.deadlineAt)}</span>
+        <span>Draw</span>
       </header>
       <main class="sketch-draw-task">
-        <p class="sketch-prompt">${current.prompt ?? "Draw this!"}</p>
+        ${timerMarkup(current.deadlineAt)}
+        <p class="sketch-prompt">${current.phase === "drawing-own-guess" ? `Draw: ${current.prompt ?? "your guess"}` : current.prompt ?? "Draw this!"}</p>
         <canvas id="sketch-canvas" class="sketch-canvas"></canvas>
         <div class="sketch-tools">
           <div class="sketch-palette">${SKETCH_COLORS.map((color) => `<button type="button" data-color="${color}" style="--swatch:${color}"></button>`).join("")}</div>
@@ -282,17 +309,18 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
   }
 
   function render(): void {
-    if (state?.phase === "reveal" || state?.phase === "finished") return renderWaiting();
+    if (state?.phase === "reveal" || state?.phase === "result") return renderWaiting();
     if (!assignment || assignment.submitted) return renderWaiting();
-    if (assignment.entryType === "drawing") renderDrawingAssignment(assignment);
+    if (assignment.phase === "viewing-previous-drawing") renderPreviewAssignment(assignment);
+    else if (assignment.entryType === "drawing") renderDrawingAssignment(assignment);
     else renderTextAssignment(assignment);
   }
 
   const tick = () => {
-    const timerEl = root.querySelector<HTMLElement>("#sketch-timer");
-    if (timerEl) {
+    const timerEls = root.querySelectorAll<HTMLElement>("[data-sketch-timer]");
+    if (timerEls.length > 0) {
       const left = Number(secondsLeft(assignment?.deadlineAt ?? state?.deadlineAt ?? null));
-      timerEl.textContent = String(left);
+      for (const timerEl of timerEls) timerEl.textContent = String(left);
       if (left === 5) vibrate(30);
     }
   };
@@ -306,12 +334,11 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
   const onGameState = (payload: GameStatePayload) => {
     if (payload.gameType !== "sketch-relay") return;
     state = payload;
-    if (
+    if (payload.phase === "reveal" || payload.phase === "result") {
+      assignment = null;
+    } else if (
       assignment &&
-      (assignment.roundId !== payload.roundId ||
-        assignment.phaseIndex !== payload.phaseIndex ||
-        payload.phase === "reveal" ||
-        payload.phase === "finished")
+      (assignment.roundId !== payload.roundId || assignment.phase !== payload.phase || assignment.phaseIndex !== payload.phaseIndex)
     ) {
       assignment = null;
     }
@@ -323,7 +350,7 @@ export function mountSketchRelayView(container: HTMLElement, opts: PhoneOptions)
         totalCount: payload.totalCount
       };
     }
-    if (payload.phase === "reveal" || payload.phase === "finished" || !assignment || assignment.submitted) renderWaiting();
+    if (payload.phase === "reveal" || payload.phase === "result" || !assignment || assignment.submitted) renderWaiting();
     else tick();
   };
 

@@ -31,6 +31,7 @@ const MAX_TEXT_LENGTH = 80;
 const MAX_STROKES = 120;
 const MAX_POINTS_PER_STROKE = 240;
 const MAX_TOTAL_POINTS = 3600;
+const DRAWING_PREVIEW_SECONDS = 3;
 const SECRET_WORDS: Record<SketchRelayWordDifficulty, string[]> = {
   easy: [
     "Yellow car",
@@ -100,16 +101,10 @@ function playerName(players: InternalPlayer[], playerNumber: number): string {
   return players.find((player) => player.playerNumber === playerNumber)?.nickname ?? `Player ${playerNumber}`;
 }
 
-export function assignmentPlayerForChain(chainIndex: number, phaseIndex: number, playerNumbers: number[]): number {
-  return playerNumbers[(chainIndex + phaseIndex) % playerNumbers.length]!;
-}
-
-export function entryTypeForPhase(phaseIndex: number): SketchRelayEntryType {
-  return phaseIndex % 2 === 1 ? "drawing" : "text";
-}
-
-function phaseNameForIndex(phaseIndex: number): Exclude<SketchRelayPhase, "reveal" | "finished"> {
-  return entryTypeForPhase(phaseIndex) === "drawing" ? "drawing" : "guessing";
+export function entryTypeForPhase(phase: SketchRelayPhase): SketchRelayEntryType | null {
+  if (phase === "first-player-drawing" || phase === "drawing-own-guess") return "drawing";
+  if (phase === "viewing-previous-drawing" || phase === "entering-guess") return "text";
+  return null;
 }
 
 export function validateSketchDrawing(input: SketchDrawing): { ok: true; drawing: SketchDrawing } | { ok: false; reason: string } {
@@ -140,8 +135,16 @@ function blankDrawing(): SketchDrawing {
   return { strokes: [] };
 }
 
-function latestEntry(chain: SketchRelayChain): SketchRelayEntry | undefined {
-  return chain.entries[chain.entries.length - 1];
+function latestDrawing(chain: SketchRelayChain): SketchDrawing | undefined {
+  return [...chain.entries].reverse().find((entry) => entry.type === "drawing" && entry.drawing)?.drawing;
+}
+
+function latestGuess(chain: SketchRelayChain): string | undefined {
+  return [...chain.entries].reverse().find((entry) => entry.type === "text" && entry.phaseIndex > 0 && entry.text)?.text;
+}
+
+function nextEntryIndex(state: SketchRelayGameState): number {
+  return state.chains[0]?.entries.length ?? 0;
 }
 
 function normalizeFinalAnswer(text: string): string {
@@ -164,8 +167,8 @@ export function computeSketchRelayResult(chain: SketchRelayChain | undefined): S
 }
 
 function activePlayerNumber(state: SketchRelayGameState): number | null {
-  if (state.phase === "reveal" || state.phase === "finished") return null;
-  return state.playerOrder[state.phaseIndex - 1] ?? null;
+  if (state.phase === "reveal" || state.phase === "result") return null;
+  return state.playerOrder[state.activePlayerIndex] ?? null;
 }
 
 export function createSketchRelayGameState(room: InternalRoom, roundId: string, settings?: Partial<SketchRelaySettings>): SketchRelayGameState {
@@ -194,11 +197,13 @@ export function createSketchRelayGameState(room: InternalRoom, roundId: string, 
   return {
     gameType: "sketch-relay",
     roundId,
-    phase: "drawing",
+    phase: "first-player-drawing",
     phaseIndex: 1,
+    activePlayerIndex: 0,
     deadlineAt: null,
     chains,
     playerOrder,
+    pendingGuess: null,
     settings: normalizedSettings,
     assignments: new Map(),
     submissions: new Set(),
@@ -209,25 +214,25 @@ export function createSketchRelayGameState(room: InternalRoom, roundId: string, 
 }
 
 export function toSketchRelayPublicState(state: SketchRelayGameState, reveal = false): SketchRelayGameStatePayload {
-  const revealActive = reveal || state.phase === "reveal" || state.phase === "finished";
+  const revealActive = reveal || state.phase === "reveal" || state.phase === "result";
   return {
     gameType: "sketch-relay",
     roundId: state.roundId,
     phase: state.phase,
     phaseIndex: state.phaseIndex,
-    entryType: state.phase === "reveal" || state.phase === "finished" ? null : entryTypeForPhase(state.phaseIndex),
+    entryType: entryTypeForPhase(state.phase),
     settings: state.settings,
     deadlineAt: state.deadlineAt,
     submittedCount: state.submissions.size,
     totalCount: state.assignments.size,
     playerOrder: state.playerOrder,
     activePlayerNumber: activePlayerNumber(state),
-    turnIndex: Math.min(state.phaseIndex, state.playerOrder.length),
+    turnIndex: Math.min(state.activePlayerIndex + 1, state.playerOrder.length),
     totalTurns: state.playerOrder.length,
     revealChainIndex: state.revealChainIndex,
     revealEntryIndex: state.revealEntryIndex,
     chains: revealActive ? state.chains : undefined,
-    result: state.phase === "finished" ? computeSketchRelayResult(state.chains[0]) : undefined
+    result: state.phase === "result" ? computeSketchRelayResult(state.chains[0]) : undefined
   };
 }
 
@@ -253,16 +258,23 @@ export function emitSketchAssignmentToPlayer(io: Server, room: InternalRoom, pla
 }
 
 function buildAssignments(room: InternalRoom, state: SketchRelayGameState): void {
-  const phase = phaseNameForIndex(state.phaseIndex);
-  const entryType = entryTypeForPhase(state.phaseIndex);
+  if (state.phase === "reveal" || state.phase === "result") return;
+  const phase = state.phase;
+  const entryType = entryTypeForPhase(phase);
   const chain = state.chains[0];
-  if (!chain) return;
+  if (!chain || !entryType) return;
   const playerNumber = activePlayerNumber(state);
   if (!playerNumber) return;
-  const previous = latestEntry(chain);
-  state.phase = phase;
   state.submissions.clear();
   state.assignments.clear();
+  const originalWord = chain.entries[0]?.text ?? fallbackPrompt(playerNumber);
+  const prompt =
+    phase === "first-player-drawing"
+      ? originalWord
+      : phase === "drawing-own-guess"
+        ? state.pendingGuess ?? latestGuess(chain) ?? fallbackPrompt(playerNumber)
+        : undefined;
+  const drawing = phase === "viewing-previous-drawing" ? latestDrawing(chain) ?? blankDrawing() : undefined;
   state.assignments.set(playerNumber, {
     roundId: state.roundId,
     phase,
@@ -273,8 +285,8 @@ function buildAssignments(room: InternalRoom, state: SketchRelayGameState): void
     submittedCount: 0,
     totalCount: 1,
     chainId: chain.id,
-    prompt: entryType === "drawing" ? previous?.text ?? fallbackPrompt(playerNumber) : undefined,
-    drawing: entryType === "text" ? previous?.drawing ?? blankDrawing() : undefined
+    prompt,
+    drawing
   });
 }
 
@@ -310,10 +322,11 @@ function addEntry(room: InternalRoom, state: SketchRelayGameState, playerNumber:
   const type = assignment.entryType;
   const text = type === "text" ? sanitizeSketchText(payload.text ?? "") || fallbackPrompt(playerNumber) : undefined;
   const drawing = type === "drawing" ? payload.drawing ?? blankDrawing() : undefined;
+  const newPhaseIndex = chain.entries.length;
   chain.entries.push({
-    id: entryId(chain.id, state.phaseIndex),
+    id: entryId(chain.id, newPhaseIndex),
     chainId: chain.id,
-    phaseIndex: state.phaseIndex,
+    phaseIndex: newPhaseIndex,
     type,
     contributorPlayerNumber: playerNumber,
     contributorName: playerName(room.players, playerNumber),
@@ -325,6 +338,7 @@ function addEntry(room: InternalRoom, state: SketchRelayGameState, playerNumber:
 }
 
 function autoSubmitMissing(room: InternalRoom, state: SketchRelayGameState): void {
+  if (state.phase === "viewing-previous-drawing") return;
   for (const player of room.players) {
     if (state.submissions.has(player.playerNumber) || !state.assignments.has(player.playerNumber)) continue;
     const assignment = state.assignments.get(player.playerNumber)!;
@@ -333,14 +347,22 @@ function autoSubmitMissing(room: InternalRoom, state: SketchRelayGameState): voi
   }
 }
 
+function currentPhaseSeconds(state: SketchRelayGameState): number {
+  return state.phase === "viewing-previous-drawing" ? DRAWING_PREVIEW_SECONDS : state.settings.turnSeconds;
+}
+
 function beginPhase(io: Server, room: InternalRoom, state: SketchRelayGameState): void {
   if (state.phaseTimer) clearTimeout(state.phaseTimer);
-  const seconds = state.settings.turnSeconds;
+  const seconds = currentPhaseSeconds(state);
+  state.phaseIndex = nextEntryIndex(state);
   state.deadlineAt = Date.now() + seconds * 1000;
   buildAssignments(room, state);
   refreshAssignments(io, room);
   broadcastSketchState(io, room);
-  state.phaseTimer = setTimeout(() => completePhase(io, room), seconds * 1000 + 250);
+  state.phaseTimer = setTimeout(() => {
+    if (state.phase === "viewing-previous-drawing") beginEnteringGuess(io, room, state);
+    else completePhase(io, room);
+  }, seconds * 1000 + 250);
 }
 
 export function startSketchRelay(io: Server, room: InternalRoom, roundId: string, settings?: Partial<SketchRelaySettings>): void {
@@ -350,27 +372,69 @@ export function startSketchRelay(io: Server, room: InternalRoom, roundId: string
   beginPhase(io, room, state);
 }
 
+function beginEnteringGuess(io: Server, room: InternalRoom, state: SketchRelayGameState): void {
+  if (room.gameState?.gameType !== "sketch-relay" || room.gameState !== state) return;
+  state.phase = "entering-guess";
+  state.pendingGuess = null;
+  beginPhase(io, room, state);
+}
+
+function beginPreviousDrawingPreview(io: Server, room: InternalRoom, state: SketchRelayGameState, activePlayerIndex: number): void {
+  state.activePlayerIndex = activePlayerIndex;
+  state.phase = "viewing-previous-drawing";
+  state.pendingGuess = null;
+  beginPhase(io, room, state);
+}
+
+function beginOwnGuessDrawing(io: Server, room: InternalRoom, state: SketchRelayGameState, guess: string): void {
+  state.phase = "drawing-own-guess";
+  state.pendingGuess = guess;
+  beginPhase(io, room, state);
+}
+
+function beginReveal(io: Server, room: InternalRoom, state: SketchRelayGameState): void {
+  if (state.phaseTimer) clearTimeout(state.phaseTimer);
+  state.phaseTimer = null;
+  state.phase = "reveal";
+  state.deadlineAt = null;
+  state.assignments.clear();
+  state.submissions.clear();
+  state.pendingGuess = null;
+  state.revealChainIndex = 0;
+  state.revealEntryIndex = 0;
+  room.status = "results";
+  io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.ROOM_STATE, toPublicRoomState(room));
+  io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toSketchRelayPublicState(state, true));
+}
+
+function advanceAfterCurrentSubmission(io: Server, room: InternalRoom, state: SketchRelayGameState): void {
+  const nextPlayerIndex = state.activePlayerIndex + 1;
+  if (state.phase === "first-player-drawing") {
+    if (nextPlayerIndex >= state.playerOrder.length) beginReveal(io, room, state);
+    else beginPreviousDrawingPreview(io, room, state, nextPlayerIndex);
+    return;
+  }
+  if (state.phase === "entering-guess") {
+    const guess = latestGuess(state.chains[0]!) ?? fallbackPrompt(activePlayerNumber(state) ?? 1);
+    if (state.activePlayerIndex >= state.playerOrder.length - 1) beginReveal(io, room, state);
+    else beginOwnGuessDrawing(io, room, state, guess);
+    return;
+  }
+  if (state.phase === "drawing-own-guess") {
+    if (nextPlayerIndex >= state.playerOrder.length) beginReveal(io, room, state);
+    else beginPreviousDrawingPreview(io, room, state, nextPlayerIndex);
+  }
+}
+
 function completePhase(io: Server, room: InternalRoom): void {
   if (room.gameState?.gameType !== "sketch-relay") return;
   const state = room.gameState;
-  autoSubmitMissing(room, state);
-  const finalPhaseIndex = state.playerOrder.length;
-  if (state.phaseIndex >= finalPhaseIndex) {
-    if (state.phaseTimer) clearTimeout(state.phaseTimer);
-    state.phaseTimer = null;
-    state.phase = "reveal";
-    state.deadlineAt = null;
-    state.assignments.clear();
-    state.submissions.clear();
-    state.revealChainIndex = 0;
-    state.revealEntryIndex = 0;
-    room.status = "results";
-    io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.ROOM_STATE, toPublicRoomState(room));
-    io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toSketchRelayPublicState(state, true));
+  if (state.phase === "viewing-previous-drawing") {
+    beginEnteringGuess(io, room, state);
     return;
   }
-  state.phaseIndex += 1;
-  beginPhase(io, room, state);
+  autoSubmitMissing(room, state);
+  advanceAfterCurrentSubmission(io, room, state);
 }
 
 export function stopSketchRelay(room: InternalRoom): void {
@@ -389,7 +453,8 @@ export function handleSketchSubmission(
   if (room.gameState?.gameType !== "sketch-relay") return { ok: false, message: "Sketch Relay is not active." };
   const state = room.gameState;
   if (payload.roundId !== state.roundId) return { ok: false, message: "This submission belongs to an old round." };
-  if (state.phase === "reveal" || state.phase === "finished") return { ok: false, message: "This phase is already over." };
+  if (state.phase === "reveal" || state.phase === "result") return { ok: false, message: "This phase is already over." };
+  if (state.phase === "viewing-previous-drawing") return { ok: false, message: "Wait until the drawing preview ends." };
   if (state.submissions.has(playerNumber)) return { ok: false, message: "You already submitted this phase." };
   const assignment = state.assignments.get(playerNumber);
   if (!assignment) return { ok: false, message: "You do not have an assignment." };
@@ -401,9 +466,11 @@ export function handleSketchSubmission(
   } else {
     addEntry(room, state, playerNumber, { text: (payload as SketchRelayTextSubmission).text });
   }
-  refreshAssignments(io, room);
-  broadcastSketchState(io, room);
-  if (state.submissions.size >= state.assignments.size) completePhase(io, room);
+  if (state.submissions.size >= state.assignments.size) advanceAfterCurrentSubmission(io, room, state);
+  else {
+    refreshAssignments(io, room);
+    broadcastSketchState(io, room);
+  }
   return { ok: true };
 }
 
@@ -411,27 +478,27 @@ export function handleSketchRevealControl(io: Server, room: InternalRoom, payloa
   if (room.gameState?.gameType !== "sketch-relay") return { ok: false, message: "Sketch Relay is not active." };
   const state = room.gameState;
   if (payload.roundId !== state.roundId) return { ok: false, message: "Old reveal control." };
-  if (state.phase !== "reveal" && state.phase !== "finished") return { ok: false, message: "Reveal has not started." };
+  if (state.phase !== "reveal" && state.phase !== "result") return { ok: false, message: "Reveal has not started." };
   const chain = state.chains[state.revealChainIndex];
   const maxEntry = Math.max(0, (chain?.entries.length ?? 1) - 1);
   if (payload.action === "next") {
     if (state.revealEntryIndex < maxEntry) state.revealEntryIndex += 1;
-    else state.phase = "finished";
+    else state.phase = "result";
   } else if (payload.action === "previous") {
-    if (state.phase === "finished") {
+    if (state.phase === "result") {
       state.phase = "reveal";
       state.revealEntryIndex = maxEntry;
     } else if (state.revealEntryIndex > 0) state.revealEntryIndex -= 1;
   } else if (payload.action === "skip-chain") {
     state.revealEntryIndex = maxEntry;
-    state.phase = "finished";
+    state.phase = "result";
   } else if (payload.action === "restart") {
     state.revealChainIndex = 0;
     state.revealEntryIndex = 0;
     state.phase = "reveal";
   } else if (payload.action === "finish") {
     state.revealEntryIndex = maxEntry;
-    state.phase = "finished";
+    state.phase = "result";
   }
   io.to(roomChannel(room.id)).emit(SOCKET_EVENTS.GAME_STATE, toSketchRelayPublicState(state, true));
   return { ok: true };

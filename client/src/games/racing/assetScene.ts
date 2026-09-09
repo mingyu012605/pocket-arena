@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { TEST_OVAL_TRACK, centerlinePoint, centerlineTangentAngle } from "../../../../shared/racingTrack";
+import { racingTracksideTerrainY } from "./track";
 
 const carUrl = new URL("../../assets/racing/models/kenney-race-car.glb", import.meta.url).href;
 const grandstandUrl = new URL("../../assets/racing/models/kenney-grandstand.glb", import.meta.url).href;
@@ -253,8 +254,13 @@ function tracksidePosition(progress: number, side: -1 | 1, offset: number): { po
   const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
   const nx = Math.cos(angle);
   const nz = Math.sin(angle);
+  const lateralOffset = side * offset;
   return {
-    position: new THREE.Vector3(center.x + nx * side * offset, center.y ?? 0, center.z + nz * side * offset),
+    position: new THREE.Vector3(
+      center.x + nx * lateralOffset,
+      racingTracksideTerrainY(progress, lateralOffset),
+      center.z + nz * lateralOffset
+    ),
     angle
   };
 }
@@ -1726,7 +1732,10 @@ function addStartVillage(group: THREE.Group, adTextures: THREE.Texture[], halfWi
 function addUrbanGround(group: THREE.Group, halfWidth: number, density: number): void {
   const concrete = makeToonMaterial("#d7d2c6");
   const warmConcrete = makeToonMaterial("#e8d7b4");
-  const parkGround = makeToonMaterial("#b9d89a");
+  // Muted from a brighter, more saturated lime-green - it read as loud
+  // enough at this close a distance from the track to distract from the
+  // road surface instead of sitting behind it.
+  const parkGround = makeToonMaterial("#8fae76");
   const curbPink = new THREE.MeshBasicMaterial({ color: "#fb7185", transparent: true, opacity: 0.78 });
   const curbYellow = new THREE.MeshBasicMaterial({ color: "#facc15", transparent: true, opacity: 0.82 });
   const trackLength = TEST_OVAL_TRACK.trackLength;
@@ -1736,26 +1745,29 @@ function addUrbanGround(group: THREE.Group, halfWidth: number, density: number):
     const progress = (i / segmentCount) * trackLength;
     const center = centerlinePoint(TEST_OVAL_TRACK, progress);
     const angle = centerlineTangentAngle(TEST_OVAL_TRACK, progress);
+    const centerY = center.y ?? 0;
+    const localTerrainY = (lateralOffset: number, lift: number): number =>
+      racingTracksideTerrainY(progress, lateralOffset) - centerY + lift;
     const patch = new THREE.Group();
     for (const side of [-1, 1] as const) {
       const plaza = new THREE.Mesh(
         new THREE.BoxGeometry(23, 0.08, 18),
         (i + side) % 5 === 0 ? warmConcrete : concrete
       );
-      plaza.position.set(side * (halfWidth + 19), 0.025, 0);
+      plaza.position.set(side * (halfWidth + 19), localTerrainY(side * (halfWidth + 19), 0.025), 0);
       plaza.receiveShadow = true;
       patch.add(plaza);
 
       if (i % 3 === 0) {
         const park = new THREE.Mesh(new THREE.BoxGeometry(22, 0.07, 15), parkGround);
-        park.position.set(side * (halfWidth + 43), 0.015, 1.5);
+        park.position.set(side * (halfWidth + 43), localTerrainY(side * (halfWidth + 43), 0.015), 1.5);
         park.receiveShadow = true;
         patch.add(park);
       }
 
       const curb = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 22), side === 1 ? curbPink : curbYellow);
       curb.rotation.x = -Math.PI / 2;
-      curb.position.set(side * (halfWidth + 1.65), 0.095, 0);
+      curb.position.set(side * (halfWidth + 1.65), localTerrainY(side * (halfWidth + 1.65), 0.095), 0);
       patch.add(curb);
 
       for (let lane = 0; lane < 3; lane++) {
@@ -1764,11 +1776,15 @@ function addUrbanGround(group: THREE.Group, halfWidth: number, density: number):
           new THREE.MeshBasicMaterial({ color: "#f8fafc", transparent: true, opacity: 0.45 })
         );
         seam.rotation.x = -Math.PI / 2;
-        seam.position.set(side * (halfWidth + 7 + lane * 3.6), 0.105, 0);
+        seam.position.set(
+          side * (halfWidth + 7 + lane * 3.6),
+          localTerrainY(side * (halfWidth + 7 + lane * 3.6), 0.105),
+          0
+        );
         patch.add(seam);
       }
     }
-    patch.position.set(center.x, center.y ?? 0, center.z);
+    patch.position.set(center.x, centerY, center.z);
     patch.rotation.y = -angle;
     group.add(patch);
   }
