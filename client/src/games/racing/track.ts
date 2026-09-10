@@ -363,7 +363,11 @@ export function buildTrackGroup(): THREE.Group {
   });
   const lineMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", side: THREE.DoubleSide });
   const laneGuideMaterial = new THREE.MeshBasicMaterial({ color: "#f8fafc", transparent: true, opacity: 0.68, side: THREE.DoubleSide });
-  const shoulderMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.82, metalness: 0.02, side: THREE.DoubleSide });
+  // Was #111827 - nearly the same dark tone as the road asphalt itself, so
+  // this buffer strip was invisible against the road and grass appeared to
+  // start immediately at the track edge with no transition. A distinct,
+  // neutral dirt/gravel gray reads as a clear off-track buffer instead.
+  const shoulderMaterial = new THREE.MeshStandardMaterial({ color: "#8a8377", roughness: 0.88, metalness: 0.01, side: THREE.DoubleSide });
   const curbMaterial = new THREE.MeshStandardMaterial({
     map: buildCurbTexture(),
     normalMap: loadRepeatTexture(curbNormalUrl, 1, 36),
